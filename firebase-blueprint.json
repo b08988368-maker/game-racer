@@ -43,6 +43,9 @@
         "wonTrackIds": {
           "type": "array"
         },
+        "completedMissionIds": {
+          "type": "array"
+        },
         "updatedAt": {
           "type": "string",
           "format": "date-time"

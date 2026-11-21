@@ -115,6 +115,18 @@ function clampInt(val: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.round(val)));
 }
 
+function sanitizeMissionIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (let i = 0; i < raw.length && out.length < 60; i++) {
+    const id = String(raw[i]).trim().slice(0, 32);
+    if (/^[a-zA-Z0-9_-]+$/.test(id) && !out.includes(id)) {
+      out.push(id);
+    }
+  }
+  return out;
+}
+
 export async function loadCloudCareer(
   user: User,
 ): Promise<{ profile: CareerProfile; garage: Record<string, GarageCarConfig> }> {
@@ -143,6 +155,7 @@ export async function loadCloudCareer(
         wonTrackIds: Array.isArray(d.wonTrackIds)
           ? d.wonTrackIds.slice(0, 10).map((t) => String(t).slice(0, 32))
           : [],
+        completedMissionIds: sanitizeMissionIds(d.completedMissionIds),
       };
     } else {
       profile = getDefaultCareerProfile(uid, sanitizeDriverName(user.displayName || 'Street Racer'));
@@ -215,6 +228,7 @@ export async function saveCloudCareer(profile: CareerProfile): Promise<void> {
     selectedCarId: profile.selectedCarId.slice(0, 32),
     ownedCarIds: profile.ownedCarIds.slice(0, 20),
     wonTrackIds: (profile.wonTrackIds ?? []).slice(0, 10).map((t) => String(t).slice(0, 32)),
+    completedMissionIds: sanitizeMissionIds(profile.completedMissionIds),
     updatedAt: serverTimestamp(),
   };
   try {

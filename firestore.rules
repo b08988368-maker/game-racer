@@ -43,7 +43,8 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'uid', 'driverName', 'cash', 'totalBounty',
           'blacklistDefeated', 'racesWon', 'copsTakedowns',
-          'selectedCarId', 'ownedCarIds', 'wonTrackIds', 'updatedAt'
+          'selectedCarId', 'ownedCarIds', 'wonTrackIds',
+          'completedMissionIds', 'updatedAt'
         ])
         && data.uid is string
         && data.uid == request.auth.uid
@@ -84,6 +85,16 @@ service cloud.firestore {
             data.wonTrackIds[0] is string
             && data.wonTrackIds[0].size() >= 1
             && data.wonTrackIds[0].size() <= 32
+          ))
+        ))
+        && (!('completedMissionIds' in data) || (
+          data.completedMissionIds is list
+          && data.completedMissionIds.size() <= 60
+          && (data.completedMissionIds.size() == 0 || (
+            data.completedMissionIds[0] is string
+            && data.completedMissionIds[0].size() >= 1
+            && data.completedMissionIds[0].size() <= 32
+            && data.completedMissionIds[0].matches('^[a-zA-Z0-9_\\-]+$')
           ))
         ))
         && data.updatedAt == request.time;
@@ -177,7 +188,7 @@ service cloud.firestore {
         && incoming().diff(existing()).affectedKeys().hasOnly([
           'driverName', 'cash', 'totalBounty', 'blacklistDefeated',
           'racesWon', 'copsTakedowns', 'selectedCarId', 'ownedCarIds',
-          'wonTrackIds', 'updatedAt'
+          'wonTrackIds', 'completedMissionIds', 'updatedAt'
         ]);
       allow delete: if false;
 

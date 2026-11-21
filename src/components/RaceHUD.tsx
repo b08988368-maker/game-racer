@@ -74,7 +74,6 @@ export const RaceHUD: React.FC<Props> = ({
   const rpmRad = (rpmAngle * Math.PI) / 180;
   const nosDash = (telemetry.nitrous / 100) * 142;
 
-  // Radial speed streak intensity above 170 km/h or when firing NOS
   const speedStreakOpacity = telemetry.isNitrousActive
     ? 0.55
     : Math.max(0, Math.min(0.45, (telemetry.speedKmh - 165) / 170));
@@ -119,68 +118,86 @@ export const RaceHUD: React.FC<Props> = ({
 
       {/* Top Row */}
       <div className="relative flex items-start justify-between p-4 sm:p-5 gap-4">
-        {/* Top-Left: Minimap & Standings */}
+        {/* Top-Left: Radar Minimap & Telemetry Block */}
         <div className="flex items-start gap-3">
-          <div className="w-32 h-32 rounded-2xl bg-[#0D0E12]/90 border border-white/12 p-1 shrink-0">
-            <svg viewBox="0 0 128 128" className="w-full h-full">
-              {minimapData.pathD && (
-                <path
-                  d={minimapData.pathD}
-                  fill="none"
-                  stroke="#475569"
-                  strokeWidth="5"
-                  strokeLinejoin="round"
-                />
-              )}
-              {minimapData.shortcutDs.map((sd, idx) => (
-                <path
-                  key={`sc-${idx}`}
-                  d={sd}
-                  fill="none"
-                  stroke="#10B981"
-                  strokeWidth="2.6"
-                  strokeDasharray="3 2"
-                  strokeLinecap="round"
-                />
-              ))}
-              {telemetry.minimapBlips.map((b, idx) => {
-                const pt = minimapData.toMap(b.x, b.z);
-                if (b.type === 'cooldown') {
-                  return <circle key={`cd-${idx}`} cx={pt.x} cy={pt.y} r="3.5" fill="#10B981" opacity="0.88" />;
-                }
-                if (b.type === 'breaker') {
-                  return <rect key={`pb-${idx}`} x={pt.x - 2.2} y={pt.y - 2.2} width="4.4" height="4.4" fill="#F59E0B" />;
-                }
-                if (b.type === 'rival') {
-                  return <circle key={`rv-${idx}`} cx={pt.x} cy={pt.y} r="3.2" fill="#E2E8F0" />;
-                }
-                if (b.type === 'rhino') {
-                  return <rect key={`rh-${idx}`} x={pt.x - 3} y={pt.y - 3} width="6" height="6" fill="#EF4444" stroke="#F8FAFC" strokeWidth="1" />;
-                }
-                if (b.type === 'cop') {
-                  return <circle key={`cp-${idx}`} cx={pt.x} cy={pt.y} r="3.4" fill="#EF4444" stroke="#3B82F6" strokeWidth="1.5" />;
-                }
-                return (
-                  <polygon
-                    key={`pl-${idx}`}
-                    points={`${pt.x},${pt.y - 6} ${pt.x + 4.5},${pt.y + 4.5} ${pt.x},${pt.y + 2} ${pt.x - 4.5},${pt.y + 4.5}`}
-                    fill="#F59E0B"
-                    stroke="#FFFFFF"
-                    strokeWidth="1.2"
+          <div className="flex flex-col items-center shrink-0">
+            <div className="w-32 h-32 nfs-chamfer nfs-carbon-bg border border-white/18 border-t-2 border-t-amber-400 p-1">
+              <svg viewBox="0 0 128 128" className="w-full h-full">
+                {minimapData.pathD && (
+                  <path
+                    d={minimapData.pathD}
+                    fill="none"
+                    stroke="#475569"
+                    strokeWidth="5"
                     strokeLinejoin="round"
-                    transform={`rotate(${-((b.heading ?? 0) * 180) / Math.PI} ${pt.x} ${pt.y})`}
                   />
-                );
-              })}
-            </svg>
+                )}
+                {minimapData.shortcutDs.map((sd, idx) => (
+                  <path
+                    key={`sc-${idx}`}
+                    d={sd}
+                    fill="none"
+                    stroke="#10B981"
+                    strokeWidth="2.8"
+                    strokeDasharray="3 2"
+                    strokeLinecap="round"
+                  />
+                ))}
+                {telemetry.minimapBlips.map((b, idx) => {
+                  const pt = minimapData.toMap(b.x, b.z);
+                  if (b.type === 'cooldown') {
+                    return <circle key={`cd-${idx}`} cx={pt.x} cy={pt.y} r="3.5" fill="#10B981" opacity="0.9" />;
+                  }
+                  if (b.type === 'breaker') {
+                    return <rect key={`pb-${idx}`} x={pt.x - 2.2} y={pt.y - 2.2} width="4.4" height="4.4" fill="#F59E0B" />;
+                  }
+                  if (b.type === 'rival') {
+                    return <circle key={`rv-${idx}`} cx={pt.x} cy={pt.y} r="3.2" fill="#E2E8F0" />;
+                  }
+                  if (b.type === 'rhino') {
+                    return <rect key={`rh-${idx}`} x={pt.x - 3} y={pt.y - 3} width="6" height="6" fill="#EF4444" stroke="#F8FAFC" strokeWidth="1" />;
+                  }
+                  if (b.type === 'cop') {
+                    return <circle key={`cp-${idx}`} cx={pt.x} cy={pt.y} r="3.4" fill="#EF4444" stroke="#3B82F6" strokeWidth="1.5" />;
+                  }
+                  return (
+                    <polygon
+                      key={`pl-${idx}`}
+                      points={`${pt.x},${pt.y - 6} ${pt.x + 4.5},${pt.y + 4.5} ${pt.x},${pt.y + 2} ${pt.x - 4.5},${pt.y + 4.5}`}
+                      fill="#F59E0B"
+                      stroke="#FFFFFF"
+                      strokeWidth="1.2"
+                      strokeLinejoin="round"
+                      transform={`rotate(${-((b.heading ?? 0) * 180) / Math.PI} ${pt.x} ${pt.y})`}
+                    />
+                  );
+                })}
+              </svg>
+            </div>
+            <div className="mt-1 px-1.5 py-0.5 nfs-carbon-bg border border-white/12 text-[9px] font-mono-tabular uppercase tracking-wider text-slate-300 text-center">
+              <span className="text-emerald-400 font-bold">GRN</span> SHORTCUT ·{' '}
+              <span className="text-amber-400 font-bold">SQ</span> BREAKER
+            </div>
           </div>
 
-          <div className="bg-[#0D0E12]/90 border border-white/12 rounded-xl px-4 py-2.5 space-y-1">
+          <div className="nfs-chamfer nfs-carbon-bg border border-white/15 border-l-4 border-l-amber-400 px-4 py-2.5 space-y-1">
+            {telemetry.activeMissionTitle && (
+              <div className="border-b border-white/12 pb-1 mb-1">
+                <div className="text-[11px] font-display font-bold uppercase tracking-wider text-amber-400 truncate max-w-[260px]">
+                  {telemetry.activeMissionTitle}
+                </div>
+                {telemetry.activeMissionObjective && (
+                  <div className="text-[11px] font-mono-tabular text-slate-200 truncate max-w-[260px]">
+                    {telemetry.activeMissionObjective}
+                  </div>
+                )}
+              </div>
+            )}
             {mode === 'tollbooth' ? (
               <>
                 <div className="flex items-baseline gap-4">
                   <div>
-                    <div className="text-[11px] text-slate-400">TOLL TIME</div>
+                    <div className="text-[10px] font-display uppercase tracking-wider text-slate-400">TOLL TIME</div>
                     <div
                       className={`font-display text-2xl font-bold font-mono-tabular leading-none ${
                         telemetry.tollboothTimeLeftMs < 8000 ? 'text-red-400' : 'text-amber-400'
@@ -190,14 +207,14 @@ export const RaceHUD: React.FC<Props> = ({
                     </div>
                   </div>
                   <div>
-                    <div className="text-[11px] text-slate-400">GATES</div>
+                    <div className="text-[10px] font-display uppercase tracking-wider text-slate-400">GATES</div>
                     <div className="font-display text-2xl font-bold text-white tabular-nums leading-none">
                       {telemetry.tollboothCheckpoint}
                       <span className="text-sm text-slate-400">/{telemetry.tollboothTotal}</span>
                     </div>
                   </div>
                   <div>
-                    <div className="text-[11px] text-slate-400">LAP</div>
+                    <div className="text-[10px] font-display uppercase tracking-wider text-slate-400">LAP</div>
                     <div className="font-display text-2xl font-bold text-slate-200 tabular-nums leading-none">
                       {telemetry.lap}
                       <span className="text-sm text-slate-400">/{telemetry.totalLaps}</span>
@@ -208,18 +225,56 @@ export const RaceHUD: React.FC<Props> = ({
                   Elapsed {formatTimeMs(telemetry.totalRaceTimeMs)} · Bounty {formatCurrency(telemetry.sessionBounty)}
                 </div>
               </>
+            ) : mode === 'speedtrap' ? (
+              <>
+                <div className="flex items-baseline gap-4">
+                  <div>
+                    <div className="text-[10px] font-display uppercase tracking-wider text-slate-400">RADAR TOTAL</div>
+                    <div className="font-display text-2xl font-bold text-cyan-300 font-mono-tabular leading-none">
+                      {telemetry.speedTrapTotalKmh}
+                      <span className="text-xs text-slate-400 ml-1">km/h</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-display uppercase tracking-wider text-slate-400">LEADER</div>
+                    <div
+                      className={`font-display text-xl font-bold font-mono-tabular leading-none ${
+                        telemetry.speedTrapTotalKmh >= telemetry.speedTrapLeaderKmh
+                          ? 'text-emerald-400'
+                          : 'text-amber-400'
+                      }`}
+                    >
+                      {telemetry.speedTrapLeaderKmh}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-display uppercase tracking-wider text-slate-400">CAMERAS</div>
+                    <div className="font-display text-xl font-bold text-white tabular-nums leading-none">
+                      {telemetry.speedTrapHits}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-xs font-mono-tabular text-slate-300 pt-0.5 flex items-center gap-2">
+                  <span>
+                    Pos {telemetry.position}/{telemetry.activeRacers}
+                  </span>
+                  {telemetry.speedTrapTargetKmh > 0 && (
+                    <span className="text-amber-400">· Target {telemetry.speedTrapTargetKmh} km/h</span>
+                  )}
+                </div>
+              </>
             ) : mode !== 'pursuit' && mode !== 'freeroam' ? (
               <>
                 <div className="flex items-baseline gap-4">
                   <div>
-                    <div className="text-[11px] text-slate-400">POS</div>
+                    <div className="text-[10px] font-display uppercase tracking-wider text-slate-400">POS</div>
                     <div className="font-display text-2xl font-bold text-amber-400 tabular-nums leading-none">
                       {telemetry.position}
                       <span className="text-sm text-slate-400">/{telemetry.activeRacers}</span>
                     </div>
                   </div>
                   <div>
-                    <div className="text-[11px] text-slate-400">
+                    <div className="text-[10px] font-display uppercase tracking-wider text-slate-400">
                       {mode === 'sprint' ? 'SPRINT' : mode === 'knockout' ? 'KNOCKOUT' : 'LAP'}
                     </div>
                     <div className="font-display text-2xl font-bold text-white tabular-nums leading-none">
@@ -229,7 +284,7 @@ export const RaceHUD: React.FC<Props> = ({
                   </div>
                   {telemetry.activeRacers > 1 && (
                     <div>
-                      <div className="text-[11px] text-slate-400">GAP</div>
+                      <div className="text-[10px] font-display uppercase tracking-wider text-slate-400">GAP</div>
                       <div
                         className={`font-mono-tabular text-sm font-bold leading-none ${
                           telemetry.gapMeters >= 0 ? 'text-emerald-400' : 'text-red-400'
@@ -250,7 +305,7 @@ export const RaceHUD: React.FC<Props> = ({
                   {mode === 'knockout' &&
                     telemetry.position === telemetry.activeRacers &&
                     telemetry.activeRacers > 1 && (
-                      <span className="px-1.5 py-0.5 rounded bg-red-500/20 border border-red-500/50 text-red-300 text-[10px] font-bold">
+                      <span className="px-1.5 py-0.5 nfs-chamfer-sm bg-red-500/25 border border-red-500/60 text-red-300 text-[10px] font-display font-bold uppercase tracking-wider">
                         AT RISK
                       </span>
                     )}
@@ -258,7 +313,7 @@ export const RaceHUD: React.FC<Props> = ({
               </>
             ) : (
               <>
-                <div className="text-[11px] text-slate-400">
+                <div className="text-[10px] font-display uppercase tracking-wider text-slate-400">
                   {mode === 'freeroam' ? 'FREE ROAM SESSION' : 'PURSUIT DURATION'}
                 </div>
                 <div className="font-display text-2xl font-bold text-white font-mono-tabular leading-none">
@@ -269,10 +324,11 @@ export const RaceHUD: React.FC<Props> = ({
                 </div>
               </>
             )}
-            <div className="text-[10px] font-mono-tabular text-slate-400 pt-0.5 flex items-center gap-2">
-              <span>{ENVIRONMENTS.find((e) => e.id === telemetry.environment)?.label ?? telemetry.environment}</span>
+            <div className="text-[10px] font-mono-tabular text-slate-400 pt-0.5 flex flex-wrap items-center gap-x-2">
+              <span className="uppercase">{ENVIRONMENTS.find((e) => e.id === telemetry.environment)?.label ?? telemetry.environment}</span>
+              <span className="text-slate-500">· {telemetry.musicTrackName}</span>
               {telemetry.shortcutsTaken > 0 && (
-                <span className="text-emerald-400 font-semibold">· Shortcuts {telemetry.shortcutsTaken}</span>
+                <span className="text-emerald-400 font-bold">· SHORTCUTS {telemetry.shortcutsTaken}</span>
               )}
             </div>
           </div>
@@ -282,10 +338,16 @@ export const RaceHUD: React.FC<Props> = ({
         <div className="flex items-start gap-2.5">
           <div className="flex flex-col items-end gap-2">
             {telemetry.pursuitState !== 'none' && (
-              <div className="bg-[#0D0E12]/92 border border-white/12 rounded-xl px-4 py-2.5 min-w-[220px] space-y-1.5">
+              <div
+                className={`nfs-chamfer nfs-carbon-bg border border-white/15 border-l-4 px-4 py-2.5 min-w-[224px] space-y-1.5 ${
+                  telemetry.pursuitState === 'cooldown' || telemetry.pursuitState === 'evaded'
+                    ? 'border-l-emerald-400'
+                    : 'border-l-red-500'
+                }`}
+              >
                 <div className="flex items-center justify-between gap-3">
                   <span
-                    className={`font-display text-xs font-bold flex items-center gap-1.5 ${
+                    className={`font-display text-xs font-bold tracking-wider uppercase flex items-center gap-1.5 ${
                       telemetry.pursuitState === 'cooldown'
                         ? 'text-emerald-400'
                         : telemetry.pursuitState === 'evaded'
@@ -298,9 +360,9 @@ export const RaceHUD: React.FC<Props> = ({
                       ? 'COOLDOWN'
                       : telemetry.pursuitState === 'evaded'
                         ? 'EVADED'
-                        : 'PURSUIT'}
+                        : 'PURSUIT ACTIVE'}
                   </span>
-                  <span className="text-xs font-mono-tabular text-amber-400 flex items-center gap-1">
+                  <span className="text-xs font-mono-tabular font-bold text-amber-400 flex items-center gap-1">
                     <Flame className="w-3.5 h-3.5" />
                     HEAT {telemetry.heatLevel}
                   </span>
@@ -310,7 +372,7 @@ export const RaceHUD: React.FC<Props> = ({
                   {[1, 2, 3, 4, 5].map((lvl) => (
                     <div
                       key={lvl}
-                      className={`h-1 rounded-xs ${
+                      className={`h-1.5 ${
                         lvl <= telemetry.heatLevel
                           ? lvl >= 4
                             ? 'bg-red-500'
@@ -323,22 +385,22 @@ export const RaceHUD: React.FC<Props> = ({
 
                 {telemetry.pursuitState === 'cooldown' ? (
                   <div className="space-y-0.5">
-                    <div className="flex justify-between text-[11px] text-emerald-300 font-mono-tabular">
+                    <div className="flex justify-between text-[11px] text-emerald-300 font-mono-tabular uppercase">
                       <span>Evading</span>
                       <span>{Math.round(telemetry.evadeProgress)}%</span>
                     </div>
-                    <div className="h-1.5 bg-white/10 rounded-sm overflow-hidden">
+                    <div className="h-1.5 bg-white/12 overflow-hidden">
                       <div className="h-full bg-emerald-400" style={{ width: `${telemetry.evadeProgress}%` }} />
                     </div>
                   </div>
                 ) : (
                   telemetry.bustProgress > 2 && (
                     <div className="space-y-0.5">
-                      <div className="flex justify-between text-[11px] text-red-400 font-mono-tabular font-bold">
+                      <div className="flex justify-between text-[11px] text-red-400 font-mono-tabular font-bold uppercase">
                         <span>BUSTED WARNING</span>
                         <span>{Math.round(telemetry.bustProgress)}%</span>
                       </div>
-                      <div className="h-1.5 bg-white/10 rounded-sm overflow-hidden">
+                      <div className="h-1.5 bg-white/12 overflow-hidden">
                         <div className="h-full bg-red-500" style={{ width: `${telemetry.bustProgress}%` }} />
                       </div>
                     </div>
@@ -353,9 +415,9 @@ export const RaceHUD: React.FC<Props> = ({
             )}
 
             {telemetry.radioDispatch && (
-              <div className="max-w-[290px] bg-[#0D0E12]/92 border border-red-500/40 rounded-xl px-3.5 py-2 flex items-start gap-2 text-xs text-slate-200">
+              <div className="max-w-[295px] nfs-chamfer-sm nfs-carbon-bg border border-white/15 border-l-4 border-l-red-500 px-3.5 py-2 flex items-start gap-2 text-xs text-slate-200">
                 <Radio className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
-                <span>{telemetry.radioDispatch}</span>
+                <span className="font-mono-tabular text-[11px] leading-snug">{telemetry.radioDispatch}</span>
               </div>
             )}
           </div>
@@ -366,7 +428,7 @@ export const RaceHUD: React.FC<Props> = ({
                 type="button"
                 onClick={onFinishFreeroam}
                 title="Bank Bounty & Finish Run"
-                className="px-3 py-2 bg-amber-400 hover:bg-amber-300 text-black font-display font-bold text-xs rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                className="px-3 py-2 nfs-chamfer-sm bg-amber-400 hover:bg-amber-300 text-black font-display font-bold uppercase tracking-wider text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <Flag className="w-3.5 h-3.5" />
                 <span>Bank Run</span>
@@ -376,7 +438,7 @@ export const RaceHUD: React.FC<Props> = ({
               type="button"
               onClick={onCycleCamera}
               title="Switch Camera (C)"
-              className="p-2.5 bg-[#0D0E12]/90 border border-white/12 rounded-lg text-slate-200 hover:text-amber-400 transition-colors cursor-pointer"
+              className="p-2.5 nfs-chamfer-sm nfs-carbon-bg border border-white/18 text-slate-200 hover:text-amber-400 hover:border-amber-400/60 transition-colors cursor-pointer"
             >
               <Camera className="w-4 h-4" />
             </button>
@@ -384,7 +446,7 @@ export const RaceHUD: React.FC<Props> = ({
               type="button"
               onClick={onToggleMute}
               title={muted ? 'Unmute' : 'Mute'}
-              className="p-2.5 bg-[#0D0E12]/90 border border-white/12 rounded-lg text-slate-200 hover:text-amber-400 transition-colors cursor-pointer"
+              className="p-2.5 nfs-chamfer-sm nfs-carbon-bg border border-white/18 text-slate-200 hover:text-amber-400 hover:border-amber-400/60 transition-colors cursor-pointer"
             >
               {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
@@ -392,7 +454,7 @@ export const RaceHUD: React.FC<Props> = ({
               type="button"
               onClick={onPause}
               title="Pause (Esc)"
-              className="p-2.5 bg-[#0D0E12]/90 border border-white/12 rounded-lg text-slate-200 hover:text-amber-400 transition-colors cursor-pointer"
+              className="p-2.5 nfs-chamfer-sm nfs-carbon-bg border border-white/18 text-slate-200 hover:text-amber-400 hover:border-amber-400/60 transition-colors cursor-pointer"
             >
               <Pause className="w-4 h-4" />
             </button>
@@ -403,25 +465,30 @@ export const RaceHUD: React.FC<Props> = ({
       {/* Center-Top Countdown & Callouts */}
       <div className="fixed top-20 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none">
         {telemetry.countdown > 0 && (
-          <div className="font-display text-6xl font-bold text-amber-400 drop-shadow-[0_4px_16px_rgba(0,0,0,0.9)] tabular-nums">
+          <div className="font-display italic text-7xl font-bold text-amber-400 drop-shadow-[0_4px_16px_rgba(0,0,0,0.95)] tabular-nums">
             {telemetry.countdown}
           </div>
         )}
         {telemetry.wrongWay && (
-          <div className="px-4 py-1.5 bg-red-600/95 text-white font-display font-bold text-sm rounded-lg">
+          <div className="px-5 py-1.5 nfs-chamfer-sm bg-red-600/95 border-l-4 border-white text-white font-display font-bold uppercase tracking-widest text-sm">
             WRONG WAY — TURN AROUND
+          </div>
+        )}
+        {telemetry.spikedTimer > 0 && (
+          <div className="px-5 py-1.5 nfs-chamfer-sm bg-red-700/95 border border-red-300 border-l-4 text-white font-display font-bold uppercase tracking-wider text-sm font-mono-tabular">
+            SPIKED TIRES · {telemetry.spikedTimer.toFixed(1)}S
           </div>
         )}
         {telemetry.callout && (
           <div
-            className={`px-4 py-1.5 rounded-lg border font-display font-bold text-sm tracking-wide bg-[#0D0E12]/92 ${
+            className={`px-4 py-1.5 nfs-chamfer-sm nfs-carbon-bg border border-white/15 border-l-4 font-display font-bold uppercase tracking-wider text-sm ${
               telemetry.callout.tone === 'red'
-                ? 'border-red-500 text-red-400'
+                ? 'border-l-red-500 text-red-400'
                 : telemetry.callout.tone === 'cyan'
-                  ? 'border-cyan-400 text-cyan-300'
+                  ? 'border-l-cyan-400 text-cyan-300'
                   : telemetry.callout.tone === 'emerald'
-                    ? 'border-emerald-400 text-emerald-300'
-                    : 'border-amber-400 text-amber-300'
+                    ? 'border-l-emerald-400 text-emerald-300'
+                    : 'border-l-amber-400 text-amber-300'
             }`}
           >
             {telemetry.callout.text}
@@ -435,30 +502,32 @@ export const RaceHUD: React.FC<Props> = ({
           {(telemetry.isDrifting || telemetry.isSlipstreaming || telemetry.nearMissCombo > 1) && (
             <div className="flex flex-wrap items-center gap-2">
               {telemetry.isDrifting && (
-                <div className="inline-block px-3 py-1 bg-[#0D0E12]/90 border border-amber-400/50 rounded-lg font-display text-xs font-bold text-amber-400">
+                <div className="inline-block px-3 py-1 nfs-chamfer-sm nfs-carbon-bg border border-white/15 border-l-4 border-l-amber-400 font-display uppercase tracking-wider text-xs font-bold text-amber-400">
                   POWER SLIDE · +NOS
                 </div>
               )}
               {telemetry.isSlipstreaming && (
-                <div className="inline-block px-3 py-1 bg-[#0D0E12]/90 border border-cyan-400/50 rounded-lg font-display text-xs font-bold text-cyan-300">
+                <div className="inline-block px-3 py-1 nfs-chamfer-sm nfs-carbon-bg border border-white/15 border-l-4 border-l-cyan-400 font-display uppercase tracking-wider text-xs font-bold text-cyan-300">
                   SLIPSTREAM · +NOS
                 </div>
               )}
               {telemetry.nearMissCombo > 1 && (
-                <div className="inline-block px-3 py-1 bg-[#0D0E12]/90 border border-emerald-400/50 rounded-lg font-display text-xs font-bold text-emerald-300">
+                <div className="inline-block px-3 py-1 nfs-chamfer-sm nfs-carbon-bg border border-white/15 border-l-4 border-l-emerald-400 font-display uppercase tracking-wider text-xs font-bold text-emerald-300">
                   TRAFFIC CHAIN x{telemetry.nearMissCombo}
                 </div>
               )}
             </div>
           )}
-          <div className="hidden md:flex items-center gap-3 px-3.5 py-2 bg-[#0D0E12]/88 border border-white/10 rounded-xl text-xs text-slate-300">
+          <div className="hidden md:flex items-center gap-3 px-3.5 py-2 nfs-chamfer-sm nfs-carbon-bg border border-white/15 border-l-2 border-l-amber-400 text-[11px] font-mono-tabular uppercase tracking-wide text-slate-300">
             <span><strong className="text-white">WASD</strong> Drive</span>
             <span aria-hidden="true">·</span>
             <span><strong className="text-white">Space</strong> Drift</span>
             <span aria-hidden="true">·</span>
-            <span><strong className="text-cyan-400">Shift</strong> Nitrous</span>
+            <span><strong className="text-cyan-400">Shift</strong> NOS</span>
             <span aria-hidden="true">·</span>
-            <span><strong className="text-amber-400">X</strong> Speedbreaker</span>
+            <span><strong className="text-amber-400">X</strong> Breaker</span>
+            <span aria-hidden="true">·</span>
+            <span><strong className="text-emerald-400">Green</strong> Shortcut</span>
             <span aria-hidden="true">·</span>
             <span><strong className="text-white">C</strong> Cam</span>
           </div>
@@ -470,7 +539,7 @@ export const RaceHUD: React.FC<Props> = ({
               onPointerDown={() => onTouchInput('left', true)}
               onPointerUp={() => onTouchInput('left', false)}
               onPointerLeave={() => onTouchInput('left', false)}
-              className="w-14 h-14 rounded-xl bg-[#0D0E12]/88 border border-white/20 text-white font-bold text-lg active:bg-amber-400 active:text-black"
+              className="w-14 h-14 nfs-chamfer-sm nfs-carbon-bg border border-white/25 text-white font-bold text-lg active:bg-amber-400 active:text-black"
             >
               ◀
             </button>
@@ -479,7 +548,7 @@ export const RaceHUD: React.FC<Props> = ({
               onPointerDown={() => onTouchInput('right', true)}
               onPointerUp={() => onTouchInput('right', false)}
               onPointerLeave={() => onTouchInput('right', false)}
-              className="w-14 h-14 rounded-xl bg-[#0D0E12]/88 border border-white/20 text-white font-bold text-lg active:bg-amber-400 active:text-black"
+              className="w-14 h-14 nfs-chamfer-sm nfs-carbon-bg border border-white/25 text-white font-bold text-lg active:bg-amber-400 active:text-black"
             >
               ▶
             </button>
@@ -488,7 +557,7 @@ export const RaceHUD: React.FC<Props> = ({
               onPointerDown={() => onTouchInput('nitrous', true)}
               onPointerUp={() => onTouchInput('nitrous', false)}
               onPointerLeave={() => onTouchInput('nitrous', false)}
-              className="px-3 h-14 rounded-xl bg-cyan-500/25 border border-cyan-400 text-cyan-200 font-display font-bold text-xs"
+              className="px-3 h-14 nfs-chamfer-sm bg-cyan-500/25 border border-cyan-400 text-cyan-200 font-display font-bold text-xs"
             >
               NOS
             </button>
@@ -497,7 +566,7 @@ export const RaceHUD: React.FC<Props> = ({
               onPointerDown={() => onTouchInput('brake', true)}
               onPointerUp={() => onTouchInput('brake', false)}
               onPointerLeave={() => onTouchInput('brake', false)}
-              className="px-3 h-14 rounded-xl bg-red-500/25 border border-red-400 text-red-200 font-display font-bold text-xs"
+              className="px-3 h-14 nfs-chamfer-sm bg-red-500/25 border border-red-400 text-red-200 font-display font-bold text-xs"
             >
               BRK
             </button>
@@ -506,7 +575,7 @@ export const RaceHUD: React.FC<Props> = ({
               onPointerDown={() => onTouchInput('throttle', true)}
               onPointerUp={() => onTouchInput('throttle', false)}
               onPointerLeave={() => onTouchInput('throttle', false)}
-              className="px-4 h-14 rounded-xl bg-amber-500/30 border border-amber-400 text-amber-200 font-display font-bold text-xs"
+              className="px-4 h-14 nfs-chamfer-sm bg-amber-500/30 border border-amber-400 text-amber-200 font-display font-bold text-xs"
             >
               GAS
             </button>
@@ -515,10 +584,10 @@ export const RaceHUD: React.FC<Props> = ({
 
         {/* Right: Radial Tachometer & Speedometer */}
         <div
-          className={`bg-[#0D0E12]/92 rounded-2xl p-3 w-48 sm:w-52 border transition-colors ${
+          className={`nfs-chamfer nfs-carbon-bg p-3 w-48 sm:w-52 border transition-colors ${
             telemetry.rpm > 0.88
-              ? 'border-red-500 shadow-[0_0_24px_rgba(239,68,68,0.45)]'
-              : 'border-white/12'
+              ? 'border-red-500 border-t-2 border-t-red-500 shadow-[0_0_24px_rgba(239,68,68,0.45)]'
+              : 'border-white/15 border-t-2 border-t-amber-400/80'
           }`}
         >
           <div className="relative w-full aspect-[1.15/1]">
@@ -528,14 +597,14 @@ export const RaceHUD: React.FC<Props> = ({
                 fill="none"
                 stroke="#1E293B"
                 strokeWidth="12"
-                strokeLinecap="round"
+                strokeLinecap="butt"
               />
               <path
                 d="M 155 48 A 78 78 0 0 1 165 140"
                 fill="none"
                 stroke="#EF4444"
                 strokeWidth="12"
-                strokeLinecap="round"
+                strokeLinecap="butt"
                 opacity="0.7"
               />
               <path
@@ -543,7 +612,7 @@ export const RaceHUD: React.FC<Props> = ({
                 fill="none"
                 stroke={telemetry.rpm > 0.85 ? '#EF4444' : '#F59E0B'}
                 strokeWidth="12"
-                strokeLinecap="round"
+                strokeLinecap="butt"
                 strokeDasharray={`${telemetry.rpm * 335} 400`}
               />
               {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((tick) => {
@@ -583,14 +652,14 @@ export const RaceHUD: React.FC<Props> = ({
                 fill="none"
                 stroke="#1E293B"
                 strokeWidth="6"
-                strokeLinecap="round"
+                strokeLinecap="butt"
               />
               <path
                 d="M 22 146 A 92 92 0 0 1 40 38"
                 fill="none"
                 stroke="#06B6D4"
                 strokeWidth="6"
-                strokeLinecap="round"
+                strokeLinecap="butt"
                 strokeDasharray={`${nosDash} 200`}
               />
               <line
@@ -600,13 +669,13 @@ export const RaceHUD: React.FC<Props> = ({
                 y2={100 + Math.sin(rpmRad) * 64}
                 stroke="#F8FAFC"
                 strokeWidth="3"
-                strokeLinecap="round"
+                strokeLinecap="butt"
               />
-              <circle cx="100" cy="100" r="6" fill="#F59E0B" />
+              <circle cx="100" cy="100" r="5" fill="#F59E0B" />
             </svg>
 
             <div className="absolute inset-0 flex flex-col items-center justify-end pb-1">
-              <div className="font-display text-3xl font-bold text-white tabular-nums leading-none">
+              <div className="font-display italic text-3xl font-bold text-white tabular-nums leading-none">
                 {telemetry.speedKmh}
               </div>
               <div className="flex items-center gap-2 text-[11px] font-mono-tabular mt-1">
@@ -627,7 +696,7 @@ export const RaceHUD: React.FC<Props> = ({
                 BREAKER {Math.round(telemetry.speedbreaker)}%
               </span>
             </div>
-            <div className="h-1.5 bg-white/10 rounded-sm overflow-hidden">
+            <div className="h-1.5 bg-white/12 overflow-hidden">
               <div
                 className="h-full bg-amber-400 transition-[width] duration-75"
                 style={{ width: `${telemetry.speedbreaker}%` }}

@@ -3,6 +3,7 @@ export type RaceMode =
   | 'sprint'
   | 'knockout'
   | 'tollbooth'
+  | 'speedtrap'
   | 'blacklist'
   | 'pursuit'
   | 'freeroam';
@@ -36,6 +37,34 @@ export type RimStyle = 'chrome' | 'black' | 'gold' | 'bronze';
 export type CameraMode = 'chase_far' | 'chase_close' | 'hood';
 
 export type PursuitState = 'none' | 'pursuit' | 'cooldown' | 'evaded' | 'busted';
+
+export type MissionType =
+  | 'circuit'
+  | 'sprint'
+  | 'knockout'
+  | 'tollbooth'
+  | 'speedtrap'
+  | 'pursuit_milestone';
+
+export interface MissionDefinition {
+  id: string;
+  tierRank: number; // 10 down to 1
+  order: number; // 1..3 within tier
+  title: string;
+  type: MissionType;
+  trackId: TrackId;
+  environment: Exclude<EnvironmentId, 'auto'>;
+  laps?: number;
+  difficulty: TrackDifficulty;
+  targetSpeedtrapKmh?: number;
+  targetBounty?: number;
+  targetTakedowns?: number;
+  minHeat?: number;
+  aiTierBoost: number; // 0..4 simulated AI upgrade/pace tier
+  cashReward: number;
+  bountyReward: number;
+  description: string;
+}
 
 export interface CarSpec {
   id: string;
@@ -92,7 +121,7 @@ export interface BlacklistRival {
   trackId: TrackId;
   environment: Exclude<EnvironmentId, 'auto'>;
   laps: number;
-  aiSkill: number; // 0.78 to 0.98
+  aiSkill: number; // 0.85 to 1.05
   quote: string;
 }
 
@@ -102,6 +131,7 @@ export interface TrackMetadata {
   district: string;
   difficulty: TrackDifficulty;
   styleTag: string;
+  musicTrackName: string;
   lengthLabel: string;
   defaultLaps: number;
   defaultEnv: Exclude<EnvironmentId, 'auto'>;
@@ -122,6 +152,7 @@ export interface CareerProfile {
   selectedCarId: string;
   ownedCarIds: string[];
   wonTrackIds: string[];
+  completedMissionIds: string[];
 }
 
 export interface LeaderboardEntry {
@@ -151,6 +182,7 @@ export interface RaceTelemetry {
   isNitrousActive: boolean;
   isDrifting: boolean;
   isSlipstreaming: boolean;
+  spikedTimer: number;
   position: number;
   totalRacers: number;
   activeRacers: number;
@@ -163,6 +195,13 @@ export interface RaceTelemetry {
   tollboothTimeLeftMs: number;
   tollboothCheckpoint: number;
   tollboothTotal: number;
+  speedTrapTotalKmh: number;
+  speedTrapLeaderKmh: number;
+  speedTrapTargetKmh: number;
+  speedTrapHits: number;
+  activeMissionTitle: string | null;
+  activeMissionObjective: string | null;
+  musicTrackName: string;
   progress: number; // 0..1
   wrongWay: boolean;
   countdown: number; // 3, 2, 1, 0, -1 (active)
@@ -204,6 +243,10 @@ export interface RaceResult {
   copsTakedowns: number;
   highestHeat: number;
   shortcutsTaken?: number;
+  speedTrapTotalKmh?: number;
+  missionId?: string;
+  missionTitle?: string;
+  missionCompleted?: boolean;
   isNewTrackWin?: boolean;
   rivalDefeated?: BlacklistRival;
   bossCarAwarded?: CarSpec;

@@ -26,6 +26,8 @@ function makeWarmSaturationCurve(drive = 1.9): Float32Array<ArrayBuffer> {
 class SoundEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
+  private masterCompressor: DynamicsCompressorNode | null = null;
+  private musicGain: GainNode | null = null;
 
   // Multi-voice combustion engine synth
   private engineOscMain: OscillatorNode | null = null;
@@ -55,6 +57,7 @@ class SoundEngine {
   private tireHighFilter: BiquadFilterNode | null = null;
   private tireHighGain: GainNode | null = null;
   private curbRumbleGain: GainNode | null = null;
+  private windFilter: BiquadFilterNode | null = null;
   private windGain: GainNode | null = null;
 
   // Dual-oscillator police siren
@@ -84,9 +87,21 @@ class SoundEngine {
     if (!AudioCtx) return;
 
     this.ctx = new AudioCtx();
+    this.masterCompressor = this.ctx.createDynamicsCompressor();
+    this.masterCompressor.threshold.value = -12;
+    this.masterCompressor.knee.value = 10;
+    this.masterCompressor.ratio.value = 4.5;
+    this.masterCompressor.attack.value = 0.004;
+    this.masterCompressor.release.value = 0.16;
+
     this.masterGain = this.ctx.createGain();
-    this.masterGain.gain.value = this.muted ? 0 : 0.46;
-    this.masterGain.connect(this.ctx.destination);
+    this.masterGain.gain.value = this.muted ? 0 : 0.54;
+    this.masterGain.connect(this.masterCompressor);
+    this.masterCompressor.connect(this.ctx.destination);
+
+    this.musicGain = this.ctx.createGain();
+    this.musicGain.gain.value = 0.62;
+    this.musicGain.connect(this.masterGain);
 
     // Rich pink+brown textured noise buffer (3 seconds)
     const sampleRate = this.ctx.sampleRate;
@@ -300,17 +315,17 @@ class SoundEngine {
     this.curbRumbleGain.connect(this.masterGain);
     curbSrc.start();
 
-    // Aerodynamic Wind Rush
+    // Aerodynamic Wind & Slipstream Rush
     const windSrc = this.ctx.createBufferSource();
     windSrc.buffer = this.noiseBuffer;
     windSrc.loop = true;
-    const windFilter = this.ctx.createBiquadFilter();
-    windFilter.type = 'lowpass';
-    windFilter.frequency.value = 460;
+    this.windFilter = this.ctx.createBiquadFilter();
+    this.windFilter.type = 'lowpass';
+    this.windFilter.frequency.value = 460;
     this.windGain = this.ctx.createGain();
     this.windGain.gain.value = 0;
-    windSrc.connect(windFilter);
-    windFilter.connect(this.windGain);
+    windSrc.connect(this.windFilter);
+    this.windFilter.connect(this.windGain);
     this.windGain.connect(this.masterGain);
     windSrc.start();
 
@@ -351,12 +366,24 @@ class SoundEngine {
   public setMuted(muted: boolean) {
     this.muted = muted;
     if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setTargetAtTime(muted ? 0 : 0.46, this.ctx.currentTime, 0.05);
+      this.masterGain.gain.setTargetAtTime(muted ? 0 : 0.54, this.ctx.currentTime, 0.05);
     }
   }
 
   public isMuted(): boolean {
     return this.muted;
+  }
+
+  public getAudioContext(): AudioContext | null {
+    return this.ctx;
+  }
+
+  public getMusicDestination(): AudioNode | null {
+    return this.musicGain;
+  }
+
+  public getNoiseBuffer(): AudioBuffer | null {
+    return this.noiseBuffer;
   }
 
   public stopRaceLoops() {
@@ -403,6 +430,8 @@ class SoundEngine {
     onCurb?: boolean;
     airborne?: boolean;
     inTunnel?: boolean;
+    drafting?: boolean;
+    nearBarrier?: boolean;
     timeScale: number;
   }) {
     if (!this.initialized || !this.ctx) return;
@@ -417,12 +446,16 @@ class SoundEngine {
     const pitchFactor = (params.timeScale < 0.7 ? 0.62 : 1.0) * this.getPitchScale();
     const speedKmh = params.speedKmh ?? params.rpm * 200;
 
-    // Upshift turbo blowoff + meaty gearshift exhaust pop
+    // Upshift turbo blowoff + gearshift exhaust pop / downshift burble crackle
     if (params.gear > this.lastGear && params.gear > 1) {
       this.triggerTurboBlowoff();
-      this.triggerExhaustPop(0.2);
+      this.triggerExhaustPop(0.22);
+    } else if (params.gear < this.lastGear && params.gear >= 1 && speedKmh > 65 && this.popCooldown <= 0) {
+      this.triggerExhaustPop(0.18);
+      window.setTimeout(() => this.triggerExhaustPop(0.12), 75);
+      this.popCooldown = 0.28;
     } else if (this.prevThrottle && !params.throttle && params.rpm > 0.56 && this.popCooldown <= 0) {
-      this.triggerExhaustPop(0.15);
+      this.triggerExhaustPop(0.16);
       this.popCooldown = 0.45;
     }
     if (params.nosActive && !this.prevNos) {
@@ -436,26 +469,26 @@ class SoundEngine {
     const redlineCut =
       params.throttle && params.rpm > 0.965 && Math.sin(now * 68) > 0.55 ? 0.66 : 1.0;
 
-    const baseFreq = (42 + params.rpm * 132) * pitchFactor;
-    this.engineOscMain?.frequency.setTargetAtTime(baseFreq, now, 0.035);
-    this.engineOscHarm?.frequency.setTargetAtTime(baseFreq * (this.carStyle === 'muscle' ? 1.333 : 1.5), now, 0.035);
-    this.engineOscSub?.frequency.setTargetAtTime(baseFreq * 0.5, now, 0.035);
+    const baseFreq = (42 + params.rpm * 134) * pitchFactor;
+    this.engineOscMain?.frequency.setTargetAtTime(baseFreq, now, 0.032);
+    this.engineOscHarm?.frequency.setTargetAtTime(baseFreq * (this.carStyle === 'muscle' ? 1.333 : 1.5), now, 0.032);
+    this.engineOscSub?.frequency.setTargetAtTime(baseFreq * 0.5, now, 0.032);
 
     this.chopLfo?.frequency.setTargetAtTime(Math.max(10, baseFreq * 0.28), now, 0.05);
     this.chopDepth?.gain.setTargetAtTime(params.throttle ? 0.012 : 0.024, now, 0.05);
 
     const filterCutoff =
-      (190 + params.rpm * 880 + (params.throttle ? 360 : 40)) * (params.timeScale < 0.7 ? 0.65 : 1.0);
+      (210 + params.rpm * 940 + (params.throttle ? 390 : 40)) * (params.timeScale < 0.7 ? 0.52 : 1.0);
     this.engineLowpass?.frequency.setTargetAtTime(filterCutoff, now, 0.045);
 
-    const targetEngineGain = (0.14 + (params.throttle ? 0.14 : 0.03) + params.rpm * 0.08) * redlineCut;
+    const targetEngineGain = (0.16 + (params.throttle ? 0.16 : 0.035) + params.rpm * 0.09) * redlineCut;
     this.engineGain?.gain.setTargetAtTime(targetEngineGain, now, 0.035);
-    this.tunnelSendGain?.gain.setTargetAtTime(params.inTunnel ? 0.36 : 0, now, 0.08);
+    this.tunnelSendGain?.gain.setTargetAtTime(params.inTunnel ? 0.44 : 0, now, 0.08);
 
     // Warm airbox induction snarl
-    this.intakeFilter?.frequency.setTargetAtTime(340 + params.rpm * 950, now, 0.05);
+    this.intakeFilter?.frequency.setTargetAtTime(340 + params.rpm * 980, now, 0.05);
     this.intakeGain?.gain.setTargetAtTime(
-      params.throttle ? (0.022 + params.rpm * 0.042) * redlineCut : 0.008,
+      params.throttle ? (0.025 + params.rpm * 0.048) * redlineCut : 0.008,
       now,
       0.045,
     );
@@ -463,9 +496,9 @@ class SoundEngine {
     // Subtle straight-cut gearbox whine
     const whineAllowed = this.carStyle === 'gtr' || this.carStyle === 'exotic' || this.carStyle === 'muscle';
     if (whineAllowed && speedKmh > 75) {
-      const whineFreq = (320 + speedKmh * 3.1 + params.rpm * 140) * (params.timeScale < 0.7 ? 0.65 : 1.0);
+      const whineFreq = (320 + speedKmh * 3.1 + params.rpm * 140) * (params.timeScale < 0.7 ? 0.62 : 1.0);
       this.gearWhineOsc?.frequency.setTargetAtTime(whineFreq, now, 0.05);
-      const whineVol = (this.carStyle === 'gtr' ? 0.018 : 0.01) * Math.min(1, (speedKmh - 75) / 140);
+      const whineVol = (this.carStyle === 'gtr' ? 0.02 : 0.012) * Math.min(1, (speedKmh - 75) / 140);
       this.gearWhineGain?.gain.setTargetAtTime(whineVol, now, 0.06);
     } else {
       this.gearWhineGain?.gain.setTargetAtTime(0, now, 0.06);
@@ -474,17 +507,20 @@ class SoundEngine {
     // Turbo spool whistle
     if (params.throttle && params.rpm > 0.36 && this.carStyle !== 'muscle') {
       this.turboSpoolFilter?.frequency.setTargetAtTime(1900 + params.rpm * 2000, now, 0.05);
-      this.turboSpoolGain?.gain.setTargetAtTime(0.03 * (params.rpm - 0.34), now, 0.05);
+      this.turboSpoolGain?.gain.setTargetAtTime(0.034 * (params.rpm - 0.34), now, 0.05);
     } else {
       this.turboSpoolGain?.gain.setTargetAtTime(0, now, 0.08);
     }
 
-    // Aerodynamic wind rush
-    const windAmt = speedKmh > 110 ? Math.min(0.13, ((speedKmh - 110) / 210) * 0.13) : 0;
-    this.windGain?.gain.setTargetAtTime(windAmt, now, 0.08);
+    // Aerodynamic wind rush + slipstream / barrier reflection roar
+    const baseWind = speedKmh > 100 ? Math.min(0.14, ((speedKmh - 100) / 210) * 0.14) : 0;
+    const extraWind = (params.drafting ? 0.055 : 0) + (params.nearBarrier && speedKmh > 110 ? 0.035 : 0);
+    const windCutoff = (440 + speedKmh * 2.2 + (params.drafting ? 340 : 0)) * (params.timeScale < 0.7 ? 0.55 : 1.0);
+    this.windFilter?.frequency.setTargetAtTime(windCutoff, now, 0.06);
+    this.windGain?.gain.setTargetAtTime(Math.min(0.22, baseWind + extraWind), now, 0.06);
 
     // NOS Jet
-    this.nosNoiseGain?.gain.setTargetAtTime(params.nosActive ? 0.2 : 0, now, 0.04);
+    this.nosNoiseGain?.gain.setTargetAtTime(params.nosActive ? 0.22 : 0, now, 0.04);
 
     // Swept Tire Screech
     const slip = params.airborne ? 0 : params.driftSlip;
@@ -749,6 +785,167 @@ class SoundEngine {
     g.connect(this.masterGain);
     osc.start(now);
     osc.stop(now + 0.13);
+  }
+
+  public triggerUiClick() {
+    this.init();
+    if (!this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(620, now);
+    osc.frequency.exponentialRampToValueAtTime(190, now + 0.035);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.1, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
+    osc.connect(g);
+    g.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.05);
+  }
+
+  public triggerCountdownTick(isGo: boolean) {
+    if (!this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    if (!isGo) {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(340, now);
+      const filt = this.ctx.createBiquadFilter();
+      filt.type = 'lowpass';
+      filt.frequency.value = 1100;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.18, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+      osc.connect(filt);
+      filt.connect(g);
+      g.connect(this.masterGain);
+      osc.start(now);
+      osc.stop(now + 0.19);
+    } else {
+      [523.25, 783.99, 1046.5].forEach((freq, idx) => {
+        const osc = this.ctx!.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.02);
+        const g = this.ctx!.createGain();
+        g.gain.setValueAtTime(0.16, now + idx * 0.02);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+        osc.connect(g);
+        g.connect(this.masterGain!);
+        osc.start(now + idx * 0.02);
+        osc.stop(now + 0.46);
+      });
+    }
+  }
+
+  public triggerSpeedbreaker(active: boolean) {
+    if (!this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(active ? 220 : 58, now);
+    osc.frequency.exponentialRampToValueAtTime(active ? 46 : 260, now + 0.24);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.28, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.27);
+    osc.connect(g);
+    g.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.28);
+  }
+
+  public triggerCameraFlash() {
+    if (!this.ctx || !this.masterGain || !this.noiseBuffer || this.muted) return;
+    const now = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    const hp = this.ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 2800;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.2, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+    src.connect(hp);
+    hp.connect(g);
+    g.connect(this.masterGain);
+    src.start(now);
+    src.stop(now + 0.07);
+
+    const chirp = this.ctx.createOscillator();
+    chirp.type = 'sine';
+    chirp.frequency.setValueAtTime(1420, now + 0.025);
+    chirp.frequency.exponentialRampToValueAtTime(980, now + 0.14);
+    const cg = this.ctx.createGain();
+    cg.gain.setValueAtTime(0.14, now + 0.025);
+    cg.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+    chirp.connect(cg);
+    cg.connect(this.masterGain);
+    chirp.start(now + 0.025);
+    chirp.stop(now + 0.17);
+  }
+
+  public triggerWoodSmash() {
+    if (!this.ctx || !this.masterGain || !this.noiseBuffer || this.muted) return;
+    const now = this.ctx.currentTime;
+    [0, 0.032, 0.07].forEach((offset, idx) => {
+      const t = now + offset;
+      const src = this.ctx!.createBufferSource();
+      src.buffer = this.noiseBuffer;
+      const bp = this.ctx!.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 920 + idx * 420;
+      bp.Q.value = 1.8;
+      const g = this.ctx!.createGain();
+      g.gain.setValueAtTime(0.24 / (idx + 1), t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+      src.connect(bp);
+      bp.connect(g);
+      g.connect(this.masterGain!);
+      src.start(t);
+      src.stop(t + 0.1);
+    });
+  }
+
+  public triggerLapComplete(isFinalLap: boolean) {
+    if (!this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const notes = isFinalLap ? [523.25, 659.25, 1046.5] : [440, 659.25];
+    notes.forEach((freq, idx) => {
+      const t = now + idx * 0.075;
+      const osc = this.ctx!.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, t);
+      const g = this.ctx!.createGain();
+      g.gain.setValueAtTime(0.18, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+      osc.connect(g);
+      g.connect(this.masterGain!);
+      osc.start(t);
+      osc.stop(t + 0.3);
+    });
+  }
+
+  public triggerFinishFanfare(won: boolean) {
+    if (!this.ctx || !this.masterGain || this.muted) return;
+    const now = this.ctx.currentTime;
+    const notes = won ? [392.0, 493.88, 587.33, 783.99] : [261.63, 220.0, 164.81];
+    notes.forEach((freq, idx) => {
+      const t = now + idx * (won ? 0.09 : 0.14);
+      const osc = this.ctx!.createOscillator();
+      osc.type = won ? 'sawtooth' : 'triangle';
+      osc.frequency.setValueAtTime(freq, t);
+      const filt = this.ctx!.createBiquadFilter();
+      filt.type = 'lowpass';
+      filt.frequency.value = won ? 2100 : 750;
+      const g = this.ctx!.createGain();
+      g.gain.setValueAtTime(0.18, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.52);
+      osc.connect(filt);
+      filt.connect(g);
+      g.connect(this.masterGain!);
+      osc.start(t);
+      osc.stop(t + 0.55);
+    });
   }
 }
 

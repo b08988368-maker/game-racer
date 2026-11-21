@@ -14,6 +14,7 @@ import {
   CARS,
   getDefaultCarConfig,
   getDefaultCareerProfile,
+  isTierBossUnlocked,
   UPGRADE_COST,
 } from './data/gameData';
 import {
@@ -33,6 +34,7 @@ import {
   EnvironmentId,
   GarageCarConfig,
   LeaderboardEntry,
+  MissionDefinition,
   RaceMode,
   RaceResult,
   RaceTelemetry,
@@ -51,6 +53,9 @@ function loadLocalCareer(): CareerProfile {
         ...getDefaultCareerProfile(),
         ...parsed,
         wonTrackIds: Array.isArray(parsed.wonTrackIds) ? parsed.wonTrackIds : [],
+        completedMissionIds: Array.isArray(parsed.completedMissionIds)
+          ? parsed.completedMissionIds
+          : [],
       };
     }
   } catch {
@@ -74,7 +79,7 @@ function GameRoot() {
   const engineRef = useRef<RacingEngine | null>(null);
 
   const [screen, setScreen] = useState<'menu' | 'race'>('menu');
-  const [activeTab, setActiveTab] = useState<MenuTab>('race');
+  const [activeTab, setActiveTab] = useState<MenuTab>('missions');
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(false);
 
@@ -144,6 +149,16 @@ function GameRoot() {
       const isNewTrackWin = countsAsCircuitWin && !curWonTracks.includes(result.trackId);
       const nextWonTracks = isNewTrackWin ? [...curWonTracks, result.trackId] : curWonTracks;
 
+      const curCompletedMissions = Array.isArray(cur.completedMissionIds)
+        ? cur.completedMissionIds
+        : [];
+      const nextCompletedMissions =
+        result.missionCompleted &&
+        result.missionId &&
+        !curCompletedMissions.includes(result.missionId)
+          ? [...curCompletedMissions, result.missionId]
+          : curCompletedMissions;
+
       let nextOwnedCars = cur.ownedCarIds;
       let nextGarage: Record<string, GarageCarConfig> | undefined;
       if (result.bossCarAwarded && !cur.ownedCarIds.includes(result.bossCarAwarded.id)) {
@@ -173,6 +188,7 @@ function GameRoot() {
         highestHeat: Math.max(cur.highestHeat, result.highestHeat),
         ownedCarIds: nextOwnedCars,
         wonTrackIds: nextWonTracks,
+        completedMissionIds: nextCompletedMissions,
       };
 
       setRaceResult({ ...result, isNewTrackWin });
@@ -355,8 +371,16 @@ function GameRoot() {
     rival?: BlacklistRival,
     environment?: EnvironmentId,
     patrolsEnabled = true,
+    mission?: MissionDefinition,
   ) => {
     if (!engineRef.current) return;
+    if (mode === 'blacklist' && rival) {
+      const alreadyDefeated = profile.blacklistDefeated > 10 - rival.rank;
+      const gate = isTierBossUnlocked(rival, profile);
+      if (!alreadyDefeated && !gate.unlocked) {
+        return;
+      }
+    }
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
@@ -371,6 +395,7 @@ function GameRoot() {
       playerSpec: spec,
       playerConfig: cfg,
       rival,
+      mission,
     };
     setActiveRaceParams(params);
     setRaceResult(null);

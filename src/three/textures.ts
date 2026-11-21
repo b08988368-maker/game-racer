@@ -1,22 +1,37 @@
 import * as THREE from 'three';
 import { LiveryStyle } from '../types/game';
 
-export function createAsphaltTexture(maxAnisotropy: number): THREE.CanvasTexture {
+export type AsphaltVariant = 'standard' | 'interstate' | 'canyon' | 'city_wet' | 'industrial';
+
+export function createAsphaltTexture(
+  maxAnisotropy: number,
+  variant: AsphaltVariant = 'standard',
+): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 512;
   const ctx = canvas.getContext('2d')!;
 
-  // Rich dark Rockport expressway asphalt
-  ctx.fillStyle = '#151922';
+  const baseColor =
+    variant === 'interstate'
+      ? '#242933'
+      : variant === 'canyon'
+        ? '#26211D'
+        : variant === 'city_wet'
+          ? '#10141C'
+          : variant === 'industrial'
+            ? '#1B1A19'
+            : '#151922';
+
+  ctx.fillStyle = baseColor;
   ctx.fillRect(0, 0, 512, 512);
 
   // Subtle longitudinal paving seam bands across 4 lanes
   for (let x = 0; x < 512; x += 128) {
     const grad = ctx.createLinearGradient(x, 0, x + 128, 0);
-    grad.addColorStop(0, 'rgba(9,11,16,0.28)');
-    grad.addColorStop(0.5, 'rgba(34,40,52,0.12)');
-    grad.addColorStop(1, 'rgba(9,11,16,0.28)');
+    grad.addColorStop(0, 'rgba(9,11,16,0.32)');
+    grad.addColorStop(0.5, variant === 'interstate' ? 'rgba(60,68,82,0.16)' : 'rgba(34,40,52,0.12)');
+    grad.addColorStop(1, 'rgba(9,11,16,0.32)');
     ctx.fillStyle = grad;
     ctx.fillRect(x, 0, 128, 512);
   }
@@ -25,8 +40,14 @@ export function createAsphaltTexture(maxAnisotropy: number): THREE.CanvasTexture
   for (let i = 0; i < 16000; i++) {
     const x = Math.random() * 512;
     const y = Math.random() * 512;
-    const shade = 16 + Math.floor(Math.random() * 24);
-    ctx.fillStyle = `rgb(${shade},${shade + 3},${shade + 7})`;
+    const shade = (variant === 'interstate' ? 28 : 16) + Math.floor(Math.random() * 24);
+    if (variant === 'canyon') {
+      ctx.fillStyle = `rgb(${shade + 12},${shade + 5},${shade})`;
+    } else if (variant === 'industrial') {
+      ctx.fillStyle = `rgb(${shade + 6},${shade + 2},${shade})`;
+    } else {
+      ctx.fillStyle = `rgb(${shade},${shade + 3},${shade + 7})`;
+    }
     ctx.fillRect(x, y, 2, 2);
   }
 
@@ -47,39 +68,43 @@ export function createAsphaltTexture(maxAnisotropy: number): THREE.CanvasTexture
   }
 
   // Cross-road concrete/tar expansion joints for speed rhythm
-  ctx.fillStyle = 'rgba(7, 9, 13, 0.55)';
-  ctx.fillRect(0, 128, 512, 3);
-  ctx.fillRect(0, 384, 512, 3);
+  ctx.fillStyle = variant === 'interstate' ? 'rgba(10, 12, 18, 0.78)' : 'rgba(7, 9, 13, 0.55)';
+  ctx.fillRect(0, 128, 512, variant === 'interstate' ? 5 : 3);
+  ctx.fillRect(0, 384, 512, variant === 'interstate' ? 5 : 3);
+  if (variant === 'interstate') {
+    ctx.fillRect(0, 256, 512, 4);
+    ctx.fillRect(0, 0, 512, 4);
+  }
 
   // Subtle worn dark tire grooves along all 4 lanes
   [66, 174, 338, 446].forEach((laneCenter) => {
-    const groove = ctx.createLinearGradient(laneCenter - 34, 0, laneCenter + 34, 0);
-    groove.addColorStop(0, 'rgba(7, 9, 14, 0)');
-    groove.addColorStop(0.5, 'rgba(5, 7, 11, 0.54)');
-    groove.addColorStop(1, 'rgba(7, 9, 14, 0)');
+    const groove = ctx.createLinearGradient(laneCenter - 36, 0, laneCenter + 36, 0);
+    groove.addColorStop(0, 'rgba(5, 7, 11, 0)');
+    groove.addColorStop(0.5, 'rgba(3, 4, 8, 0.72)');
+    groove.addColorStop(1, 'rgba(5, 7, 11, 0)');
     ctx.fillStyle = groove;
-    ctx.fillRect(laneCenter - 34, 0, 68, 512);
+    ctx.fillRect(laneCenter - 36, 0, 72, 512);
   });
 
-  // Outer edge white lines & milled shoulder rumble strips
-  ctx.fillStyle = '#E2E8F0';
-  ctx.fillRect(14, 0, 6, 512);
-  ctx.fillRect(492, 0, 6, 512);
-  ctx.fillStyle = 'rgba(10, 14, 22, 0.72)';
+  // Outer edge lines & shoulder rumble strips
+  ctx.fillStyle = variant === 'canyon' ? '#FDE68A' : '#F1F5F9';
+  ctx.fillRect(14, 0, 7, 512);
+  ctx.fillRect(491, 0, 7, 512);
+  ctx.fillStyle = variant === 'canyon' ? 'rgba(217, 119, 6, 0.55)' : 'rgba(10, 14, 22, 0.8)';
   for (let y = 0; y < 512; y += 24) {
     ctx.fillRect(3, y, 9, 10);
     ctx.fillRect(500, y, 9, 10);
   }
 
-  // Dashed lane dividers
-  ctx.fillStyle = 'rgba(226, 232, 240, 0.86)';
+  // Crisp dashed lane dividers
+  ctx.fillStyle = variant === 'city_wet' ? 'rgba(56, 189, 248, 0.85)' : 'rgba(241, 245, 249, 0.92)';
   for (let y = 0; y < 512; y += 64) {
-    ctx.fillRect(126, y + 10, 5, 34);
-    ctx.fillRect(381, y + 10, 5, 34);
+    ctx.fillRect(126, y + 10, 5, 36);
+    ctx.fillRect(381, y + 10, 5, 36);
   }
 
-  // Center double amber highway median lines
-  ctx.fillStyle = '#F59E0B';
+  // Center double highway median lines
+  ctx.fillStyle = variant === 'industrial' ? '#FB923C' : '#F59E0B';
   ctx.fillRect(247, 0, 5, 512);
   ctx.fillRect(260, 0, 5, 512);
 
@@ -203,18 +228,26 @@ export function createCurbTexture(maxAnisotropy: number): THREE.CanvasTexture {
   canvas.height = 256;
   const ctx = canvas.getContext('2d')!;
 
-  ctx.fillStyle = '#242933';
+  // Outer paved runoff shoulder + bold FIA red/white apex rumble blocks
+  ctx.fillStyle = '#1E232D';
   ctx.fillRect(0, 0, 128, 256);
 
-  ctx.fillStyle = '#171B22';
-  for (let y = 0; y < 256; y += 16) {
-    ctx.fillRect(14, y, 36, 7);
-    ctx.fillRect(78, y, 36, 7);
+  for (let y = 0; y < 256; y += 64) {
+    ctx.fillStyle = y % 128 === 0 ? '#DC2626' : '#F8FAFC';
+    ctx.fillRect(0, y, 52, 64);
+    ctx.fillRect(76, y, 52, 64);
   }
 
+  // Rumble groove ribs on curb edge
+  ctx.fillStyle = 'rgba(9, 11, 16, 0.35)';
+  for (let y = 0; y < 256; y += 16) {
+    ctx.fillRect(0, y, 128, 4);
+  }
+
+  // Subtle amber safety pin-stripe along inner asphalt transition
   ctx.fillStyle = '#F59E0B';
-  ctx.fillRect(0, 0, 10, 256);
-  ctx.fillRect(118, 0, 10, 256);
+  ctx.fillRect(52, 0, 4, 256);
+  ctx.fillRect(72, 0, 4, 256);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -230,19 +263,35 @@ export function createBarrierTexture(maxAnisotropy: number): THREE.CanvasTexture
   canvas.height = 128;
   const ctx = canvas.getContext('2d')!;
 
-  ctx.fillStyle = '#475569';
+  // Industrial concrete Jersey wall + top steel rail band + safety chevron hazard strip
+  ctx.fillStyle = '#4B5563';
   ctx.fillRect(0, 0, 256, 128);
 
-  ctx.fillStyle = '#334155';
-  ctx.fillRect(0, 76, 256, 52);
-  ctx.fillStyle = '#64748B';
-  ctx.fillRect(0, 0, 256, 16);
-  ctx.fillStyle = '#1E293B';
+  // Lower sloped base foot shadow
+  ctx.fillStyle = '#27303F';
+  ctx.fillRect(0, 82, 256, 46);
+
+  // Top dark steel guardrail cap band
+  ctx.fillStyle = '#1F2937';
+  ctx.fillRect(0, 0, 256, 22);
+
+  // Bold amber/black hazard stripe under top rail for sharp border legibility
+  ctx.fillStyle = '#F59E0B';
+  ctx.fillRect(0, 22, 256, 10);
+  ctx.fillStyle = '#111827';
+  for (let x = 0; x < 256; x += 32) {
+    ctx.fillRect(x, 22, 14, 10);
+  }
+
+  // Concrete segment expansion seams
+  ctx.fillStyle = '#18202C';
   for (let x = 0; x < 256; x += 64) {
     ctx.fillRect(x, 0, 4, 128);
   }
-  ctx.fillStyle = '#F59E0B';
-  ctx.fillRect(112, 22, 32, 10);
+
+  // Scuff & tire rub marks along mid wall
+  ctx.fillStyle = 'rgba(15, 20, 28, 0.45)';
+  ctx.fillRect(0, 56, 256, 12);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -755,3 +804,205 @@ export function createPoliceLiveryTexture(maxAnisotropy: number, isRhino = false
   tex.anisotropy = maxAnisotropy;
   return tex;
 }
+
+export function createCornerChevronTexture(
+  maxAnisotropy: number,
+  direction: 'left' | 'right',
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#0B0D12';
+  ctx.fillRect(0, 0, 256, 128);
+
+  // High-visibility safety amber outer trim
+  ctx.strokeStyle = '#F59E0B';
+  ctx.lineWidth = 8;
+  ctx.strokeRect(4, 4, 248, 120);
+
+  // Bold directional chevrons pointing left or right around the turn
+  ctx.strokeStyle = '#FBBF24';
+  ctx.lineWidth = 20;
+  ctx.lineCap = 'square';
+  ctx.lineJoin = 'miter';
+
+  const offsets = [-68, 0, 68];
+  offsets.forEach((ox) => {
+    const cx = 128 + ox;
+    ctx.beginPath();
+    if (direction === 'right') {
+      ctx.moveTo(cx - 22, 24);
+      ctx.lineTo(cx + 16, 64);
+      ctx.lineTo(cx - 22, 104);
+    } else {
+      ctx.moveTo(cx + 22, 24);
+      ctx.lineTo(cx - 16, 64);
+      ctx.lineTo(cx + 22, 104);
+    }
+    ctx.stroke();
+  });
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
+  return tex;
+}
+
+export function createShortcutSurfaceTexture(maxAnisotropy: number): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d')!;
+
+  // Distinct concrete-service-alley pavement with subtle emerald edge guides
+  ctx.fillStyle = '#181E24';
+  ctx.fillRect(0, 0, 256, 512);
+
+  // Paving stone texture blocks
+  for (let y = 0; y < 512; y += 32) {
+    ctx.fillStyle = y % 64 === 0 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.08)';
+    ctx.fillRect(16, y + 2, 224, 28);
+  }
+
+  // Bright emerald + amber safety edges
+  ctx.fillStyle = '#10B981';
+  ctx.fillRect(6, 0, 8, 512);
+  ctx.fillRect(242, 0, 8, 512);
+  ctx.fillStyle = '#F59E0B';
+  for (let y = 0; y < 512; y += 48) {
+    ctx.fillRect(16, y, 5, 24);
+    ctx.fillRect(235, y, 5, 24);
+  }
+
+  // Bold repeating illuminated forward chevrons down center of shortcut lane
+  ctx.strokeStyle = 'rgba(16, 185, 129, 0.78)';
+  ctx.lineWidth = 14;
+  ctx.lineCap = 'square';
+  for (let y = 44; y < 512; y += 128) {
+    ctx.beginPath();
+    ctx.moveTo(76, y + 48);
+    ctx.lineTo(128, y);
+    ctx.lineTo(180, y + 48);
+    ctx.stroke();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = maxAnisotropy;
+  return tex;
+}
+
+export function createShortcutSignTexture(
+  maxAnisotropy: number,
+  label: string,
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 192;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#071310';
+  ctx.fillRect(0, 0, 512, 192);
+
+  // Hazard stripe header
+  ctx.fillStyle = '#10B981';
+  ctx.fillRect(0, 0, 512, 18);
+  ctx.fillStyle = '#F59E0B';
+  ctx.fillRect(0, 174, 512, 18);
+
+  ctx.strokeStyle = '#34D399';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(8, 22, 496, 148);
+
+  ctx.fillStyle = '#34D399';
+  ctx.font = 'bold 46px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('>> SHORTCUT BYPASS <<', 256, 76);
+
+  ctx.fillStyle = '#F8FAFC';
+  ctx.font = 'bold 28px sans-serif';
+  ctx.fillText(label.toUpperCase(), 256, 134);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
+  return tex;
+}
+
+export function createBrakingBoardTexture(
+  maxAnisotropy: number,
+  distanceLabel: string,
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#F8FAFC';
+  ctx.fillRect(0, 0, 128, 128);
+
+  ctx.strokeStyle = '#DC2626';
+  ctx.lineWidth = 10;
+  ctx.strokeRect(5, 5, 118, 118);
+
+  ctx.fillStyle = '#0F172A';
+  ctx.font = 'bold 54px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(distanceLabel, 64, 58);
+
+  ctx.fillStyle = '#DC2626';
+  ctx.font = 'bold 20px sans-serif';
+  ctx.fillText('METERS', 64, 102);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
+  return tex;
+}
+
+export function createTunnelPortalTexture(maxAnisotropy: number): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#181C24';
+  ctx.fillRect(0, 0, 512, 128);
+
+  // Diagonal hazard chevrons on edges
+  ctx.fillStyle = '#F59E0B';
+  for (let x = -32; x < 544; x += 44) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x + 22, 0);
+    ctx.lineTo(x + 6, 26);
+    ctx.lineTo(x - 16, 26);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.fillStyle = '#0B0E14';
+  ctx.fillRect(90, 34, 332, 74);
+  ctx.strokeStyle = '#F59E0B';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(90, 34, 332, 74);
+
+  ctx.fillStyle = '#FBBF24';
+  ctx.font = 'bold 34px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('TUNNEL // 5.2M CLEAR', 256, 72);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
+  return tex;
+}
+
+
