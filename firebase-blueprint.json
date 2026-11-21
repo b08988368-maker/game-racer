@@ -1,0 +1,196 @@
+{
+  "entities": {
+    "CareerProfile": {
+      "title": "CareerProfile",
+      "description": "Player career progression, cash, bounty, won circuits, and 10-rank Blacklist status.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "driverName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "cash": {
+          "type": "number"
+        },
+        "totalBounty": {
+          "type": "number"
+        },
+        "blacklistDefeated": {
+          "type": "number"
+        },
+        "racesWon": {
+          "type": "number"
+        },
+        "copsTakedowns": {
+          "type": "number"
+        },
+        "selectedCarId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownedCarIds": {
+          "type": "array"
+        },
+        "wonTrackIds": {
+          "type": "array"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "driverName",
+        "cash",
+        "totalBounty",
+        "blacklistDefeated",
+        "racesWon",
+        "copsTakedowns",
+        "selectedCarId",
+        "ownedCarIds",
+        "wonTrackIds",
+        "updatedAt"
+      ]
+    },
+    "GarageCarConfig": {
+      "title": "GarageCarConfig",
+      "description": "Per-vehicle performance upgrades and visual customization.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "carId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "engineLevel": {
+          "type": "number"
+        },
+        "turboLevel": {
+          "type": "number"
+        },
+        "nitrousLevel": {
+          "type": "number"
+        },
+        "tiresLevel": {
+          "type": "number"
+        },
+        "paintHex": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "livery": {
+          "type": "string",
+          "enum": ["clean", "stripes", "most_wanted", "boss_carbon"]
+        },
+        "rimStyle": {
+          "type": "string",
+          "enum": ["chrome", "black", "gold", "bronze"]
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerId",
+        "carId",
+        "engineLevel",
+        "turboLevel",
+        "nitrousLevel",
+        "tiresLevel",
+        "paintHex",
+        "livery",
+        "rimStyle",
+        "updatedAt"
+      ]
+    },
+    "LeaderboardEntry": {
+      "title": "LeaderboardEntry",
+      "description": "Public Most Wanted Rap Sheet entry for cross-player rankings.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "driverName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "totalBounty": {
+          "type": "number"
+        },
+        "bestLapMs": {
+          "type": "number"
+        },
+        "highestHeat": {
+          "type": "number"
+        },
+        "blacklistRank": {
+          "type": "number"
+        },
+        "carName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 48
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "driverName",
+        "totalBounty",
+        "bestLapMs",
+        "highestHeat",
+        "blacklistRank",
+        "carName",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/CareerProfile"
+      },
+      "description": "Private player career progression document keyed by Firebase Auth UID."
+    },
+    "/users/{userId}/garage/{carId}": {
+      "schema": {
+        "$ref": "#/entities/GarageCarConfig"
+      },
+      "description": "Private vehicle tuning and visual config subcollection belonging to a user."
+    },
+    "/leaderboard/{entryId}": {
+      "schema": {
+        "$ref": "#/entities/LeaderboardEntry"
+      },
+      "description": "Public Most Wanted Rap Sheet leaderboard entry keyed by owner UID."
+    }
+  }
+}

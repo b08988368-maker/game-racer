@@ -1,0 +1,230 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation Blueprint: CareerProfile
+    function isValidCareerProfile(data, userId) {
+      return data.keys().hasAll([
+          'uid', 'driverName', 'cash', 'totalBounty',
+          'blacklistDefeated', 'racesWon', 'copsTakedowns',
+          'selectedCarId', 'ownedCarIds', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'driverName', 'cash', 'totalBounty',
+          'blacklistDefeated', 'racesWon', 'copsTakedowns',
+          'selectedCarId', 'ownedCarIds', 'wonTrackIds', 'updatedAt'
+        ])
+        && data.uid is string
+        && data.uid == request.auth.uid
+        && data.uid == userId
+        && isValidId(data.uid)
+        && data.driverName is string
+        && data.driverName.size() >= 1
+        && data.driverName.size() <= 32
+        && data.cash is int
+        && data.cash >= 0
+        && data.cash <= 1000000000
+        && data.totalBounty is int
+        && data.totalBounty >= 0
+        && data.totalBounty <= 1000000000
+        && data.blacklistDefeated is int
+        && data.blacklistDefeated >= 0
+        && data.blacklistDefeated <= 10
+        && data.racesWon is int
+        && data.racesWon >= 0
+        && data.racesWon <= 100000
+        && data.copsTakedowns is int
+        && data.copsTakedowns >= 0
+        && data.copsTakedowns <= 100000
+        && data.selectedCarId is string
+        && data.selectedCarId.size() >= 1
+        && data.selectedCarId.size() <= 32
+        && data.selectedCarId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.ownedCarIds is list
+        && data.ownedCarIds.size() >= 1
+        && data.ownedCarIds.size() <= 20
+        && data.ownedCarIds[0] is string
+        && data.ownedCarIds[0].size() >= 1
+        && data.ownedCarIds[0].size() <= 32
+        && (!('wonTrackIds' in data) || (
+          data.wonTrackIds is list
+          && data.wonTrackIds.size() <= 10
+          && (data.wonTrackIds.size() == 0 || (
+            data.wonTrackIds[0] is string
+            && data.wonTrackIds[0].size() >= 1
+            && data.wonTrackIds[0].size() <= 32
+          ))
+        ))
+        && data.updatedAt == request.time;
+    }
+
+    // Validation Blueprint: GarageCarConfig
+    function isValidGarageCarConfig(data, userId, carId) {
+      return data.keys().hasAll([
+          'ownerId', 'carId', 'engineLevel', 'turboLevel',
+          'nitrousLevel', 'tiresLevel', 'paintHex', 'livery',
+          'rimStyle', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'carId', 'engineLevel', 'turboLevel',
+          'nitrousLevel', 'tiresLevel', 'paintHex', 'livery',
+          'rimStyle', 'updatedAt'
+        ])
+        && data.ownerId is string
+        && data.ownerId == request.auth.uid
+        && data.ownerId == userId
+        && isValidId(data.ownerId)
+        && data.carId is string
+        && data.carId == carId
+        && data.carId.size() >= 1
+        && data.carId.size() <= 32
+        && data.carId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.engineLevel is int
+        && data.engineLevel >= 1 && data.engineLevel <= 4
+        && data.turboLevel is int
+        && data.turboLevel >= 1 && data.turboLevel <= 4
+        && data.nitrousLevel is int
+        && data.nitrousLevel >= 1 && data.nitrousLevel <= 4
+        && data.tiresLevel is int
+        && data.tiresLevel >= 1 && data.tiresLevel <= 4
+        && data.paintHex is string
+        && data.paintHex.size() == 7
+        && data.paintHex.matches('^#[0-9a-fA-F]{6}$')
+        && data.livery is string
+        && data.livery in ['clean', 'stripes', 'most_wanted', 'boss_carbon']
+        && data.rimStyle is string
+        && data.rimStyle in ['chrome', 'black', 'gold', 'bronze']
+        && data.updatedAt == request.time;
+    }
+
+    // Validation Blueprint: LeaderboardEntry
+    function isValidLeaderboardEntry(data, entryId) {
+      return data.keys().hasAll([
+          'uid', 'driverName', 'totalBounty', 'bestLapMs',
+          'highestHeat', 'blacklistRank', 'carName', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'driverName', 'totalBounty', 'bestLapMs',
+          'highestHeat', 'blacklistRank', 'carName', 'updatedAt'
+        ])
+        && data.uid is string
+        && data.uid == request.auth.uid
+        && data.uid == entryId
+        && isValidId(data.uid)
+        && data.driverName is string
+        && data.driverName.size() >= 1
+        && data.driverName.size() <= 32
+        && data.totalBounty is int
+        && data.totalBounty >= 0
+        && data.totalBounty <= 1000000000
+        && data.bestLapMs is int
+        && data.bestLapMs >= 0
+        && data.bestLapMs <= 3600000
+        && data.highestHeat is int
+        && data.highestHeat >= 1 && data.highestHeat <= 5
+        && data.blacklistRank is int
+        && data.blacklistRank >= 1 && data.blacklistRank <= 11
+        && data.carName is string
+        && data.carName.size() >= 1
+        && data.carName.size() <= 48
+        && data.updatedAt == request.time;
+    }
+
+    // Collection: /users/{userId}
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+      allow create: if isValidId(userId)
+        && isVerifiedUser()
+        && isOwner(userId)
+        && isValidCareerProfile(incoming(), userId);
+      allow update: if isValidId(userId)
+        && isVerifiedUser()
+        && isOwner(userId)
+        && isValidCareerProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'driverName', 'cash', 'totalBounty', 'blacklistDefeated',
+          'racesWon', 'copsTakedowns', 'selectedCarId', 'ownedCarIds',
+          'wonTrackIds', 'updatedAt'
+        ]);
+      allow delete: if false;
+
+      // Subcollection: /users/{userId}/garage/{carId}
+      match /garage/{carId} {
+        allow get: if isValidId(userId) && isValidId(carId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isValidId(userId)
+          && isValidId(carId)
+          && isVerifiedUser()
+          && isOwner(userId)
+          && isValidGarageCarConfig(incoming(), userId, carId)
+          && exists(/databases/$(database)/documents/users/$(userId));
+        allow update: if isValidId(userId)
+          && isValidId(carId)
+          && isVerifiedUser()
+          && isOwner(userId)
+          && isValidGarageCarConfig(incoming(), userId, carId)
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && incoming().ownerId == existing().ownerId
+          && incoming().carId == existing().carId
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'engineLevel', 'turboLevel', 'nitrousLevel', 'tiresLevel',
+            'paintHex', 'livery', 'rimStyle', 'updatedAt'
+          ]);
+        allow delete: if false;
+      }
+    }
+
+    // Collection: /leaderboard/{entryId} (public Rap Sheet, no PII)
+    match /leaderboard/{entryId} {
+      allow get: if isValidId(entryId);
+      allow list: if resource.data.totalBounty >= 0;
+      allow create: if isValidId(entryId)
+        && isVerifiedUser()
+        && request.auth.uid == entryId
+        && isValidLeaderboardEntry(incoming(), entryId);
+      allow update: if isValidId(entryId)
+        && isVerifiedUser()
+        && request.auth.uid == entryId
+        && isValidLeaderboardEntry(incoming(), entryId)
+        && incoming().uid == existing().uid
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'driverName', 'totalBounty', 'bestLapMs', 'highestHeat',
+          'blacklistRank', 'carName', 'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "BLACKLIST: Rockport",
+  "description": "3D street racing and police pursuit game inspired by Need for Speed: Most Wanted, featuring Blacklist boss duels, garage tuning, nitrous, speedbreaker, and Heat 1-5 chases.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
