@@ -5,6 +5,7 @@
 
 import { User } from 'firebase/auth';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { musicEngine } from './audio/musicEngine';
 import { soundEngine } from './audio/soundEngine';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MainMenuGarage, MenuTab } from './components/MainMenuGarage';
@@ -32,6 +33,7 @@ import {
   BlacklistRival,
   CareerProfile,
   EnvironmentId,
+  GarageCameraPreset,
   GarageCarConfig,
   LeaderboardEntry,
   MissionDefinition,
@@ -43,6 +45,17 @@ import {
 
 const LOCAL_CAREER_KEY = 'blacklist_rockport_career_v1';
 const LOCAL_GARAGE_KEY = 'blacklist_rockport_garage_v1';
+const LOCAL_LOOK_KEY = 'blacklist_rockport_aelook_v1';
+
+function loadAeLookSetting(): boolean {
+  try {
+    const raw = localStorage.getItem(LOCAL_LOOK_KEY);
+    if (raw === 'false') return false;
+  } catch {
+    // ignore storage errors
+  }
+  return true;
+}
 
 function loadLocalCareer(): CareerProfile {
   try {
@@ -82,6 +95,10 @@ function GameRoot() {
   const [activeTab, setActiveTab] = useState<MenuTab>('missions');
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [musicMuted, setMusicMuted] = useState(false);
+  const [currentTrackLabel, setCurrentTrackLabel] = useState(() => musicEngine.getCurrentTrackLabel());
+  const [showDebug, setShowDebug] = useState(false);
+  const [aeLookEnabled, setAeLookEnabled] = useState<boolean>(() => loadAeLookSetting());
 
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
@@ -97,6 +114,8 @@ function GameRoot() {
   const [activeRaceParams, setActiveRaceParams] = useState<RaceStartParams | null>(null);
   const [telemetry, setTelemetry] = useState<RaceTelemetry | null>(null);
   const [raceResult, setRaceResult] = useState<RaceResult | null>(null);
+  const [outroRevealReady, setOutroRevealReady] = useState(false);
+  const [garagePreset, setGaragePreset] = useState<GarageCameraPreset>('orbit');
 
   // Refs for stable RacingEngine callbacks
   const profileRef = useRef(profile);
@@ -210,6 +229,7 @@ function GameRoot() {
       onTelemetry: (t) => setTelemetry(t),
       onRaceComplete: (res) => handleRaceComplete(res),
     });
+    engine.setAeLookEnabled(aeLookEnabled);
     engineRef.current = engine;
 
     const spec = CARS.find((c) => c.id === profileRef.current.selectedCarId) ?? CARS[0];
@@ -230,6 +250,31 @@ function GameRoot() {
     const cfg = garageConfigs[spec.id] ?? getDefaultCarConfig(spec.id, profile.uid);
     engineRef.current.showGarageCar(spec, cfg);
   }, [screen, profile.selectedCarId, profile.uid, garageConfigs]);
+
+  // Start Safe House menu music on first user gesture while on menu
+  useEffect(() => {
+    if (screen !== 'menu') return;
+    const kickAudio = () => {
+      soundEngine.init();
+      musicEngine.startMenuMusic();
+    };
+    window.addEventListener('pointerdown', kickAudio, { once: true });
+    window.addEventListener('keydown', kickAudio, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', kickAudio);
+      window.removeEventListener('keydown', kickAudio);
+    };
+  }, [screen]);
+
+  // Stage PostRaceModal after ~1.05s of live slow-motion 3D outro orbit camera
+  useEffect(() => {
+    if (!raceResult) {
+      setOutroRevealReady(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setOutroRevealReady(true), 1050);
+    return () => window.clearTimeout(timer);
+  }, [raceResult]);
 
   // Firebase Auth listener
   useEffect(() => {
@@ -252,7 +297,14 @@ function GameRoot() {
     return () => unsub();
   }, [refreshLeaderboard]);
 
-  // Escape key pause toggle during race
+  // Subscribe to EA Trax playlist updates
+  useEffect(() => {
+    return musicEngine.subscribe((label) => {
+      setCurrentTrackLabel(label);
+    });
+  }, []);
+
+  // Escape key pause toggle and F3 FPS/debug overlay toggle during race
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && screen === 'race' && !raceResult) {
@@ -261,6 +313,9 @@ function GameRoot() {
           engineRef.current?.setPaused(next);
           return next;
         });
+      } else if (e.key === 'F3' && screen === 'race') {
+        e.preventDefault();
+        setShowDebug((prev) => !prev);
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -272,6 +327,45 @@ function GameRoot() {
     const next = !muted;
     soundEngine.setMuted(next);
     setMuted(next);
+  };
+
+  const handleToggleMusicMute = () => {
+    soundEngine.init();
+    const next = !musicMuted;
+    musicEngine.setMusicMuted(next);
+    setMusicMuted(next);
+  };
+
+  const handleSkipTrack = () => {
+    soundEngine.init();
+    const label = engineRef.current ? engineRef.current.skipMusicTrack() : musicEngine.nextTrack();
+    setCurrentTrackLabel(label);
+  };
+
+  const handleSelectTrackIdx = (idx: number) => {
+    soundEngine.init();
+    const label = engineRef.current ? engineRef.current.selectMusicTrack(idx) : musicEngine.selectTrack(idx);
+    setCurrentTrackLabel(label);
+  };
+
+  const handleToggleAeLook = () => {
+    soundEngine.init();
+    soundEngine.triggerUiClick();
+    setAeLookEnabled((prev) => {
+      const next = !prev;
+      engineRef.current?.setAeLookEnabled(next);
+      try {
+        localStorage.setItem(LOCAL_LOOK_KEY, String(next));
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  };
+
+  const handleSelectGaragePreset = (preset: GarageCameraPreset) => {
+    setGaragePreset(preset);
+    engineRef.current?.setGarageCameraPreset(preset);
   };
 
   const handleSignIn = async () => {
@@ -399,6 +493,7 @@ function GameRoot() {
     };
     setActiveRaceParams(params);
     setRaceResult(null);
+    setOutroRevealReady(false);
     setPaused(false);
     setScreen('race');
     engineRef.current.startRace(params);
@@ -406,11 +501,14 @@ function GameRoot() {
 
   const handleReturnToGarage = () => {
     setRaceResult(null);
+    setOutroRevealReady(false);
     setPaused(false);
     setScreen('menu');
     const spec = CARS.find((c) => c.id === profile.selectedCarId) ?? CARS[0];
     const cfg = garageConfigs[spec.id] ?? getDefaultCarConfig(spec.id, profile.uid);
     engineRef.current?.showGarageCar(spec, cfg);
+    soundEngine.init();
+    musicEngine.startMenuMusic();
   };
 
   return (
@@ -430,6 +528,13 @@ function GameRoot() {
           authBusy={authBusy}
           muted={muted}
           onToggleMute={handleToggleMute}
+          musicMuted={musicMuted}
+          onToggleMusicMute={handleToggleMusicMute}
+          onSkipTrack={handleSkipTrack}
+          onSelectTrackIdx={handleSelectTrackIdx}
+          currentTrackLabel={currentTrackLabel}
+          garagePreset={garagePreset}
+          onSelectGaragePreset={handleSelectGaragePreset}
           onSignIn={handleSignIn}
           onSignOut={handleSignOut}
           onSelectCar={handleSelectCar}
@@ -446,8 +551,15 @@ function GameRoot() {
           telemetry={telemetry}
           mode={activeRaceParams.mode}
           muted={muted}
+          musicMuted={musicMuted}
+          showDebug={showDebug}
+          aeLookEnabled={aeLookEnabled}
+          onToggleAeLook={handleToggleAeLook}
           onToggleMute={handleToggleMute}
+          onToggleMusicMute={handleToggleMusicMute}
+          onSkipTrack={handleSkipTrack}
           onCycleCamera={() => engineRef.current?.cycleCameraMode()}
+          onSkipIntro={() => engineRef.current?.skipIntro()}
           onPause={() => {
             setPaused(true);
             engineRef.current?.setPaused(true);
@@ -463,6 +575,8 @@ function GameRoot() {
 
       {screen === 'race' && paused && !raceResult && (
         <PauseModal
+          aeLookEnabled={aeLookEnabled}
+          onToggleAeLook={handleToggleAeLook}
           onResume={() => {
             setPaused(false);
             engineRef.current?.setPaused(false);
@@ -470,6 +584,7 @@ function GameRoot() {
           onRestart={() => {
             if (activeRaceParams) {
               setRaceResult(null);
+              setOutroRevealReady(false);
               setPaused(false);
               engineRef.current?.startRace(activeRaceParams);
             }
@@ -478,13 +593,14 @@ function GameRoot() {
         />
       )}
 
-      {screen === 'race' && raceResult && (
+      {screen === 'race' && raceResult && outroRevealReady && (
         <PostRaceModal
           result={raceResult}
           profile={profile}
           onRaceAgain={() => {
             if (activeRaceParams) {
               setRaceResult(null);
+              setOutroRevealReady(false);
               setPaused(false);
               engineRef.current?.startRace(activeRaceParams);
             }

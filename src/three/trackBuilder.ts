@@ -159,6 +159,7 @@ export interface BuiltTrack {
     tangent: THREE.Vector3;
     distanceSq: number;
   } | null;
+  updateAnimations: (timeSec: number, countdownInt: number, introActive: boolean) => void;
   dispose: () => void;
 }
 
@@ -398,20 +399,20 @@ function getShortcutDefs(trackId: TrackId): ShortcutDef[] {
     case 'rosewood_canyon':
       return [{ label: 'OLD MILL GORGE CUT', startProg: 0.30, endProg: 0.46, side: -1, pullFactor: 0.38 }];
     case 'heritage_forest':
-      return [{ label: 'LOGGING TRAIL SHORTCUT', startProg: 0.54, endProg: 0.69, side: -1, pullFactor: 0.22 }];
+      return [{ label: 'LOGGING TRAIL SHORTCUT', startProg: 0.80, endProg: 0.95, side: 1, pullFactor: 0.20 }];
     case 'gray_point_bay':
-      return [{ label: 'HARBOR ALLEY BYPASS', startProg: 0.54, endProg: 0.69, side: -1, pullFactor: 0.28 }];
+      return [{ label: 'HARBOR ALLEY BYPASS', startProg: 0.54, endProg: 0.69, side: -1, pullFactor: 0.24 }];
     case 'silverton_pass':
-      return [{ label: 'SLAG PIT BYPASS', startProg: 0.30, endProg: 0.45, side: 1, pullFactor: 0.28 }];
+      return [{ label: 'SLAG PIT BYPASS', startProg: 0.31, endProg: 0.45, side: -1, pullFactor: 0.20 }];
     case 'downtown_labyrinth':
       return [
-        { label: 'SUBWAY ALLEY SHORTCUT', startProg: 0.08, endProg: 0.21, side: 1, pullFactor: 0.24 },
-        { label: 'TRANSIT PLAZA SHORTCUT', startProg: 0.55, endProg: 0.70, side: 1, pullFactor: 0.28 },
+        { label: 'SUBWAY ALLEY SHORTCUT', startProg: 0.29, endProg: 0.44, side: 1, pullFactor: 0.20 },
+        { label: 'TRANSIT PLAZA SHORTCUT', startProg: 0.79, endProg: 0.94, side: 1, pullFactor: 0.20 },
       ];
     case 'blackridge_summit':
       return [
-        { label: 'RIDGE TUNNEL SHORTCUT', startProg: 0.30, endProg: 0.45, side: 1, pullFactor: 0.24 },
-        { label: 'QUARRY SPINE CUT', startProg: 0.55, endProg: 0.70, side: 1, pullFactor: 0.24 },
+        { label: 'RIDGE TUNNEL SHORTCUT', startProg: 0.29, endProg: 0.44, side: 1, pullFactor: 0.20 },
+        { label: 'QUARRY SPINE CUT', startProg: 0.79, endProg: 0.94, side: 1, pullFactor: 0.20 },
       ];
   }
 }
@@ -643,8 +644,14 @@ export function buildTrack(
 
   const terrainCenterX = (minX + maxX) * 0.5;
   const terrainCenterZ = (minZ + maxZ) * 0.5;
-  const terrainSpanW = Math.max(2600, maxX - minX + 1100);
-  const terrainSpanD = Math.max(2600, maxZ - minZ + 1100);
+  const terrainSpanW = Math.max(5400, maxX - minX + 3000);
+  const terrainSpanD = Math.max(5400, maxZ - minZ + 3000);
+
+  let maxTrackRad = 0;
+  for (let i = 0; i < SAMPLE_COUNT; i++) {
+    const r = Math.hypot(rawSamples[i].point.x - terrainCenterX, rawSamples[i].point.z - terrainCenterZ);
+    if (r > maxTrackRad) maxTrackRad = r;
+  }
 
   const samples: TrackSample[] = [];
   for (let i = 0; i < SAMPLE_COUNT; i++) {
@@ -672,17 +679,22 @@ export function buildTrack(
   const tunnelConfigs =
     trackId === 'rockport_loop'
       ? [{ startIdx: Math.floor(SAMPLE_COUNT * 0.37), len: 30 }]
-      : trackId === 'silverton_pass' || trackId === 'blackridge_summit'
+      : trackId === 'silverton_pass'
         ? [
             { startIdx: Math.floor(SAMPLE_COUNT * 0.05), len: 26 },
             { startIdx: Math.floor(SAMPLE_COUNT * 0.79), len: 28 },
           ]
-        : trackId === 'hwy99_speedway'
+        : trackId === 'blackridge_summit'
           ? [
-              { startIdx: Math.floor(SAMPLE_COUNT * 0.06), len: 32 },
-              { startIdx: Math.floor(SAMPLE_COUNT * 0.59), len: 30 },
+              { startIdx: Math.floor(SAMPLE_COUNT * 0.05), len: 26 },
+              { startIdx: Math.floor(SAMPLE_COUNT * 0.56), len: 28 },
             ]
-          : [{ startIdx: Math.floor(SAMPLE_COUNT * 0.04), len: 28 }];
+          : trackId === 'hwy99_speedway'
+            ? [
+                { startIdx: Math.floor(SAMPLE_COUNT * 0.06), len: 32 },
+                { startIdx: Math.floor(SAMPLE_COUNT * 0.59), len: 30 },
+              ]
+            : [{ startIdx: Math.floor(SAMPLE_COUNT * 0.04), len: 28 }];
 
   const isInsideAnyTunnel = (idx: number, margin = 3): boolean =>
     tunnelConfigs.some((tc) => {
@@ -788,49 +800,48 @@ export function buildTrack(
     const sA = samples[startIdx];
     const sB = samples[endIdx];
 
-    for (let k = -3; k <= 3; k++) {
+    for (let k = -4; k <= 5; k++) {
       const idxA = (startIdx + k + SAMPLE_COUNT) % SAMPLE_COUNT;
+      if (def.side < 0) leftBarrierCutout[idxA] = 1;
+      else rightBarrierCutout[idxA] = 1;
+    }
+    for (let k = -4; k <= 4; k++) {
       const idxB = (endIdx + k + SAMPLE_COUNT) % SAMPLE_COUNT;
-      if (def.side < 0) {
-        leftBarrierCutout[idxA] = 1;
-        leftBarrierCutout[idxB] = 1;
-      } else {
-        rightBarrierCutout[idxA] = 1;
-        rightBarrierCutout[idxB] = 1;
-      }
+      if (def.side < 0) leftBarrierCutout[idxB] = 1;
+      else rightBarrierCutout[idxB] = 1;
     }
 
-    // 3 glowing emerald on-road approach lead-in arrows (up to ~140m before the shortcut opening)
-    [14, 9, 4].forEach((aheadSteps) => {
+    // 4 glowing emerald on-road approach lead-in arrows (up to ~180m before the shortcut opening)
+    [18, 13, 8, 3].forEach((aheadSteps, aOrd) => {
       const aIdx = (startIdx - aheadSteps + SAMPLE_COUNT) % SAMPLE_COUNT;
       const as = samples[aIdx];
-      const lat = def.side * (roadHalfWidth - 2.6);
+      const lat = def.side * (roadHalfWidth - (2.8 - aOrd * 0.45));
       const arrow = new THREE.Mesh(leadArrowGeo, leadArrowMat);
       arrow.position.set(
         as.point.x + as.right.x * lat,
         as.point.y + 0.08 + lat * Math.sin(as.bankAngle),
         as.point.z + as.right.z * lat,
       );
-      const yaw = Math.atan2(-as.tangent.x, -as.tangent.z) + def.side * -0.22;
+      const yaw = Math.atan2(-as.tangent.x, -as.tangent.z) + def.side * -0.18;
       arrow.rotation.set(as.slopePitch, yaw, -as.bankAngle, 'YXZ');
       group.add(arrow);
     });
 
-    // Flush apron anchor on main asphalt edge so cars transition seamlessly with zero curb bump
-    const entryShoulderLat = def.side * (roadHalfWidth - 0.8);
+    // Flush apron anchor overlapped on main highway shoulder so entry is seamless at 250+ km/h
+    const entryShoulderLat = def.side * (roadHalfWidth - 1.5);
     const entryPos = sA.point.clone().addScaledVector(sA.right, entryShoulderLat);
     entryPos.y += 0.045 + entryShoulderLat * Math.sin(sA.bankAngle);
-    const exitShoulderLat = def.side * (roadHalfWidth - 0.8);
+    const exitShoulderLat = def.side * (roadHalfWidth - 1.2);
     const exitPos = sB.point.clone().addScaledVector(sB.right, exitShoulderLat);
     exitPos.y += 0.045 + exitShoulderLat * Math.sin(sB.bankAngle);
 
-    const scHalfW = 6.6;
-    const minTrackClear = barrierHalfWidth + scHalfW + 15;
-    const chordDist = Math.max(80, entryPos.distanceTo(exitPos));
-    const leadAdvance = Math.min(38, chordDist * 0.16);
+    const scHalfW = 6.9;
+    const minTrackClear = barrierHalfWidth + scHalfW + 8.5;
+    const chordDist = Math.max(85, entryPos.distanceTo(exitPos));
+    const leadAdvance = Math.min(54, chordDist * 0.24);
 
     const pushPointClearOfMain = (pt: THREE.Vector3, fallbackDir: THREE.Vector3, clearRadius: number) => {
-      for (let pass = 0; pass < 4; pass++) {
+      for (let pass = 0; pass < 3; pass++) {
         let closestMainPt: THREE.Vector3 | null = null;
         let closestMainDistSq = clearRadius * clearRadius;
         for (let ti = 0; ti < SAMPLE_COUNT; ti++) {
@@ -851,24 +862,23 @@ export function buildTrack(
         } else {
           pushDir.normalize();
         }
-        pt.x = closestMainPt.x + pushDir.x * (clearRadius + 3);
-        pt.z = closestMainPt.z + pushDir.z * (clearRadius + 3);
+        pt.x = closestMainPt.x + pushDir.x * clearRadius;
+        pt.z = closestMainPt.z + pushDir.z * clearRadius;
       }
     };
 
+    // Smooth tangential highway off-ramp departure (never kicked sideways at the mouth!)
     const pLeadIn = sA.point
       .clone()
       .addScaledVector(sA.tangent, leadAdvance)
-      .addScaledVector(sA.right, def.side * (roadHalfWidth + 10.5));
-    pushPointClearOfMain(pLeadIn, sA.right.clone().multiplyScalar(def.side), minTrackClear * 0.78);
-    pLeadIn.y = THREE.MathUtils.lerp(entryPos.y, exitPos.y, 0.15);
+      .addScaledVector(sA.right, def.side * (roadHalfWidth + 4.6));
+    pLeadIn.y = THREE.MathUtils.lerp(entryPos.y, exitPos.y, 0.14);
 
     const pLeadOut = sB.point
       .clone()
       .addScaledVector(sB.tangent, -leadAdvance)
-      .addScaledVector(sB.right, def.side * (roadHalfWidth + 10.5));
-    pushPointClearOfMain(pLeadOut, sB.right.clone().multiplyScalar(def.side), minTrackClear * 0.78);
-    pLeadOut.y = THREE.MathUtils.lerp(entryPos.y, exitPos.y, 0.85);
+      .addScaledVector(sB.right, def.side * (roadHalfWidth + 4.6));
+    pLeadOut.y = THREE.MathUtils.lerp(entryPos.y, exitPos.y, 0.86);
 
     const midIdx = (startIdx + Math.floor(((endIdx - startIdx + SAMPLE_COUNT) % SAMPLE_COUNT) * 0.5)) % SAMPLE_COUNT;
     const midTrackPt = samples[midIdx].point;
@@ -878,62 +888,45 @@ export function buildTrack(
     pMid.y = Math.max(0, (entryPos.y + exitPos.y) * 0.5);
 
     const pQuarter1 = new THREE.Vector3().lerpVectors(pLeadIn, pMid, 0.52);
-    pushPointClearOfMain(pQuarter1, samples[midIdx].right.clone().multiplyScalar(def.side), minTrackClear + 8);
+    pushPointClearOfMain(pQuarter1, samples[midIdx].right.clone().multiplyScalar(def.side), minTrackClear + 7);
     pQuarter1.y = THREE.MathUtils.lerp(pLeadIn.y, pMid.y, 0.52);
 
     const pQuarter2 = new THREE.Vector3().lerpVectors(pMid, pLeadOut, 0.48);
-    pushPointClearOfMain(pQuarter2, samples[midIdx].right.clone().multiplyScalar(def.side), minTrackClear + 8);
+    pushPointClearOfMain(pQuarter2, samples[midIdx].right.clone().multiplyScalar(def.side), minTrackClear + 7);
     pQuarter2.y = THREE.MathUtils.lerp(pMid.y, pLeadOut.y, 0.48);
 
     const scCurve = new THREE.CatmullRomCurve3(
       [entryPos, pLeadIn, pQuarter1, pMid, pQuarter2, pLeadOut, exitPos],
       false,
       'catmullrom',
-      0.45,
+      0.5,
     );
     const scSegs = 56;
     const scPts = scCurve.getSpacedPoints(scSegs);
 
-    // Smooth first, then push clear (with feathered edge blend) so no point ever pulls back onto the main road or kinks
-    for (let iter = 0; iter < 10; iter++) {
-      for (let j = 2; j <= scSegs - 2; j++) {
-        const ax = (scPts[j - 1].x + scPts[j + 1].x) * 0.5;
-        const az = (scPts[j - 1].z + scPts[j + 1].z) * 0.5;
-        const w = iter > 6 ? 0.25 : 0.42;
-        scPts[j].x = THREE.MathUtils.lerp(scPts[j].x, ax, w);
-        scPts[j].z = THREE.MathUtils.lerp(scPts[j].z, az, w);
+    // Smooth then softly project interior samples (j >= 7..scSegs-7) clear without kinking the entry/exit ramps
+    for (let iter = 0; iter < 6; iter++) {
+      for (let j = 7; j <= scSegs - 7; j++) {
+        pushPointClearOfMain(scPts[j], samples[midIdx].right.clone().multiplyScalar(def.side), minTrackClear + 3);
       }
-      for (let j = 5; j <= scSegs - 5; j++) {
-        pushPointClearOfMain(scPts[j], samples[midIdx].right.clone().multiplyScalar(def.side), minTrackClear + 4);
+      for (let pass = 0; pass < 3; pass++) {
+        for (let j = 2; j <= scSegs - 2; j++) {
+          const ax = (scPts[j - 1].x + scPts[j + 1].x) * 0.5;
+          const az = (scPts[j - 1].z + scPts[j + 1].z) * 0.5;
+          scPts[j].x = THREE.MathUtils.lerp(scPts[j].x, ax, 0.45);
+          scPts[j].z = THREE.MathUtils.lerp(scPts[j].z, az, 0.45);
+        }
       }
     }
-    // Gentle final tangent smoothing only on points safely > minTrackClear from non-portal road samples
-    for (let pass = 0; pass < 3; pass++) {
-      for (let j = 2; j <= scSegs - 2; j++) {
+    for (let j = 7; j <= scSegs - 7; j++) {
+      pushPointClearOfMain(scPts[j], samples[midIdx].right.clone().multiplyScalar(def.side), minTrackClear - 1);
+    }
+    for (let pass = 0; pass < 2; pass++) {
+      for (let j = 3; j <= scSegs - 3; j++) {
         const ax = (scPts[j - 1].x + scPts[j + 1].x) * 0.5;
         const az = (scPts[j - 1].z + scPts[j + 1].z) * 0.5;
-        const candX = THREE.MathUtils.lerp(scPts[j].x, ax, 0.35);
-        const candZ = THREE.MathUtils.lerp(scPts[j].z, az, 0.35);
-        if (j < 5 || j > scSegs - 5) {
-          scPts[j].x = candX;
-          scPts[j].z = candZ;
-          continue;
-        }
-        let safe = true;
-        for (let ti = 0; ti < SAMPLE_COUNT; ti += 2) {
-          if (idxDist(ti, startIdx) <= 10 || idxDist(ti, endIdx) <= 10) continue;
-          const tp = samples[ti].point;
-          const dx = candX - tp.x;
-          const dz = candZ - tp.z;
-          if (dx * dx + dz * dz < (minTrackClear - 1) * (minTrackClear - 1)) {
-            safe = false;
-            break;
-          }
-        }
-        if (safe) {
-          scPts[j].x = candX;
-          scPts[j].z = candZ;
-        }
+        scPts[j].x = THREE.MathUtils.lerp(scPts[j].x, ax, 0.35);
+        scPts[j].z = THREE.MathUtils.lerp(scPts[j].z, az, 0.35);
       }
     }
 
@@ -967,9 +960,9 @@ export function buildTrack(
       scTangents.push(tan);
       const rgt = new THREE.Vector3().crossVectors(tan, up).normalize();
 
-      // Flare the outer edge gently at entry/exit mouths so outer concrete barrier seals tightly with main highway barrier
+      // Wide forgiving funnel flare at entry & exit mouths so cars glide straight into shortcut
       const mouthFlare =
-        j < 3 ? THREE.MathUtils.lerp(2.6, 0, j / 3) : j > scSegs - 3 ? THREE.MathUtils.lerp(0, 2.6, (j - (scSegs - 3)) / 3) : 0;
+        j < 6 ? THREE.MathUtils.lerp(4.2, 0, j / 6) : j > scSegs - 5 ? THREE.MathUtils.lerp(0, 3.4, (j - (scSegs - 5)) / 5) : 0;
       const leftW = scHalfW + (def.side < 0 ? mouthFlare : 0);
       const rightW = scHalfW + (def.side > 0 ? mouthFlare : 0);
 
@@ -1016,9 +1009,9 @@ export function buildTrack(
         scIndices.push(b, b + 1, b + 2, b + 1, b + 3, b + 2);
 
         // Outer side ALWAYS has continuous watertight barrier across 0..scSegs!
-        // Inner side closes cleanly across j = 3..scSegs-4 while funnel mouths remain open onto main highway.
-        const buildLeftWall = def.side < 0 || (j >= 3 && j < scSegs - 3);
-        const buildRightWall = def.side > 0 || (j >= 3 && j < scSegs - 3);
+        // Inner side opens wide across j = 0..5 & scSegs-4..scSegs so entry funnel never snags!
+        const buildLeftWall = def.side < 0 || (j >= 6 && j < scSegs - 4);
+        const buildRightWall = def.side > 0 || (j >= 6 && j < scSegs - 4);
         const wb = j * 4;
         if (buildLeftWall) {
           scWallIndices.push(wb, wb + 1, wb + 4, wb + 1, wb + 5, wb + 4);
@@ -1115,9 +1108,9 @@ export function buildTrack(
     );
     const attenCapMat = track(new THREE.MeshStandardMaterial({ color: '#111827', roughness: 0.6 }));
     const attenCapGeo = track(new THREE.CylinderGeometry(0.57, 0.57, 0.22, 10));
-    [startIdx - 3, startIdx + 3, endIdx - 3, endIdx + 3].forEach((edgeIdx) => {
+    [startIdx - 4, startIdx + 5, endIdx - 4, endIdx + 4].forEach((edgeIdx) => {
       const es = samples[(edgeIdx + SAMPLE_COUNT) % SAMPLE_COUNT];
-      const lat = def.side * (barrierHalfWidth + 0.1);
+      const lat = def.side * (barrierHalfWidth + 0.15);
       const ax = es.point.x + es.right.x * lat;
       const az = es.point.z + es.right.z * lat;
       const ay = es.point.y + lat * Math.sin(es.bankAngle);
@@ -1148,37 +1141,64 @@ export function buildTrack(
     group.add(scArch);
 
     const planks: ShortcutGatePlank[] = [];
-    const postGeo = track(new THREE.BoxGeometry(0.5, 5.4, 0.5));
-    const beaconBarGeo = track(new THREE.BoxGeometry(0.46, 0.5, 12.8));
-    const plankGeo1 = track(new THREE.BoxGeometry(0.28, 0.42, 11.2));
-    const plankGeo2 = track(new THREE.BoxGeometry(0.28, 0.35, 11.2));
+    const postGeo = track(new THREE.BoxGeometry(0.5, 5.6, 0.5));
+    const beaconBarGeo = track(new THREE.BoxGeometry(scHalfW * 2 + 1.4, 0.48, 0.48));
+    const plankGeo1 = track(new THREE.BoxGeometry(scHalfW * 1.78, 0.42, 0.26));
+    const plankGeo2 = track(new THREE.BoxGeometry(scHalfW * 1.78, 0.36, 0.26));
 
     const scSignTex = track(createShortcutSignTexture(maxAnisotropy, def.label));
     const scSignMat = track(
       new THREE.MeshStandardMaterial({
         map: scSignTex,
         emissive: new THREE.Color('#10B981'),
-        emissiveIntensity: 0.45,
-        roughness: 0.35,
+        emissiveIntensity: 0.65,
+        roughness: 0.32,
       }),
     );
-    const scSignGeo = track(new THREE.BoxGeometry(0.32, 2.3, 8.8));
+    // Wide front-facing gantry sign spanning X across the shortcut portal so oncoming cars read it clearly
+    const scSignGeo = track(new THREE.BoxGeometry(10.2, 2.7, 0.34));
+
+    const minDistToMainSq = (p: THREE.Vector3) => {
+      let bestSq = Infinity;
+      for (let k = 0; k < SAMPLE_COUNT; k++) {
+        const dx = p.x - samples[k].point.x;
+        const dz = p.z - samples[k].point.z;
+        const dSq = dx * dx + dz * dz;
+        if (dSq < bestSq) bestSq = dSq;
+      }
+      return bestSq;
+    };
+    const gateClearSq = (barrierHalfWidth + scHalfW + 1.2) * (barrierHalfWidth + scHalfW + 1.2);
+    let entryGateIdx = 7;
+    for (let j = 6; j <= Math.floor(scSegs * 0.32); j++) {
+      if (minDistToMainSq(scPts[j]) >= gateClearSq) {
+        entryGateIdx = j;
+        break;
+      }
+    }
+    let exitGateIdx = scSegs - 7;
+    for (let j = scSegs - 6; j >= Math.floor(scSegs * 0.68); j--) {
+      if (minDistToMainSq(scPts[j]) >= gateClearSq) {
+        exitGateIdx = j;
+        break;
+      }
+    }
 
     [
-      { pt: entryPos, s: sA },
-      { pt: exitPos, s: sB },
-    ].forEach((endSpec, endIdxFlag) => {
+      { pt: scPts[entryGateIdx], tan: scTangents[entryGateIdx], isEntry: true },
+      { pt: scPts[exitGateIdx], tan: scTangents[exitGateIdx], isEntry: false },
+    ].forEach((endSpec) => {
       const gateG = new THREE.Group();
       gateG.position.copy(endSpec.pt);
-      gateG.rotation.y = Math.atan2(-endSpec.s.tangent.x, -endSpec.s.tangent.z);
+      gateG.rotation.y = Math.atan2(-endSpec.tan.x, -endSpec.tan.z);
 
       const post1 = new THREE.Mesh(postGeo, shortcutCurbMat);
-      post1.position.set(0, 2.7, -6.1);
+      post1.position.set(-scHalfW - 0.3, 2.8, 0);
       const post2 = new THREE.Mesh(postGeo, shortcutCurbMat);
-      post2.position.set(0, 2.7, 6.1);
+      post2.position.set(scHalfW + 0.3, 2.8, 0);
 
       const beaconBar = new THREE.Mesh(beaconBarGeo, shortcutGlowMat);
-      beaconBar.position.set(0, 5.2, 0);
+      beaconBar.position.set(0, 5.4, 0);
 
       const plank1 = new THREE.Mesh(plankGeo1, gatePlankMat);
       plank1.position.set(0, 0.72, 0);
@@ -1192,11 +1212,9 @@ export function buildTrack(
       });
       gateG.add(post1, post2, beaconBar, plank1);
 
-      if (endIdxFlag === 0) {
-        const entrySign = new THREE.Mesh(scSignGeo, scSignMat);
-        entrySign.position.set(0, 6.65, 0);
-        // Face slightly toward main highway oncoming traffic
-        entrySign.rotation.y = def.side * -0.45;
+      if (endSpec.isEntry) {
+        const entrySign = new THREE.Mesh(scSignGeo, [steelMat, steelMat, steelMat, steelMat, scSignMat, scSignMat]);
+        entrySign.position.set(0, 7.05, 0);
         gateG.add(entrySign);
 
         const plank2 = new THREE.Mesh(plankGeo2, gatePlankMat);
@@ -1236,21 +1254,32 @@ export function buildTrack(
     });
   });
 
-  const getNearestTrackDistance = (wx: number, wz: number): { dist: number; nearestY: number } => {
-    let minSq = Infinity;
-    let nearestY = 0;
-    for (let i = 0; i < SAMPLE_COUNT; i += 2) {
-      const p = samples[i].point;
-      const dx = wx - p.x;
-      const dz = wz - p.z;
-      const dSq = dx * dx + dz * dz;
-      if (dSq < minSq) {
-        minSq = dSq;
-        nearestY = p.y;
-      }
+  // Fast Spatial-Grid Exact Track + Shortcut Terrain Query (Eliminates any terrain triangle poking through road or shortcut)
+  const TERRAIN_CELL = 64;
+  const gridKey = (cx: number, cz: number) => cx * 8192 + cz;
+  const mainSampleGrid = new Map<number, number[]>();
+  for (let i = 0; i < SAMPLE_COUNT; i++) {
+    const cx = Math.floor(samples[i].point.x / TERRAIN_CELL);
+    const cz = Math.floor(samples[i].point.z / TERRAIN_CELL);
+    const k = gridKey(cx, cz);
+    const arr = mainSampleGrid.get(k);
+    if (arr) arr.push(i);
+    else mainSampleGrid.set(k, [i]);
+  }
+  const scSegGrid = new Map<number, { scIdx: number; j: number }[]>();
+  for (let scIdx = 0; scIdx < shortcuts.length; scIdx++) {
+    const pts = shortcuts[scIdx].points;
+    for (let j = 0; j < pts.length - 1; j++) {
+      const mx = (pts[j].x + pts[j + 1].x) * 0.5;
+      const mz = (pts[j].z + pts[j + 1].z) * 0.5;
+      const cx = Math.floor(mx / TERRAIN_CELL);
+      const cz = Math.floor(mz / TERRAIN_CELL);
+      const k = gridKey(cx, cz);
+      const arr = scSegGrid.get(k);
+      if (arr) arr.push({ scIdx, j });
+      else scSegGrid.set(k, [{ scIdx, j }]);
     }
-    return { dist: Math.sqrt(minSq), nearestY };
-  };
+  }
 
   const hasHarborBay =
     trackId === 'rockport_loop' || trackId === 'camden_coast' || trackId === 'gray_point_bay';
@@ -1258,40 +1287,96 @@ export function buildTrack(
   const isForestTrack = trackId === 'heritage_forest' || trackId === 'rosewood_park';
 
   const waterCenterX = terrainCenterX + 80;
-  const waterCenterZ = minZ - 40;
+  const waterCenterZ = minZ - 140;
 
   const sampleTerrainInfo = (wx: number, wz: number): { height: number; distToTrack: number } => {
-    const { dist, nearestY } = getNearestTrackDistance(wx, wz);
+    const cx = Math.floor(wx / TERRAIN_CELL);
+    const cz = Math.floor(wz / TERRAIN_CELL);
 
-    let nearShortcut = false;
-    for (let sc = 0; sc < shortcuts.length; sc++) {
-      const pts = shortcuts[sc].points;
-      for (let j = 0; j < pts.length; j += 3) {
-        const dx = wx - pts[j].x;
-        const dz = wz - pts[j].z;
-        if (dx * dx + dz * dz < 16 * 16) {
-          nearShortcut = true;
-          break;
+    let minMainDistSq = Infinity;
+    let nearestMainY = 0;
+    let minScDistSq = Infinity;
+    let nearestScY = 0;
+    let minNearbyRoadY = Infinity;
+    const ceilingRadiusSq = 48 * 48;
+
+    for (let dxC = -2; dxC <= 2; dxC++) {
+      for (let dzC = -2; dzC <= 2; dzC++) {
+        const k = gridKey(cx + dxC, cz + dzC);
+        const mArr = mainSampleGrid.get(k);
+        if (mArr) {
+          for (let n = 0; n < mArr.length; n++) {
+            const idx = mArr[n];
+            const pA = samples[idx].point;
+            const pB = samples[(idx + 1) % SAMPLE_COUNT].point;
+            const abx = pB.x - pA.x;
+            const abz = pB.z - pA.z;
+            const lenSq = abx * abx + abz * abz || 1;
+            const segT = THREE.MathUtils.clamp(((wx - pA.x) * abx + (wz - pA.z) * abz) / lenSq, 0, 1);
+            const px = pA.x + abx * segT;
+            const pz = pA.z + abz * segT;
+            const py = THREE.MathUtils.lerp(pA.y, pB.y, segT);
+            const dSq = (wx - px) * (wx - px) + (wz - pz) * (wz - pz);
+            if (dSq < minMainDistSq) {
+              minMainDistSq = dSq;
+              nearestMainY = py;
+            }
+            if (dSq < ceilingRadiusSq && py < minNearbyRoadY) {
+              minNearbyRoadY = py;
+            }
+          }
+        }
+        const sArr = scSegGrid.get(k);
+        if (sArr) {
+          for (let n = 0; n < sArr.length; n++) {
+            const { scIdx, j } = sArr[n];
+            const pts = shortcuts[scIdx].points;
+            const a = pts[j];
+            const b = pts[j + 1];
+            const abx = b.x - a.x;
+            const abz = b.z - a.z;
+            const lenSq = abx * abx + abz * abz || 1;
+            const segT = THREE.MathUtils.clamp(((wx - a.x) * abx + (wz - a.z) * abz) / lenSq, 0, 1);
+            const px = a.x + abx * segT;
+            const pz = a.z + abz * segT;
+            const py = THREE.MathUtils.lerp(a.y, b.y, segT);
+            const dSq = (wx - px) * (wx - px) + (wz - pz) * (wz - pz);
+            if (dSq < minScDistSq) {
+              minScDistSq = dSq;
+              nearestScY = py;
+            }
+            if (dSq < ceilingRadiusSq && py < minNearbyRoadY) {
+              minNearbyRoadY = py;
+            }
+          }
         }
       }
-      if (nearShortcut) break;
     }
 
-    const safeRoadFloor = Math.min(-0.65, nearestY - 0.72);
-    if (dist < barrierHalfWidth + 4 || nearShortcut) {
-      return { height: safeRoadFloor, distToTrack: dist };
-    }
+    const mainDist = minMainDistSq < Infinity ? Math.sqrt(minMainDistSq) : 400;
+    const scDist = minScDistSq < Infinity ? Math.sqrt(minScDistSq) : 400;
+    const mainEdge = mainDist - barrierHalfWidth;
+    const scEdge = scDist - 8.5;
+    const useSc = scEdge < mainEdge;
+    const edgeClearance = useSc ? scEdge : mainEdge;
+    const nearestRoadY = useSc ? nearestScY : nearestMainY;
 
-    const blend = THREE.MathUtils.smoothstep(dist, barrierHalfWidth + 4, barrierHalfWidth + 46);
     const isHarborWater = hasHarborBay && wz < minZ + 380 && wx > minX - 100 && wx < maxX + 180;
+    const roadSupportY = isHarborWater ? -6.2 : nearestRoadY - 0.95;
 
+    if (edgeClearance < 22) {
+      const clampedY = minNearbyRoadY < Infinity && !isHarborWater ? Math.min(roadSupportY, minNearbyRoadY - 0.95) : roadSupportY;
+      return { height: clampedY, distToTrack: mainDist };
+    }
+
+    const blend = THREE.MathUtils.smoothstep(edgeClearance, 22, 82);
     const ridgeScale =
       isCanyonOrSummit
-        ? 1.85
+        ? 1.75
         : trackId === 'silverton_pass'
-          ? 1.28
+          ? 1.25
           : trackId === 'camden_coast' || trackId === 'gray_point_bay'
-            ? 1.12
+            ? 1.08
             : 0.92;
     const rawHill =
       (Math.sin(wx * 0.0044) * Math.cos(wz * 0.0038) * 19 +
@@ -1301,15 +1386,19 @@ export function buildTrack(
       ridgeScale;
 
     const targetHill = isHarborWater ? -6.2 : Math.max(-0.35, rawHill);
+    let finalH = THREE.MathUtils.lerp(roadSupportY, targetHill, blend);
+    if (!isHarborWater && minNearbyRoadY < Infinity && edgeClearance < 46) {
+      finalH = Math.min(finalH, minNearbyRoadY - 0.95);
+    }
     return {
-      height: THREE.MathUtils.lerp(safeRoadFloor, targetHill, blend),
-      distToTrack: dist,
+      height: finalH,
+      distToTrack: mainDist,
     };
   };
 
   // --- 1. Environment-Adapted Terrain + Dynamic Harbor Bay ---
   const groundTex = track(createGroundTerrainTexture(maxAnisotropy));
-  const groundGeo = track(new THREE.PlaneGeometry(terrainSpanW, terrainSpanD, 145, 160));
+  const groundGeo = track(new THREE.PlaneGeometry(terrainSpanW, terrainSpanD, 240, 240));
   groundGeo.rotateX(-Math.PI / 2);
 
   const posAttr = groundGeo.attributes.position;
@@ -1317,25 +1406,25 @@ export function buildTrack(
 
   const envTint =
     environment === 'midnight_neon'
-      ? { low: '#0C121D', mid: '#141D2B', high: '#1E293B', skirt: '#090D16' }
+      ? { low: '#0C121D', mid: '#141D2B', high: '#1E293B', skirt: '#0B101A' }
       : environment === 'overcast_rain'
-        ? { low: '#1E272E', mid: '#2E3B42', high: '#435058', skirt: '#161C22' }
+        ? { low: '#1E272E', mid: '#2E3B42', high: '#435058', skirt: '#1C252C' }
         : environment === 'dawn_mist'
-          ? { low: '#1E332B', mid: '#2D4B3E', high: '#486856', skirt: '#172620' }
+          ? { low: '#1E332B', mid: '#2D4B3E', high: '#486856', skirt: '#1C3028' }
           : environment === 'crimson_foundry'
-            ? { low: '#26181A', mid: '#452522', high: '#63372C', skirt: '#1B1112' }
+            ? { low: '#26181A', mid: '#452522', high: '#63372C', skirt: '#231618' }
             : environment === 'noon_clear'
               ? {
                   low: isCanyonOrSummit ? '#63472A' : '#2C4A2B',
                   mid: isCanyonOrSummit ? '#9D6838' : '#3E6B38',
                   high: isCanyonOrSummit ? '#CA8A4B' : '#588149',
-                  skirt: '#243522',
+                  skirt: isCanyonOrSummit ? '#5C4227' : '#294428',
                 }
               : {
                   low: isCanyonOrSummit ? '#4E3922' : isForestTrack ? '#233629' : '#2A333E',
                   mid: isCanyonOrSummit ? '#8E582C' : isForestTrack ? '#35503B' : '#4E4B41',
                   high: isCanyonOrSummit ? '#C27430' : isForestTrack ? '#56754E' : '#6D5D48',
-                  skirt: '#241E18',
+                  skirt: isCanyonOrSummit ? '#47341F' : '#242B33',
                 };
 
   const lowColor = new THREE.Color(envTint.low);
@@ -1349,7 +1438,7 @@ export function buildTrack(
     const tInfo = sampleTerrainInfo(wx, wz);
     posAttr.setY(i, tInfo.height);
 
-    const hNorm = THREE.MathUtils.clamp((tInfo.height + 2) / 38, 0, 1);
+    const hNorm = THREE.MathUtils.clamp((tInfo.height + 2) / 42, 0, 1);
     if (hNorm < 0.45) {
       tempCol.copy(lowColor).lerp(midColor, hNorm / 0.45);
     } else {
@@ -1375,15 +1464,15 @@ export function buildTrack(
   groundMesh.receiveShadow = true;
   group.add(groundMesh);
 
-  const skirtGeo = track(new THREE.PlaneGeometry(7600, 7600));
+  const skirtGeo = track(new THREE.PlaneGeometry(14000, 14000));
   skirtGeo.rotateX(-Math.PI / 2);
   const skirtMat = track(new THREE.MeshStandardMaterial({ color: envTint.skirt, roughness: 0.96 }));
   const skirtMesh = new THREE.Mesh(skirtGeo, skirtMat);
-  skirtMesh.position.set(terrainCenterX, -15, terrainCenterZ);
+  skirtMesh.position.set(terrainCenterX, -4.5, terrainCenterZ);
   group.add(skirtMesh);
 
   if (hasHarborBay) {
-    const waterGeo = track(new THREE.PlaneGeometry(3400, 1500));
+    const waterGeo = track(new THREE.PlaneGeometry(7600, 3800));
     waterGeo.rotateX(-Math.PI / 2);
     const waterMat = track(
       new THREE.MeshStandardMaterial({
@@ -1393,7 +1482,7 @@ export function buildTrack(
       }),
     );
     const water = new THREE.Mesh(waterGeo, waterMat);
-    water.position.set(waterCenterX, -2.8, waterCenterZ);
+    water.position.set(waterCenterX, -2.8, waterCenterZ - 350);
     group.add(water);
   }
 
@@ -1683,11 +1772,13 @@ export function buildTrack(
       const nextIdx = (i + 1) % SAMPLE_COUNT;
       const skipL = leftBarrierCutout[sIdx] === 1 && leftBarrierCutout[nextIdx] === 1;
       const skipR = rightBarrierCutout[sIdx] === 1 && rightBarrierCutout[nextIdx] === 1;
+      const inWaterL = hasHarborBay && s.point.y > 4 && outLZ < minZ + 380 && outLX > minX - 100 && outLX < maxX + 180;
+      const inWaterR = hasHarborBay && s.point.y > 4 && outRZ < minZ + 380 && outRX > minX - 100 && outRX < maxX + 180;
       const vb = i * 4;
-      if (!skipL && s.point.y < 8) {
+      if (!skipL && !inWaterL) {
         vergeIndices.push(vb, vb + 4, vb + 1, vb + 1, vb + 4, vb + 5);
       }
-      if (!skipR && s.point.y < 8) {
+      if (!skipR && !inWaterR) {
         vergeIndices.push(vb + 2, vb + 3, vb + 6, vb + 3, vb + 7, vb + 6);
       }
     }
@@ -1712,7 +1803,7 @@ export function buildTrack(
     group.add(vergeMesh);
   }
 
-  // Reflective Highway Cat-Eye Studs
+  // Reflective Highway Cat-Eye Studs (Amber Centerline + Crisp White/Cyan Lane-Edge Studs)
   const studCount = Math.floor(SAMPLE_COUNT / 4);
   const studGeo = track(new THREE.BoxGeometry(0.22, 0.06, 0.35));
   const studMat = track(
@@ -1722,7 +1813,16 @@ export function buildTrack(
       emissiveIntensity: environment === 'midnight_neon' ? 3.2 : 2.0,
     }),
   );
+  const edgeStudMat = track(
+    new THREE.MeshStandardMaterial({
+      color: '#E0F2FE',
+      emissive: new THREE.Color(environment === 'midnight_neon' ? '#38BDF8' : '#E2E8F0'),
+      emissiveIntensity: environment === 'midnight_neon' ? 2.8 : 1.4,
+    }),
+  );
   const studsInst = new THREE.InstancedMesh(studGeo, studMat, studCount * 2);
+  const edgeStudsInst = new THREE.InstancedMesh(studGeo, edgeStudMat, studCount * 2);
+  const edgeStudLat = roadHalfWidth * 0.88;
   for (let i = 0; i < studCount; i++) {
     const s = samples[(i * 4) % SAMPLE_COUNT];
     const yaw = Math.atan2(-s.tangent.x, -s.tangent.z);
@@ -1738,10 +1838,23 @@ export function buildTrack(
       dummy.updateMatrix();
       studsInst.setMatrixAt(i * 2 + sideIdx, dummy.matrix);
     });
+    [-edgeStudLat, edgeStudLat].forEach((lat, sideIdx) => {
+      dummy.position.set(
+        s.point.x + s.right.x * lat,
+        s.point.y + 0.056 + lat * bankSlope,
+        s.point.z + s.right.z * lat,
+      );
+      dummy.rotation.set(s.slopePitch, yaw, -s.bankAngle, 'YXZ');
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      edgeStudsInst.setMatrixAt(i * 2 + sideIdx, dummy.matrix);
+    });
   }
   studsInst.instanceMatrix.needsUpdate = true;
   studsInst.computeBoundingSphere();
-  group.add(studsInst);
+  edgeStudsInst.instanceMatrix.needsUpdate = true;
+  edgeStudsInst.computeBoundingSphere();
+  group.add(studsInst, edgeStudsInst);
 
   // Outer Concrete Barrier Guardrail Posts & Reflective Border Markers
   const postItems: { x: number; y: number; z: number; yaw: number }[] = [];
@@ -1798,229 +1911,317 @@ export function buildTrack(
     group.add(grPosts, grRefls);
   }
 
-  // Viaduct Support Columns
-  const pierGeo = track(new THREE.BoxGeometry(3.4, 1, 3.4));
-  const pierSamples = samples.filter((_, idx) => idx % 14 === 0 && samples[idx].point.y > 1.8);
-  if (pierSamples.length > 0) {
-    const piers = new THREE.InstancedMesh(pierGeo, concreteStructMat, pierSamples.length * 2);
-    let pIdx = 0;
-    pierSamples.forEach((s) => {
-      [-roadHalfWidth * 0.78, roadHalfWidth * 0.78].forEach((lat) => {
-        const colH = s.point.y + 7.2;
-        dummy.position.set(s.point.x + s.right.x * lat, s.point.y - colH * 0.5 - 1.4, s.point.z + s.right.z * lat);
-        dummy.rotation.set(0, Math.atan2(-s.tangent.x, -s.tangent.z), 0);
-        dummy.scale.set(1, colH, 1);
-        dummy.updateMatrix();
-        piers.setMatrixAt(pIdx++, dummy.matrix);
-      });
-    });
-    piers.instanceMatrix.needsUpdate = true;
-    piers.computeBoundingSphere();
-    group.add(piers);
-  }
-
-  // --- 3. Extruded Highway Tunnel(s) ---
-  const tunnelWallMat = track(
-    new THREE.MeshStandardMaterial({ color: '#14171F', roughness: 0.85, metalness: 0.14, side: THREE.DoubleSide }),
-  );
-  const sodiumLightMat = track(
-    new THREE.MeshStandardMaterial({
-      color: '#FEF3C7',
-      emissive: new THREE.Color('#F59E0B'),
-      emissiveIntensity: 3.1,
-    }),
-  );
-
-  const tunStripGeo = track(new THREE.BoxGeometry(7.2, 0.24, 3.0));
-  const tunSpanW = barrierHalfWidth + 0.4;
-  const tunInnerRoofW = barrierHalfWidth - 2.3;
-  const tunH = 8.2;
-
-  tunnelConfigs.forEach((tc) => {
-    const tunVerts: number[] = [];
-    const tunIndices: number[] = [];
-    const bulbIndices: number[] = [];
-
-    for (let k = 0; k <= tc.len; k++) {
-      const s = samples[(tc.startIdx + k) % SAMPLE_COUNT];
-      const baseY = s.point.y;
-      const p0x = s.point.x - s.right.x * tunSpanW;
-      const p0z = s.point.z - s.right.z * tunSpanW;
-      const p2x = s.point.x - s.right.x * tunInnerRoofW;
-      const p2z = s.point.z - s.right.z * tunInnerRoofW;
-      const p3x = s.point.x + s.right.x * tunInnerRoofW;
-      const p3z = s.point.z + s.right.z * tunInnerRoofW;
-      const p4x = s.point.x + s.right.x * tunSpanW;
-      const p4z = s.point.z + s.right.z * tunSpanW;
-
-      tunVerts.push(
-        p0x, baseY - 0.6, p0z,
-        p0x, baseY + tunH - 2.0, p0z,
-        p2x, baseY + tunH, p2z,
-        p3x, baseY + tunH, p3z,
-        p4x, baseY + tunH - 2.0, p4z,
-        p4x, baseY - 0.6, p4z,
-      );
-
-      if (k < tc.len) {
-        const r0 = k * 6;
-        const r1 = (k + 1) * 6;
-        for (let seg = 0; seg < 5; seg++) {
-          tunIndices.push(r0 + seg, r0 + seg + 1, r1 + seg, r0 + seg + 1, r1 + seg + 1, r1 + seg);
-        }
-      }
-      if (k >= 2 && k < tc.len - 1 && k % 4 === 0) {
-        bulbIndices.push((tc.startIdx + k) % SAMPLE_COUNT);
-      }
-    }
-
-    const tunGeo = track(new THREE.BufferGeometry());
-    tunGeo.setAttribute('position', new THREE.Float32BufferAttribute(tunVerts, 3));
-    tunGeo.setIndex(tunIndices);
-    tunGeo.computeVertexNormals();
-    group.add(new THREE.Mesh(tunGeo, tunnelWallMat));
-
-    if (bulbIndices.length > 0) {
-      const bulbsInst = new THREE.InstancedMesh(tunStripGeo, sodiumLightMat, bulbIndices.length);
-      const sideStripGeo = track(new THREE.BoxGeometry(0.18, 0.22, 3.6));
-      const sideStripsInst = new THREE.InstancedMesh(sideStripGeo, sodiumLightMat, bulbIndices.length * 2);
-      const tunPoolTex = track(createRoadLightPoolTexture());
-      const tunPoolGeo = track(new THREE.PlaneGeometry(roadHalfWidth * 1.45, 16));
-      tunPoolGeo.rotateX(-Math.PI / 2);
-      const tunPoolMat = track(
-        new THREE.MeshBasicMaterial({
-          map: tunPoolTex,
-          transparent: true,
-          opacity: 0.62,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-          polygonOffset: true,
-          polygonOffsetFactor: -1,
-          polygonOffsetUnits: -1,
-        }),
-      );
-      const tunPoolsInst = new THREE.InstancedMesh(tunPoolGeo, tunPoolMat, bulbIndices.length);
-
-      for (let bi = 0; bi < bulbIndices.length; bi++) {
-        const s = samples[bulbIndices[bi]];
-        const yaw = Math.atan2(-s.tangent.x, -s.tangent.z);
-        dummy.position.set(s.point.x, s.point.y + tunH - 0.25, s.point.z);
-        dummy.rotation.set(s.slopePitch, yaw, 0, 'YXZ');
-        dummy.scale.set(1, 1, 1);
-        dummy.updateMatrix();
-        bulbsInst.setMatrixAt(bi, dummy.matrix);
-
-        dummy.position.set(s.point.x, s.point.y + 0.07, s.point.z);
-        dummy.rotation.set(s.slopePitch, yaw, -s.bankAngle, 'YXZ');
-        dummy.updateMatrix();
-        tunPoolsInst.setMatrixAt(bi, dummy.matrix);
-
-        [-1, 1].forEach((side, sIdx) => {
-          dummy.position.set(
-            s.point.x + s.right.x * side * (tunSpanW - 0.15),
-            s.point.y + 1.8,
-            s.point.z + s.right.z * side * (tunSpanW - 0.15),
-          );
-          dummy.rotation.set(s.slopePitch, yaw, 0, 'YXZ');
-          dummy.updateMatrix();
-          sideStripsInst.setMatrixAt(bi * 2 + sIdx, dummy.matrix);
-        });
-      }
-      bulbsInst.instanceMatrix.needsUpdate = true;
-      bulbsInst.computeBoundingSphere();
-      sideStripsInst.instanceMatrix.needsUpdate = true;
-      sideStripsInst.computeBoundingSphere();
-      tunPoolsInst.instanceMatrix.needsUpdate = true;
-      tunPoolsInst.computeBoundingSphere();
-      group.add(bulbsInst, sideStripsInst, tunPoolsInst);
-
-      // Tunnel Ceiling Jet-Fan Ventilation Turbines
-      const jetFanGeo = track(new THREE.CylinderGeometry(0.65, 0.65, 2.8, 10));
-      jetFanGeo.rotateX(Math.PI / 2);
-      const jetFanInst = new THREE.InstancedMesh(jetFanGeo, steelMat, bulbIndices.length * 2);
-      for (let bi = 0; bi < bulbIndices.length; bi++) {
-        const s = samples[bulbIndices[bi]];
-        const yaw = Math.atan2(-s.tangent.x, -s.tangent.z);
-        [-tunInnerRoofW * 0.45, tunInnerRoofW * 0.45].forEach((lat, fi) => {
-          dummy.position.set(s.point.x + s.right.x * lat, s.point.y + tunH - 1.1, s.point.z + s.right.z * lat);
-          dummy.rotation.set(s.slopePitch, yaw, 0, 'YXZ');
-          dummy.scale.set(1, 1, 1);
-          dummy.updateMatrix();
-          jetFanInst.setMatrixAt(bi * 2 + fi, dummy.matrix);
-        });
-      }
-      jetFanInst.instanceMatrix.needsUpdate = true;
-      jetFanInst.computeBoundingSphere();
-      group.add(jetFanInst);
-    }
-
-    // Reinforced Tunnel Entry & Exit Portal Frames + Exhaust Ventilation Fans
-    const portalHeaderTex = track(createTunnelPortalTexture(maxAnisotropy));
-    const portalHeaderMat = track(
-      new THREE.MeshStandardMaterial({
-        map: portalHeaderTex,
-        emissive: new THREE.Color('#F59E0B'),
-        emissiveIntensity: 0.3,
-        roughness: 0.45,
-      }),
-    );
-    const portalPillarGeo = track(new THREE.BoxGeometry(1.6, tunH + 1.4, 2.2));
-    const portalHeaderGeo = track(new THREE.BoxGeometry(tunSpanW * 2 + 3.2, 2.2, 2.4));
-    const fanHousingGeo = track(new THREE.CylinderGeometry(1.1, 1.2, 0.9, 12));
-
-    [tc.startIdx, (tc.startIdx + tc.len) % SAMPLE_COUNT].forEach((pIdx) => {
-      const ps = samples[pIdx];
-      const pg = new THREE.Group();
-      pg.position.copy(ps.point);
-      pg.rotation.y = Math.atan2(-ps.tangent.x, -ps.tangent.z);
-
-      const pL = new THREE.Mesh(portalPillarGeo, concreteStructMat);
-      pL.position.set(-tunSpanW - 0.6, (tunH + 1.4) * 0.5 - 0.5, 0);
-      const pR = new THREE.Mesh(portalPillarGeo, concreteStructMat);
-      pR.position.set(tunSpanW + 0.6, (tunH + 1.4) * 0.5 - 0.5, 0);
-      const header = new THREE.Mesh(portalHeaderGeo, [
-        concreteStructMat,
-        concreteStructMat,
-        concreteStructMat,
-        concreteStructMat,
-        portalHeaderMat,
-        portalHeaderMat,
-      ]);
-      header.position.set(0, tunH + 0.6, 0);
-
-      const fanL = new THREE.Mesh(fanHousingGeo, steelMat);
-      fanL.position.set(-tunSpanW * 0.45, tunH + 2.05, 0);
-      const fanR = new THREE.Mesh(fanHousingGeo, steelMat);
-      fanR.position.set(tunSpanW * 0.45, tunH + 2.05, 0);
-
-      pg.add(pL, pR, header, fanL, fanR);
-      group.add(pg);
-    });
-  });
-
-  // --- Helper: Track Clearance Query for Landmarks/Trees/Buildings ---
-  const isClearOfTrack = (x: number, z: number, minDist: number): boolean => {
-    const minSq = minDist * minDist;
-    for (let i = 0; i < SAMPLE_COUNT; i += 2) {
-      const dx = x - samples[i].point.x;
-      const dz = z - samples[i].point.z;
-      if (dx * dx + dz * dz < minSq) return false;
-    }
+  // --- Helpers: Strict Segment-Based Shortcut & Track Clearance Queries ---
+  const isClearOfShortcuts = (x: number, z: number, extraMargin = 7): boolean => {
     for (let sc = 0; sc < shortcuts.length; sc++) {
-      const pts = shortcuts[sc].points;
-      for (let j = 0; j < pts.length; j += 3) {
-        const dx = x - pts[j].x;
-        const dz = z - pts[j].z;
-        if (dx * dx + dz * dz < (minDist + 8) * (minDist + 8)) return false;
+      const sObj = shortcuts[sc];
+      const limitSq = (sObj.halfWidth + extraMargin) * (sObj.halfWidth + extraMargin);
+      const pts = sObj.points;
+      for (let j = 0; j < pts.length - 1; j++) {
+        const a = pts[j];
+        const b = pts[j + 1];
+        const abx = b.x - a.x;
+        const abz = b.z - a.z;
+        const lenSq = abx * abx + abz * abz || 1;
+        const segT = THREE.MathUtils.clamp(((x - a.x) * abx + (z - a.z) * abz) / lenSq, 0, 1);
+        const px = a.x + abx * segT;
+        const pz = a.z + abz * segT;
+        const dx = x - px;
+        const dz = z - pz;
+        if (dx * dx + dz * dz < limitSq) return false;
       }
     }
     return true;
   };
 
+  const isClearOfTrack = (x: number, z: number, minDist: number): boolean => {
+    const minSq = minDist * minDist;
+    for (let i = 0; i < SAMPLE_COUNT; i++) {
+      const dx = x - samples[i].point.x;
+      const dz = z - samples[i].point.z;
+      if (dx * dx + dz * dz < minSq) return false;
+    }
+    const extraScMargin = Math.max(10, minDist - barrierHalfWidth + 10);
+    if (!isClearOfShortcuts(x, z, extraScMargin)) return false;
+    return true;
+  };
+
+  const isNearShortcutPortal = (idx: number, minSampleDist = 7): boolean =>
+    shortcutPortalIndices.some((pi) => idxDist(idx, pi) < minSampleDist);
+
+  // Viaduct Support Columns + Overhead Cross-Girder Caps (Checked against shortcuts so no pier blocks a shortcut!)
+  const pierGeo = track(new THREE.BoxGeometry(3.4, 1, 3.4));
+  const pierCapGeo = track(new THREE.BoxGeometry(roadHalfWidth * 1.9, 1.4, 2.8));
+  const pierSamples = samples.filter((s, idx) => {
+    if (idx % 14 !== 0 || s.point.y <= 1.8) return false;
+    return isClearOfShortcuts(s.point.x, s.point.z, roadHalfWidth + 6);
+  });
+  if (pierSamples.length > 0) {
+    const piers = new THREE.InstancedMesh(pierGeo, concreteStructMat, pierSamples.length * 2);
+    const pierCaps = new THREE.InstancedMesh(pierCapGeo, steelMat, pierSamples.length);
+    let pIdx = 0;
+    pierSamples.forEach((s, ci) => {
+      const yaw = Math.atan2(-s.tangent.x, -s.tangent.z);
+      [-roadHalfWidth * 0.78, roadHalfWidth * 0.78].forEach((lat) => {
+        const colH = s.point.y + 7.2;
+        dummy.position.set(s.point.x + s.right.x * lat, s.point.y - colH * 0.5 - 1.4, s.point.z + s.right.z * lat);
+        dummy.rotation.set(0, yaw, 0);
+        dummy.scale.set(1, colH, 1);
+        dummy.updateMatrix();
+        piers.setMatrixAt(pIdx++, dummy.matrix);
+      });
+      dummy.position.set(s.point.x, s.point.y - 1.45, s.point.z);
+      dummy.rotation.set(0, yaw, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      pierCaps.setMatrixAt(ci, dummy.matrix);
+    });
+    piers.instanceMatrix.needsUpdate = true;
+    piers.computeBoundingSphere();
+    pierCaps.instanceMatrix.needsUpdate = true;
+    pierCaps.computeBoundingSphere();
+    group.add(piers, pierCaps);
+  }
+
+  // --- 3. Extruded Highway Tunnel(s) ---
+  const sodiumLightMat = track(
+    new THREE.MeshStandardMaterial({
+      color: '#FEF3C7',
+      emissive: new THREE.Color(environment === 'midnight_neon' ? '#38BDF8' : '#F59E0B'),
+      emissiveIntensity: environment === 'midnight_neon' ? 3.8 : 3.2,
+    }),
+  );
+  const tunnelWallMat = track(
+    new THREE.MeshStandardMaterial({
+      color: '#1E2530',
+      roughness: 0.78,
+      metalness: 0.22,
+      side: THREE.DoubleSide,
+    }),
+  );
+  const tunnelCeilingMat = track(
+    new THREE.MeshStandardMaterial({
+      color: '#0F1520',
+      roughness: 0.85,
+      metalness: 0.18,
+      side: THREE.DoubleSide,
+    }),
+  );
+  const tunnelPortalTex = track(createTunnelPortalTexture(maxAnisotropy));
+  const tunnelPortalMat = track(
+    new THREE.MeshStandardMaterial({
+      map: tunnelPortalTex,
+      roughness: 0.52,
+      metalness: 0.25,
+    }),
+  );
+  const tunnelPoolTex = track(createRoadLightPoolTexture());
+  const tunnelPoolMat = track(
+    new THREE.MeshBasicMaterial({
+      map: tunnelPoolTex,
+      transparent: true,
+      opacity: environment === 'noon_clear' ? 0.22 : 0.45,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    }),
+  );
+
+  const tunSpan = barrierHalfWidth + 0.85;
+  const tunHeight = 8.4;
+  const ribRingGeo = track(new THREE.BoxGeometry(tunSpan * 2 + 1.2, 0.55, 0.75));
+  const wallPanelGeo = track(new THREE.BoxGeometry(0.65, tunHeight, 1.0));
+  const stripBulbGeo = track(new THREE.BoxGeometry(2.6, 0.18, 0.95));
+  const tunPoolGeo = track(new THREE.PlaneGeometry(11.5, 11.5));
+  tunPoolGeo.rotateX(-Math.PI / 2);
+  const jetFanGeo = track(new THREE.CylinderGeometry(0.55, 0.55, 2.2, 10));
+  jetFanGeo.rotateX(Math.PI / 2);
+
+  tunnelConfigs.forEach((tc) => {
+    const tVerts: number[] = [];
+    const tIndices: number[] = [];
+    const bulbMats: { x: number; y: number; z: number; pitch: number; yaw: number; bank: number }[] = [];
+    const ribMats: { x: number; y: number; z: number; pitch: number; yaw: number; bank: number }[] = [];
+    const fanMats: { x: number; y: number; z: number; pitch: number; yaw: number; bank: number }[] = [];
+
+    for (let k = 0; k <= tc.len; k++) {
+      const idx = (tc.startIdx + k) % SAMPLE_COUNT;
+      const s = samples[idx];
+      const yaw = Math.atan2(-s.tangent.x, -s.tangent.z);
+      const bankSlope = Math.sin(s.bankAngle);
+      const lx = s.point.x - s.right.x * tunSpan;
+      const lz = s.point.z - s.right.z * tunSpan;
+      const rx = s.point.x + s.right.x * tunSpan;
+      const rz = s.point.z + s.right.z * tunSpan;
+      const baseL = s.point.y - 0.5 - tunSpan * bankSlope;
+      const baseR = s.point.y - 0.5 + tunSpan * bankSlope;
+      const roofY = s.point.y + tunHeight;
+
+      // 4-point arch/box profile per slice: bottomL, topL, topR, bottomR
+      tVerts.push(
+        lx, baseL, lz,
+        lx, roofY - tunSpan * bankSlope, lz,
+        rx, roofY + tunSpan * bankSlope, rz,
+        rx, baseR, rz,
+      );
+
+      if (k < tc.len) {
+        const b = k * 4;
+        // Left wall
+        tIndices.push(b, b + 1, b + 4, b + 1, b + 5, b + 4);
+        // Ceiling
+        tIndices.push(b + 1, b + 2, b + 5, b + 2, b + 6, b + 5);
+        // Right wall
+        tIndices.push(b + 2, b + 3, b + 6, b + 3, b + 7, b + 6);
+      }
+
+      if (k > 0 && k < tc.len && k % 2 === 0) {
+        bulbMats.push({
+          x: s.point.x,
+          y: s.point.y + tunHeight - 0.25,
+          z: s.point.z,
+          pitch: s.slopePitch,
+          yaw,
+          bank: -s.bankAngle,
+        });
+      }
+      if (k % 3 === 0) {
+        ribMats.push({
+          x: s.point.x,
+          y: s.point.y,
+          z: s.point.z,
+          pitch: s.slopePitch,
+          yaw,
+          bank: -s.bankAngle,
+        });
+      }
+      if (k > 2 && k < tc.len - 2 && k % 7 === 0) {
+        fanMats.push({
+          x: s.point.x,
+          y: s.point.y + tunHeight - 0.9,
+          z: s.point.z,
+          pitch: s.slopePitch,
+          yaw,
+          bank: -s.bankAngle,
+        });
+      }
+    }
+
+    const tunGeo = track(new THREE.BufferGeometry());
+    tunGeo.setAttribute('position', new THREE.Float32BufferAttribute(tVerts, 3));
+    tunGeo.setIndex(tIndices);
+    tunGeo.computeVertexNormals();
+    group.add(new THREE.Mesh(tunGeo, tunnelWallMat));
+
+    // Outer rocky/concrete shell hood over tunnel
+    const hoodVerts = tVerts.map((v, i) => (i % 3 === 1 ? v + 0.55 : v));
+    const hoodGeo = track(new THREE.BufferGeometry());
+    hoodGeo.setAttribute('position', new THREE.Float32BufferAttribute(hoodVerts, 3));
+    hoodGeo.setIndex(tIndices);
+    hoodGeo.computeVertexNormals();
+    group.add(new THREE.Mesh(hoodGeo, tunnelCeilingMat));
+
+    if (bulbMats.length > 0) {
+      const bulbsInst = new THREE.InstancedMesh(stripBulbGeo, sodiumLightMat, bulbMats.length);
+      const poolsInst = new THREE.InstancedMesh(tunPoolGeo, tunnelPoolMat, bulbMats.length);
+      bulbMats.forEach((bm, bi) => {
+        dummy.position.set(bm.x, bm.y, bm.z);
+        dummy.rotation.set(bm.pitch, bm.yaw, bm.bank, 'YXZ');
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        bulbsInst.setMatrixAt(bi, dummy.matrix);
+
+        dummy.position.set(bm.x, bm.y - (tunHeight - 0.34), bm.z);
+        dummy.updateMatrix();
+        poolsInst.setMatrixAt(bi, dummy.matrix);
+      });
+      bulbsInst.instanceMatrix.needsUpdate = true;
+      poolsInst.instanceMatrix.needsUpdate = true;
+      bulbsInst.computeBoundingSphere();
+      poolsInst.computeBoundingSphere();
+      group.add(bulbsInst, poolsInst);
+    }
+
+    if (ribMats.length > 0) {
+      const ribsInst = new THREE.InstancedMesh(ribRingGeo, steelMat, ribMats.length);
+      const sideRibsInst = new THREE.InstancedMesh(wallPanelGeo, concreteStructMat, ribMats.length * 2);
+      ribMats.forEach((rm, ri) => {
+        dummy.position.set(rm.x, rm.y + tunHeight + 0.1, rm.z);
+        dummy.rotation.set(rm.pitch, rm.yaw, rm.bank, 'YXZ');
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        ribsInst.setMatrixAt(ri, dummy.matrix);
+
+        const s = samples[(tc.startIdx + ri * 3) % SAMPLE_COUNT];
+        [-tunSpan, tunSpan].forEach((lat, sideIdx) => {
+          dummy.position.set(
+            s.point.x + s.right.x * lat,
+            s.point.y + tunHeight * 0.5,
+            s.point.z + s.right.z * lat,
+          );
+          dummy.rotation.set(rm.pitch, rm.yaw, rm.bank, 'YXZ');
+          dummy.updateMatrix();
+          sideRibsInst.setMatrixAt(ri * 2 + sideIdx, dummy.matrix);
+        });
+      });
+      ribsInst.instanceMatrix.needsUpdate = true;
+      sideRibsInst.instanceMatrix.needsUpdate = true;
+      ribsInst.computeBoundingSphere();
+      sideRibsInst.computeBoundingSphere();
+      group.add(ribsInst, sideRibsInst);
+    }
+
+    if (fanMats.length > 0) {
+      const fansInst = new THREE.InstancedMesh(jetFanGeo, steelMat, fanMats.length * 2);
+      fanMats.forEach((fm, fi) => {
+        const s = samples[(tc.startIdx + 3 + fi * 7) % SAMPLE_COUNT];
+        [-3.8, 3.8].forEach((lat, sIdx) => {
+          dummy.position.set(fm.x + s.right.x * lat, fm.y, fm.z + s.right.z * lat);
+          dummy.rotation.set(fm.pitch, fm.yaw, fm.bank, 'YXZ');
+          dummy.scale.set(1, 1, 1);
+          dummy.updateMatrix();
+          fansInst.setMatrixAt(fi * 2 + sIdx, dummy.matrix);
+        });
+      });
+      fansInst.instanceMatrix.needsUpdate = true;
+      fansInst.computeBoundingSphere();
+      group.add(fansInst);
+    }
+
+    // Tunnel Entry & Exit Portals
+    [tc.startIdx, (tc.startIdx + tc.len) % SAMPLE_COUNT].forEach((pIdx) => {
+      const ps = samples[pIdx];
+      const pg = new THREE.Group();
+      pg.position.copy(ps.point);
+      pg.rotation.set(ps.slopePitch, Math.atan2(-ps.tangent.x, -ps.tangent.z), -ps.bankAngle, 'YXZ');
+
+      const portalSideGeo = track(new THREE.BoxGeometry(1.5, tunHeight + 1.8, 2.2));
+      const portL = new THREE.Mesh(portalSideGeo, tunnelPortalMat);
+      portL.position.set(-tunSpan - 0.3, (tunHeight + 1.8) * 0.5 - 0.5, 0);
+      const portR = new THREE.Mesh(portalSideGeo, tunnelPortalMat);
+      portR.position.set(tunSpan + 0.3, (tunHeight + 1.8) * 0.5 - 0.5, 0);
+      const portTop = new THREE.Mesh(
+        track(new THREE.BoxGeometry(tunSpan * 2 + 2.4, 2.2, 2.4)),
+        tunnelPortalMat,
+      );
+      portTop.position.set(0, tunHeight + 0.9, 0);
+      const portBeacon = new THREE.Mesh(
+        track(new THREE.BoxGeometry(tunSpan * 1.6, 0.28, 0.35)),
+        sodiumLightMat,
+      );
+      portBeacon.position.set(0, tunHeight + 0.1, 1.25);
+      pg.add(portL, portR, portTop, portBeacon);
+      group.add(pg);
+    });
+  });
+
   // --- 4. Track-Specific Iconic Landmarks (Zero Repetitive Maps!) ---
   if (hasHarborBay) {
-    // Suspension Bridge Towers + Stay Cables
-    const towerSamples = [samples[Math.floor(SAMPLE_COUNT * 0.21)], samples[Math.floor(SAMPLE_COUNT * 0.29)]];
+    // Suspension Bridge Towers + Stay Cables (Verified clear of shortcut cutouts)
+    const towerSamples = [samples[Math.floor(SAMPLE_COUNT * 0.21)], samples[Math.floor(SAMPLE_COUNT * 0.29)]]
+      .filter((ts) => !isNearShortcutPortal(ts.index, 6));
     const towerLegGeo = track(new THREE.BoxGeometry(2.2, 50, 2.2));
     const crossBarGeo = track(new THREE.BoxGeometry(barrierHalfWidth * 2 + 4.8, 2.0, 2.0));
     const beaconGeo = track(new THREE.SphereGeometry(0.9, 8, 8));
@@ -2067,17 +2268,22 @@ export function buildTrack(
       });
     });
 
-    const cableGeo = track(new THREE.BufferGeometry());
-    cableGeo.setAttribute('position', new THREE.Float32BufferAttribute(cablePts, 3));
-    group.add(new THREE.LineSegments(cableGeo, cableMat));
+    if (cablePts.length > 0) {
+      const cableGeo = track(new THREE.BufferGeometry());
+      cableGeo.setAttribute('position', new THREE.Float32BufferAttribute(cablePts, 3));
+      group.add(new THREE.LineSegments(cableGeo, cableMat));
+    }
 
-    // Port Gantry Cranes & Freighter positioned in the northern harbor bay
+    // Port Gantry Cranes & Freighter positioned safely clear of tracks and shortcuts
     const craneMat = track(new THREE.MeshStandardMaterial({ color: '#D97706', metalness: 0.6, roughness: 0.4 }));
     const craneLegGeo = track(new THREE.BoxGeometry(2.0, 44, 2.0));
     const craneBoomGeo = track(new THREE.BoxGeometry(3.2, 2.6, 36));
     [0, 1, 2].forEach((ci) => {
+      const cx = waterCenterX - 240 + ci * 135;
+      const cz = waterCenterZ + 110 - ci * 28;
+      if (!isClearOfTrack(cx, cz, barrierHalfWidth + 32)) return;
       const cg = new THREE.Group();
-      cg.position.set(waterCenterX - 240 + ci * 135, -3, waterCenterZ + 110 - ci * 28);
+      cg.position.set(cx, -3, cz);
       cg.rotation.y = 0.25;
       const leg1 = new THREE.Mesh(craneLegGeo, craneMat);
       leg1.position.set(-7, 22, 0);
@@ -2089,31 +2295,41 @@ export function buildTrack(
       group.add(cg);
     });
 
-    const hullMat = track(new THREE.MeshStandardMaterial({ color: '#1E293B', metalness: 0.5, roughness: 0.6 }));
-    const containerRedMat = track(new THREE.MeshStandardMaterial({ color: '#B91C1C', roughness: 0.7 }));
-    const ship = new THREE.Group();
-    ship.position.set(waterCenterX + 80, -2.5, waterCenterZ - 160);
-    ship.rotation.y = 0.18;
-    const hull = new THREE.Mesh(track(new THREE.BoxGeometry(115, 11, 24)), hullMat);
-    hull.position.y = 4.5;
-    const bridge = new THREE.Mesh(
-      track(new THREE.BoxGeometry(14, 18, 20)),
-      track(new THREE.MeshStandardMaterial({ color: '#E2E8F0', roughness: 0.6 })),
-    );
-    bridge.position.set(-42, 16, 0);
-    const cargo = new THREE.Mesh(track(new THREE.BoxGeometry(68, 9, 18)), containerRedMat);
-    cargo.position.set(8, 12, 0);
-    ship.add(hull, bridge, cargo);
-    group.add(ship);
+    const sxShip = waterCenterX + 80;
+    const szShip = waterCenterZ - 160;
+    if (isClearOfTrack(sxShip, szShip, barrierHalfWidth + 68)) {
+      const hullMat = track(new THREE.MeshStandardMaterial({ color: '#1E293B', metalness: 0.5, roughness: 0.6 }));
+      const containerRedMat = track(new THREE.MeshStandardMaterial({ color: '#B91C1C', roughness: 0.7 }));
+      const ship = new THREE.Group();
+      ship.position.set(sxShip, -2.5, szShip);
+      ship.rotation.y = 0.18;
+      const hull = new THREE.Mesh(track(new THREE.BoxGeometry(115, 11, 24)), hullMat);
+      hull.position.y = 4.5;
+      const bridge = new THREE.Mesh(
+        track(new THREE.BoxGeometry(14, 18, 20)),
+        track(new THREE.MeshStandardMaterial({ color: '#E2E8F0', roughness: 0.6 })),
+      );
+      bridge.position.set(-42, 16, 0);
+      const cargo = new THREE.Mesh(track(new THREE.BoxGeometry(68, 9, 18)), containerRedMat);
+      cargo.position.set(8, 12, 0);
+      ship.add(hull, bridge, cargo);
+      group.add(ship);
+    }
   }
 
-  // Camden Coast & Gray Point Bay: Stacked Shipping Containers + Lighthouse
+  const animTurbines: THREE.Group[] = [];
+  let lighthouseBeacon: THREE.Group | null = null;
+  let monorailTrain: { mesh: THREE.Group; span: number } | null = null;
+  let foundryRingGlowMat: THREE.MeshStandardMaterial | null = null;
+  const gantryPodMats: THREE.MeshStandardMaterial[] = [];
+
+  // Camden Coast & Gray Point Bay: Stacked Shipping Containers + Lighthouse with Sweeping Beacon
   if (trackId === 'camden_coast' || trackId === 'gray_point_bay') {
     const lhMat = track(new THREE.MeshStandardMaterial({ color: '#E2E8F0', roughness: 0.6 }));
     const lhStripeMat = track(new THREE.MeshStandardMaterial({ color: '#DC2626', roughness: 0.55 }));
     const lhX = maxX - 110;
     const lhZ = minZ + 380;
-    if (isClearOfTrack(lhX, lhZ, barrierHalfWidth + 14)) {
+    if (isClearOfTrack(lhX, lhZ, barrierHalfWidth + 20)) {
       const lhBaseY = sampleTerrainInfo(lhX, lhZ).height;
       const lhGroup = new THREE.Group();
       lhGroup.position.set(lhX, lhBaseY - 1, lhZ);
@@ -2125,7 +2341,29 @@ export function buildTrack(
       lhLantern.position.y = 44.5;
       const lhCap = new THREE.Mesh(track(new THREE.ConeGeometry(3.6, 4.2, 12)), steelMat);
       lhCap.position.y = 48.8;
-      lhGroup.add(lhBody, lhBand, lhLantern, lhCap);
+
+      const beaconGroup = new THREE.Group();
+      beaconGroup.position.y = 44.5;
+      const beamConeGeo = track(new THREE.ConeGeometry(14, 110, 12, 1, true));
+      beamConeGeo.translate(0, -55, 0);
+      beamConeGeo.rotateZ(Math.PI / 2);
+      const beamConeMat = track(
+        new THREE.MeshBasicMaterial({
+          color: '#FEF3C7',
+          transparent: true,
+          opacity: environment === 'midnight_neon' ? 0.19 : 0.11,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        }),
+      );
+      const beamA = new THREE.Mesh(beamConeGeo, beamConeMat);
+      const beamB = new THREE.Mesh(beamConeGeo, beamConeMat);
+      beamB.rotation.y = Math.PI;
+      beaconGroup.add(beamA, beamB);
+      lighthouseBeacon = beaconGroup;
+
+      lhGroup.add(lhBody, lhBand, lhLantern, lhCap, beaconGroup);
       group.add(lhGroup);
     }
 
@@ -2142,9 +2380,9 @@ export function buildTrack(
     for (let i = 0; i < 42; i++) {
       const s = samples[Math.floor(((i * 15) % SAMPLE_COUNT))];
       const side = i % 2 === 0 ? 1 : -1;
-      const cx = s.point.x + s.right.x * side * (barrierHalfWidth + 18 + (i % 3) * 6);
-      const cz = s.point.z + s.right.z * side * (barrierHalfWidth + 18 + (i % 3) * 6);
-      if (isClearOfTrack(cx, cz, barrierHalfWidth + 10)) {
+      const cx = s.point.x + s.right.x * side * (barrierHalfWidth + 21 + (i % 3) * 6);
+      const cz = s.point.z + s.right.z * side * (barrierHalfWidth + 21 + (i % 3) * 6);
+      if (isClearOfTrack(cx, cz, barrierHalfWidth + 16)) {
         const baseY = sampleTerrainInfo(cx, cz).height;
         const stacks = 1 + (i % 3);
         for (let st = 0; st < stacks; st++) {
@@ -2182,9 +2420,9 @@ export function buildTrack(
     const stripeMat = track(new THREE.MeshStandardMaterial({ color: '#F59E0B', roughness: 0.45 }));
     [0.52, 0.56, 0.62].forEach((prog, idx) => {
       const s = samples[Math.floor(SAMPLE_COUNT * prog)];
-      const tx = s.point.x - s.right.x * (barrierHalfWidth + 32 + idx * 8);
-      const tz = s.point.z - s.right.z * (barrierHalfWidth + 32 + idx * 8);
-      if (isClearOfTrack(tx, tz, barrierHalfWidth + 20)) {
+      const tx = s.point.x - s.right.x * (barrierHalfWidth + 36 + idx * 8);
+      const tz = s.point.z - s.right.z * (barrierHalfWidth + 36 + idx * 8);
+      if (isClearOfTrack(tx, tz, barrierHalfWidth + 24)) {
         const ty = sampleTerrainInfo(tx, tz).height;
         const m = new THREE.Mesh(tankGeo, tankMat);
         m.position.set(tx, ty + 8, tz);
@@ -2204,9 +2442,9 @@ export function buildTrack(
     for (let i = 0; i < 10; i++) {
       const s = samples[Math.floor(((i + 0.3) / 10) * SAMPLE_COUNT)];
       const side = i % 2 === 0 ? 1 : -1;
-      const wx = s.point.x + s.right.x * side * (barrierHalfWidth + 44 + (i % 3) * 14);
-      const wz = s.point.z + s.right.z * side * (barrierHalfWidth + 44 + (i % 3) * 14);
-      if (!isClearOfTrack(wx, wz, barrierHalfWidth + 24)) continue;
+      const wx = s.point.x + s.right.x * side * (barrierHalfWidth + 46 + (i % 3) * 14);
+      const wz = s.point.z + s.right.z * side * (barrierHalfWidth + 46 + (i % 3) * 14);
+      if (!isClearOfTrack(wx, wz, barrierHalfWidth + 30)) continue;
       const wy = sampleTerrainInfo(wx, wz).height;
       const tg = new THREE.Group();
       tg.position.set(wx, wy, wz);
@@ -2216,13 +2454,18 @@ export function buildTrack(
       const hub = new THREE.Mesh(hubGeo, windMat);
       hub.position.set(0, 56, 0);
       tg.add(pylon, hub);
+      const rotorGroup = new THREE.Group();
+      rotorGroup.position.set(0, 56, 2.2);
+      rotorGroup.rotation.z = i * 0.4;
       for (let b = 0; b < 3; b++) {
-        const ang = (b * Math.PI * 2) / 3 + i * 0.4;
+        const ang = (b * Math.PI * 2) / 3;
         const blade = new THREE.Mesh(bladeGeo, windMat);
-        blade.position.set(Math.sin(ang) * 12, 56 + Math.cos(ang) * 12, 2.2);
+        blade.position.set(Math.sin(ang) * 12, Math.cos(ang) * 12, 0);
         blade.rotation.z = -ang;
-        tg.add(blade);
+        rotorGroup.add(blade);
       }
+      tg.add(rotorGroup);
+      animTurbines.push(rotorGroup);
       group.add(tg);
     }
   }
@@ -2237,9 +2480,9 @@ export function buildTrack(
     [0.14, 0.36, 0.72, 0.86].forEach((prog, idx) => {
       const s = samples[Math.floor(SAMPLE_COUNT * prog)];
       const side = idx % 2 === 0 ? -1 : 1;
-      const rx = s.point.x + s.right.x * side * (barrierHalfWidth + 30);
-      const rz = s.point.z + s.right.z * side * (barrierHalfWidth + 30);
-      if (!isClearOfTrack(rx, rz, barrierHalfWidth + 18)) return;
+      const rx = s.point.x + s.right.x * side * (barrierHalfWidth + 36);
+      const rz = s.point.z + s.right.z * side * (barrierHalfWidth + 36);
+      if (!isClearOfTrack(rx, rz, barrierHalfWidth + 28)) return;
       const ry = sampleTerrainInfo(rx, rz).height;
       const hall = new THREE.Mesh(track(new THREE.BoxGeometry(28, 16, 18)), brickMat);
       hall.position.set(rx, ry + 8, rz);
@@ -2247,12 +2490,18 @@ export function buildTrack(
       const trim = new THREE.Mesh(track(new THREE.BoxGeometry(29, 2.2, 19)), roofTrimMat);
       trim.position.set(rx, ry + 16.5, rz);
       trim.rotation.y = hall.rotation.y;
-      const pole = new THREE.Mesh(track(new THREE.CylinderGeometry(0.45, 0.65, 32, 8)), steelMat);
-      pole.position.set(rx - 14, ry + 16, rz);
-      const panel = new THREE.Mesh(track(new THREE.BoxGeometry(7.2, 3.2, 0.8)), floodMat);
-      panel.position.set(rx - 14, ry + 32, rz);
-      panel.rotation.y = hall.rotation.y;
-      group.add(hall, trim, pole, panel);
+      group.add(hall, trim);
+
+      const poleX = rx + s.right.x * side * 14;
+      const poleZ = rz + s.right.z * side * 14;
+      if (isClearOfTrack(poleX, poleZ, barrierHalfWidth + 16)) {
+        const pole = new THREE.Mesh(track(new THREE.CylinderGeometry(0.45, 0.65, 32, 8)), steelMat);
+        pole.position.set(poleX, ry + 16, poleZ);
+        const panel = new THREE.Mesh(track(new THREE.BoxGeometry(7.2, 3.2, 0.8)), floodMat);
+        panel.position.set(poleX, ry + 32, poleZ);
+        panel.rotation.y = hall.rotation.y;
+        group.add(pole, panel);
+      }
     });
   }
 
@@ -2264,25 +2513,34 @@ export function buildTrack(
     const ringGlowMat = track(
       new THREE.MeshStandardMaterial({ color: '#FB923C', emissive: new THREE.Color('#EA580C'), emissiveIntensity: 3.4 }),
     );
+    foundryRingGlowMat = ringGlowMat;
     [0.14, 0.42, 0.72].forEach((prog, idx) => {
       const s = samples[Math.floor(SAMPLE_COUNT * prog)];
-      const sx = s.point.x + s.right.x * (idx === 1 ? -48 : 44);
-      const sz = s.point.z + s.right.z * (idx === 1 ? -48 : 44);
-      if (!isClearOfTrack(sx, sz, barrierHalfWidth + 20)) return;
+      const side = idx === 1 ? -1 : 1;
+      const sx = s.point.x + s.right.x * side * 52;
+      const sz = s.point.z + s.right.z * side * 52;
+      if (!isClearOfTrack(sx, sz, barrierHalfWidth + 30)) return;
       const baseH = sampleTerrainInfo(sx, sz).height;
       const tower = new THREE.Mesh(coolGeo, foundryMat);
       tower.position.set(sx, baseH + 23, sz);
       const glowBand = new THREE.Mesh(track(new THREE.TorusGeometry(11.4, 0.45, 8, 24)), ringGlowMat);
       glowBand.rotation.x = Math.PI / 2;
       glowBand.position.set(sx, baseH + 45.5, sz);
-      const stack = new THREE.Mesh(chimneyGeo, steelMat);
-      stack.position.set(sx + 20, baseH + 32, sz + 12);
-      group.add(tower, glowBand, stack);
+      group.add(tower, glowBand);
+
+      const stackX = sx + s.right.x * side * 22;
+      const stackZ = sz + s.right.z * side * 22;
+      if (isClearOfTrack(stackX, stackZ, barrierHalfWidth + 18)) {
+        const stack = new THREE.Mesh(chimneyGeo, steelMat);
+        stack.position.set(stackX, baseH + 32, stackZ);
+        group.add(stack);
+      }
     });
 
-    // Overhead Steel Pipe Bridges across highway
+    // Overhead Steel Pipe Bridges across highway (conflict-checked against tunnels & shortcut portals)
     [0.18, 0.62].forEach((prog) => {
-      const s = samples[Math.floor(SAMPLE_COUNT * prog)];
+      const pIdx = resolveClearIdx(prog, 8);
+      const s = samples[pIdx];
       const pg = new THREE.Group();
       pg.position.copy(s.point);
       pg.rotation.y = Math.atan2(-s.tangent.x, -s.tangent.z);
@@ -2302,13 +2560,18 @@ export function buildTrack(
     });
   }
 
-  // Downtown Labyrinth: Elevated Metro Monorail Overpasses & Neon Skyway Strips
+  // Downtown Labyrinth: Elevated Metro Monorail Overpasses, Moving Skyway Train & Neon Strips
   if (trackId === 'downtown_labyrinth') {
     const neonMat = track(
       new THREE.MeshStandardMaterial({ color: '#38BDF8', emissive: new THREE.Color('#0284C7'), emissiveIntensity: 3.2 }),
     );
-    [0.32, 0.78].forEach((prog) => {
-      const s = samples[Math.floor(SAMPLE_COUNT * prog)];
+    const trainBodyMat = track(new THREE.MeshStandardMaterial({ color: '#CBD5E1', roughness: 0.42, metalness: 0.6 }));
+    const trainWinMat = track(
+      new THREE.MeshStandardMaterial({ color: '#E0F2FE', emissive: new THREE.Color('#38BDF8'), emissiveIntensity: 3.5 }),
+    );
+    [0.32, 0.78].forEach((prog, idx) => {
+      const mIdx = resolveClearIdx(prog, 8);
+      const s = samples[mIdx];
       const mg = new THREE.Group();
       mg.position.copy(s.point);
       mg.rotation.y = Math.atan2(-s.tangent.x, -s.tangent.z);
@@ -2317,20 +2580,38 @@ export function buildTrack(
       cL.position.set(-barrierHalfWidth - 1.5, 6, 0);
       const cR = new THREE.Mesh(colG, concreteStructMat);
       cR.position.set(barrierHalfWidth + 1.5, 6, 0);
-      const deck = new THREE.Mesh(track(new THREE.BoxGeometry(barrierHalfWidth * 2 + 24, 1.6, 5.2)), concreteStructMat);
+      const deck = new THREE.Mesh(track(new THREE.BoxGeometry(barrierHalfWidth * 2 + 64, 1.6, 5.2)), concreteStructMat);
       deck.position.set(0, 11.6, 0);
-      const strip = new THREE.Mesh(track(new THREE.BoxGeometry(barrierHalfWidth * 2 + 20, 0.35, 5.4)), neonMat);
+      const strip = new THREE.Mesh(track(new THREE.BoxGeometry(barrierHalfWidth * 2 + 60, 0.35, 5.4)), neonMat);
       strip.position.set(0, 11.0, 0);
       mg.add(cL, cR, deck, strip);
+
+      if (idx === 0) {
+        const trainGroup = new THREE.Group();
+        trainGroup.position.set(0, 13.4, 0);
+        const carGeo = track(new THREE.BoxGeometry(9.5, 2.2, 2.8));
+        const winGeo = track(new THREE.BoxGeometry(8.2, 0.75, 2.95));
+        [-10.4, 0, 10.4].forEach((cx) => {
+          const car = new THREE.Mesh(carGeo, trainBodyMat);
+          car.position.x = cx;
+          const win = new THREE.Mesh(winGeo, trainWinMat);
+          win.position.set(cx, 0.28, 0);
+          trainGroup.add(car, win);
+        });
+        mg.add(trainGroup);
+        monorailTrain = { mesh: trainGroup, span: barrierHalfWidth + 18 };
+      }
+
       group.add(mg);
     });
   }
 
-  // Heritage Forest: Log Stacks & Covered Timber Arches
+  // Heritage Forest: Covered Timber Arches (Clear of shortcut portals)
   if (trackId === 'heritage_forest') {
     const timberMat = track(new THREE.MeshStandardMaterial({ color: '#5C3A21', roughness: 0.88 }));
     [0.20, 0.78].forEach((prog) => {
-      const s = samples[Math.floor(SAMPLE_COUNT * prog)];
+      const aIdx = resolveClearIdx(prog, 8);
+      const s = samples[aIdx];
       const ag = new THREE.Group();
       ag.position.copy(s.point);
       ag.rotation.y = Math.atan2(-s.tangent.x, -s.tangent.z);
@@ -2350,7 +2631,8 @@ export function buildTrack(
   if (isCanyonOrSummit) {
     const timberMat = track(new THREE.MeshStandardMaterial({ color: '#5C3A21', roughness: 0.88, metalness: 0.08 }));
     [0.22, 0.67].forEach((prog) => {
-      const s = samples[Math.floor(SAMPLE_COUNT * prog)];
+      const aIdx = resolveClearIdx(prog, 8);
+      const s = samples[aIdx];
       const archG = new THREE.Group();
       archG.position.copy(s.point);
       archG.rotation.y = Math.atan2(-s.tangent.x, -s.tangent.z);
@@ -2367,18 +2649,24 @@ export function buildTrack(
 
     if (trackId === 'blackridge_summit') {
       const obsS = samples[Math.floor(SAMPLE_COUNT * 0.28)];
-      const ox = obsS.point.x + obsS.right.x * -54;
-      const oz = obsS.point.z + obsS.right.z * -54;
-      if (isClearOfTrack(ox, oz, barrierHalfWidth + 24)) {
+      const ox = obsS.point.x - obsS.right.x * 58;
+      const oz = obsS.point.z - obsS.right.z * 58;
+      if (isClearOfTrack(ox, oz, barrierHalfWidth + 30)) {
         const oy = sampleTerrainInfo(ox, oz).height;
         const obsMat = track(new THREE.MeshStandardMaterial({ color: '#E2E8F0', roughness: 0.42, metalness: 0.35 }));
         const base = new THREE.Mesh(track(new THREE.CylinderGeometry(16, 18, 18, 16)), obsMat);
         base.position.set(ox, oy + 9, oz);
         const dome = new THREE.Mesh(track(new THREE.SphereGeometry(15.5, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.5)), obsMat);
         dome.position.set(ox, oy + 18, oz);
-        const mast = new THREE.Mesh(track(new THREE.CylinderGeometry(0.4, 1.1, 44, 8)), steelMat);
-        mast.position.set(ox + 26, oy + 22, oz + 10);
-        group.add(base, dome, mast);
+        group.add(base, dome);
+
+        const mastX = ox - obsS.right.x * 26;
+        const mastZ = oz - obsS.right.z * 26;
+        if (isClearOfTrack(mastX, mastZ, barrierHalfWidth + 16)) {
+          const mast = new THREE.Mesh(track(new THREE.CylinderGeometry(0.4, 1.1, 44, 8)), steelMat);
+          mast.position.set(mastX, oy + 22, mastZ);
+          group.add(mast);
+        }
       }
     }
   }
@@ -2446,13 +2734,18 @@ export function buildTrack(
   // 5-Pod Starting Signal Light Housing on Gantry Truss
   const lightBox = new THREE.Mesh(track(new THREE.BoxGeometry(7.6, 1.05, 0.72)), steelMat);
   lightBox.position.set(0, 6.2, 0.48);
-  const redPodMat = track(
-    new THREE.MeshStandardMaterial({ color: '#EF4444', emissive: new THREE.Color('#EF4444'), emissiveIntensity: 3.4 }),
-  );
   const podGeo = track(new THREE.CylinderGeometry(0.28, 0.28, 0.18, 12));
   podGeo.rotateX(Math.PI / 2);
   [-2.6, -1.3, 0, 1.3, 2.6].forEach((px) => {
-    const pod = new THREE.Mesh(podGeo, redPodMat);
+    const podMat = track(
+      new THREE.MeshStandardMaterial({
+        color: '#450A0A',
+        emissive: new THREE.Color('#EF4444'),
+        emissiveIntensity: 0.3,
+      }),
+    );
+    gantryPodMats.push(podMat);
+    const pod = new THREE.Mesh(podGeo, podMat);
     pod.position.set(px, 6.2, 0.88);
     gantryGroup.add(pod);
   });
@@ -2522,14 +2815,14 @@ export function buildTrack(
   );
   const bbGeo = track(new THREE.BoxGeometry(12.2, 5.4, 0.48));
   [0.19, 0.64, 0.84].forEach((prog, i) => {
-    const s = samples[resolveClearIdx(prog, 6)];
+    const sIdx = resolveClearIdx(prog, 8);
+    const s = samples[sIdx];
     const side = i % 2 === 0 ? 1 : -1;
+    const bbX = s.point.x + s.right.x * side * (barrierHalfWidth + 7.2);
+    const bbZ = s.point.z + s.right.z * side * (barrierHalfWidth + 7.2);
+    if (!isClearOfTrack(bbX, bbZ, barrierHalfWidth + 5.0)) return;
     const bb = new THREE.Group();
-    bb.position.set(
-      s.point.x + s.right.x * side * (barrierHalfWidth + 6.5),
-      s.point.y,
-      s.point.z + s.right.z * side * (barrierHalfWidth + 6.5),
-    );
+    bb.position.set(bbX, s.point.y, bbZ);
     bb.rotation.y = Math.atan2(-s.tangent.x, -s.tangent.z) + (side === 1 ? -0.35 : 0.35);
     const post = new THREE.Mesh(track(new THREE.CylinderGeometry(0.42, 0.52, 8.5, 10)), steelMat);
     post.position.y = 4.25;
@@ -2563,12 +2856,26 @@ export function buildTrack(
       new THREE.MeshStandardMaterial({
         color: '#06B6D4',
         emissive: new THREE.Color('#06B6D4'),
-        emissiveIntensity: 2.0,
+        emissiveIntensity: 2.2,
       }),
     );
     const flashBar = new THREE.Mesh(trapBarGeo, flashMat);
     flashBar.position.set(0, 5.65, 0);
-    trapG.add(postL, postR, flashBar);
+
+    // Dual Police Radar Camera Pods mounted on overhead crossbar
+    const camBoxGeo = track(new THREE.BoxGeometry(0.85, 0.65, 1.15));
+    const camL = new THREE.Mesh(camBoxGeo, steelMat);
+    camL.position.set(-roadHalfWidth * 0.48, 5.15, 0.15);
+    const camR = new THREE.Mesh(camBoxGeo, steelMat);
+    camR.position.set(roadHalfWidth * 0.48, 5.15, 0.15);
+    const lensGeo = track(new THREE.CylinderGeometry(0.2, 0.2, 0.12, 10));
+    lensGeo.rotateX(Math.PI / 2);
+    const lensL = new THREE.Mesh(lensGeo, flashMat);
+    lensL.position.set(-roadHalfWidth * 0.48, 5.15, 0.75);
+    const lensR = new THREE.Mesh(lensGeo, flashMat);
+    lensR.position.set(roadHalfWidth * 0.48, 5.15, 0.75);
+
+    trapG.add(postL, postR, flashBar, camL, camR, lensL, lensR);
     group.add(trapG);
 
     speedTraps.push({
@@ -2606,14 +2913,17 @@ export function buildTrack(
     pL.position.set(-barrierHalfWidth, 3.4, 0);
     const pR = new THREE.Mesh(tollPostGeo, steelMat);
     pR.position.set(barrierHalfWidth, 3.4, 0);
-    const boothMid = new THREE.Mesh(track(new THREE.BoxGeometry(1.1, 3.1, 3.2)), steelMat);
-    boothMid.position.set(0, 1.55, 0);
+    const kioskGeo = track(new THREE.BoxGeometry(1.4, 3.4, 3.4));
+    const boothL = new THREE.Mesh(kioskGeo, steelMat);
+    boothL.position.set(-barrierHalfWidth - 1.25, 1.7, 0);
+    const boothR = new THREE.Mesh(kioskGeo, steelMat);
+    boothR.position.set(barrierHalfWidth + 1.25, 1.7, 0);
     const roof = new THREE.Mesh(tollRoofGeo, steelMat);
     roof.position.set(0, 6.9, 0);
     const beacon = new THREE.Mesh(tollBeaconGeo, bMat);
     beacon.position.set(0, 6.25, 0);
 
-    tg.add(pL, pR, boothMid, roof, beacon);
+    tg.add(pL, pR, boothL, boothR, roof, beacon);
     group.add(tg);
 
     tollbooths.push({
@@ -2763,16 +3073,17 @@ export function buildTrack(
     const idx = resolveClearIdx(spec.prog, 9);
     reserveIdx(idx);
     const s = samples[idx];
-    const lat = spec.side * (roadHalfWidth - 1.4);
+    const lat = spec.side * (roadHalfWidth + 0.15);
     const pos = s.point.clone().addScaledVector(s.right, lat);
     pos.y += lat * Math.sin(s.bankAngle);
     const bGroup = new THREE.Group();
     bGroup.position.copy(pos);
+    bGroup.rotation.y = Math.atan2(-s.tangent.x, -s.tangent.z);
 
     const leg1 = new THREE.Mesh(legGeo, hazardMat);
-    leg1.position.set(-1.2, 2.7, 0);
+    leg1.position.set(0, 2.7, -1.2);
     const leg2 = new THREE.Mesh(legGeo, hazardMat);
-    leg2.position.set(1.2, 2.7, 0);
+    leg2.position.set(0, 2.7, 1.2);
     const tank = new THREE.Mesh(tankGeo, scaffoldMat);
     tank.position.set(0, 6.2, 0);
     const ring = new THREE.Mesh(track(new THREE.TorusGeometry(2.25, 0.16, 8, 16)), hazardMat);
@@ -2780,8 +3091,10 @@ export function buildTrack(
     ring.position.set(0, 5.2, 0);
     const floorRing = new THREE.Mesh(hazardRingGeo, hazardRingMat);
     floorRing.position.set(0, 0.09, 0);
+    const beaconTop = new THREE.Mesh(track(new THREE.BoxGeometry(1.1, 0.36, 1.1)), sodiumLightMat);
+    beaconTop.position.set(0, 7.8, 0);
 
-    bGroup.add(leg1, leg2, tank, ring, floorRing);
+    bGroup.add(leg1, leg2, tank, ring, beaconTop, floorRing);
     group.add(bGroup);
 
     pursuitBreakers.push({
@@ -2866,25 +3179,27 @@ export function buildTrack(
     }),
   );
 
-  const poleIndices: number[] = [];
+  const polePlacements: { idx: number; side: number; px: number; py: number; pz: number; s: TrackSample }[] = [];
   for (let i = 0; i < lightPoleCount; i++) {
     const idx = Math.floor((i / lightPoleCount) * SAMPLE_COUNT);
-    if (isInsideAnyTunnel(idx, 2)) continue;
-    poleIndices.push(idx);
-  }
-
-  const polesInst = new THREE.InstancedMesh(poleGeo, poleMat, poleIndices.length);
-  const lampsInst = new THREE.InstancedMesh(lampGeo, lampMat, poleIndices.length);
-  const halosInst = new THREE.InstancedMesh(haloGeo, haloMat, poleIndices.length);
-  const poolsInst = new THREE.InstancedMesh(poolGeo, poolMat, poleIndices.length);
-
-  for (let i = 0; i < poleIndices.length; i++) {
-    const idx = poleIndices[i];
+    if (isInsideAnyTunnel(idx, 2) || isNearShortcutPortal(idx, 4)) continue;
     const s = samples[idx];
     const side = i % 2 === 0 ? 1 : -1;
+    if ((side < 0 && leftBarrierCutout[idx] === 1) || (side > 0 && rightBarrierCutout[idx] === 1)) continue;
     const px = s.point.x + s.right.x * side * (barrierHalfWidth + 1.0);
     const pz = s.point.z + s.right.z * side * (barrierHalfWidth + 1.0);
+    if (!isClearOfShortcuts(px, pz, 5.5)) continue;
     const py = s.point.y + side * barrierHalfWidth * Math.sin(s.bankAngle);
+    polePlacements.push({ idx, side, px, py, pz, s });
+  }
+
+  const polesInst = new THREE.InstancedMesh(poleGeo, poleMat, polePlacements.length);
+  const lampsInst = new THREE.InstancedMesh(lampGeo, lampMat, polePlacements.length);
+  const halosInst = new THREE.InstancedMesh(haloGeo, haloMat, polePlacements.length);
+  const poolsInst = new THREE.InstancedMesh(poolGeo, poolMat, polePlacements.length);
+
+  for (let i = 0; i < polePlacements.length; i++) {
+    const { s, side, px, py, pz } = polePlacements[i];
     const rotY = Math.atan2(-s.tangent.x, -s.tangent.z) + (side === 1 ? Math.PI / 2 : -Math.PI / 2);
 
     dummy.position.set(px, py, pz);
@@ -2948,17 +3263,20 @@ export function buildTrack(
   const leftTurnChevs: { s: TrackSample; outerSide: number }[] = [];
   const rightTurnChevs: { s: TrackSample; outerSide: number }[] = [];
   for (let i = 0; i < SAMPLE_COUNT; i += 4) {
-    if (isInsideAnyTunnel(i, 1)) continue;
+    if (isInsideAnyTunnel(i, 1) || isNearShortcutPortal(i, 5)) continue;
     const sPrev = samples[(i - 4 + SAMPLE_COUNT) % SAMPLE_COUNT];
     const sNext = samples[(i + 4) % SAMPLE_COUNT];
     const turnCross = sPrev.tangent.x * sNext.tangent.z - sPrev.tangent.z * sNext.tangent.x;
     if (Math.abs(turnCross) > 0.085) {
       const s = samples[i];
+      const outerSide = turnCross > 0 ? -1 : 1;
+      if ((outerSide < 0 && leftBarrierCutout[i] === 1) || (outerSide > 0 && rightBarrierCutout[i] === 1)) continue;
+      const cx = s.point.x + s.right.x * outerSide * (barrierHalfWidth + 0.5);
+      const cz = s.point.z + s.right.z * outerSide * (barrierHalfWidth + 0.5);
+      if (!isClearOfShortcuts(cx, cz, 5.0)) continue;
       if (turnCross > 0) {
-        // Right turn (CW around +Y looking down): outside barrier is left (-1)
         rightTurnChevs.push({ s, outerSide: -1 });
       } else {
-        // Left turn (CCW): outside barrier is right (+1)
         leftTurnChevs.push({ s, outerSide: 1 });
       }
     }
@@ -3048,8 +3366,12 @@ export function buildTrack(
       ];
       marks.forEach((m) => {
         const bIdx = (i - m.offset + SAMPLE_COUNT) % SAMPLE_COUNT;
-        if (isInsideAnyTunnel(bIdx, 1)) return;
-        if (shortcutPortalIndices.some((pi) => idxDist(bIdx, pi) < 4)) return;
+        if (isInsideAnyTunnel(bIdx, 1) || isNearShortcutPortal(bIdx, 5)) return;
+        if ((outerSide < 0 && leftBarrierCutout[bIdx] === 1) || (outerSide > 0 && rightBarrierCutout[bIdx] === 1)) return;
+        const bs = samples[bIdx];
+        const bx = bs.point.x + bs.right.x * outerSide * (barrierHalfWidth + 1.35);
+        const bz = bs.point.z + bs.right.z * outerSide * (barrierHalfWidth + 1.35);
+        if (!isClearOfShortcuts(bx, bz, 5.5)) return;
         brakeSpots.push({ idx: bIdx, outerSide, label: m.label });
       });
       i += 18;
@@ -3094,6 +3416,45 @@ export function buildTrack(
       posts.computeBoundingSphere();
       group.add(boards, posts);
     });
+
+    // Rubber Tire Braking Skid Patches on asphalt approaching sharp bends
+    const skidPatchGeo = track(new THREE.PlaneGeometry(0.42, 6.5));
+    skidPatchGeo.rotateX(-Math.PI / 2);
+    const skidPatchMat = track(
+      new THREE.MeshBasicMaterial({
+        color: '#07090D',
+        transparent: true,
+        opacity: 0.48,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      }),
+    );
+    const cornerApproachSpots = brakeSpots.filter((bs) => bs.label === '50');
+    if (cornerApproachSpots.length > 0) {
+      const skidPatches = new THREE.InstancedMesh(skidPatchGeo, skidPatchMat, cornerApproachSpots.length * 4);
+      let spIdx = 0;
+      cornerApproachSpots.forEach((bs) => {
+        const s = samples[bs.idx];
+        const yaw = Math.atan2(-s.tangent.x, -s.tangent.z);
+        const bankSlope = Math.sin(s.bankAngle);
+        [-3.4, -1.6, 1.6, 3.4].forEach((lat) => {
+          dummy.position.set(
+            s.point.x + s.right.x * lat,
+            s.point.y + 0.068 + lat * bankSlope,
+            s.point.z + s.right.z * lat,
+          );
+          dummy.rotation.set(s.slopePitch, yaw, -s.bankAngle, 'YXZ');
+          dummy.scale.set(1, 1, 1);
+          dummy.updateMatrix();
+          skidPatches.setMatrixAt(spIdx++, dummy.matrix);
+        });
+      });
+      skidPatches.instanceMatrix.needsUpdate = true;
+      skidPatches.computeBoundingSphere();
+      group.add(skidPatches);
+    }
   }
 
   // Trackside Spectator Grandstands & Stadium Floodlight Gantries on main straightaways
@@ -3111,9 +3472,9 @@ export function buildTrack(
     const gsIdx = resolveClearIdx(prog, 10);
     const s = samples[gsIdx];
     const side = gIdx === 0 ? -1 : 1;
-    const gx = s.point.x + s.right.x * side * (barrierHalfWidth + 16);
-    const gz = s.point.z + s.right.z * side * (barrierHalfWidth + 16);
-    if (!isClearOfTrack(gx, gz, barrierHalfWidth + 11)) return;
+    const gx = s.point.x + s.right.x * side * (barrierHalfWidth + 24);
+    const gz = s.point.z + s.right.z * side * (barrierHalfWidth + 24);
+    if (!isClearOfTrack(gx, gz, barrierHalfWidth + 22)) return;
     const gy = Math.max(s.point.y - 0.5, sampleTerrainInfo(gx, gz).height);
     const gsG = new THREE.Group();
     gsG.position.set(gx, gy, gz);
@@ -3166,11 +3527,11 @@ export function buildTrack(
   for (let i = 0; i < SAMPLE_COUNT; i += treeStep) {
     const s = samples[i];
     const side = i % 2 === 0 ? 1 : -1;
-    const distOut = barrierHalfWidth + 11 + ((i * 7) % 16);
+    const distOut = barrierHalfWidth + 13 + ((i * 7) % 16);
     const tx = s.point.x + s.right.x * side * distOut;
     const tz = s.point.z + s.right.z * side * distOut;
     if (hasHarborBay && tz < minZ + 380 && tx > minX - 80 && tx < maxX + 120) continue;
-    if (isClearOfTrack(tx, tz, barrierHalfWidth + 8)) {
+    if (isClearOfTrack(tx, tz, barrierHalfWidth + 10)) {
       const ty = sampleTerrainInfo(tx, tz).height;
       if (ty > -3) {
         const forestBoost = trackId === 'heritage_forest' ? 1.45 : isForestTrack ? 1.15 : 0.9;
@@ -3185,13 +3546,13 @@ export function buildTrack(
     }
   }
 
-  for (let t = 0; t < (isForestTrack ? 220 : 145); t++) {
+  for (let t = 0; t < (isForestTrack ? 280 : 190); t++) {
     const ang = t * 2.39996;
-    const rad = 135 + ((t * 61) % 1080);
+    const rad = 140 + ((t * 73) % 1450);
     const tx = terrainCenterX + Math.cos(ang) * rad;
     const tz = terrainCenterZ + Math.sin(ang) * rad;
     if (hasHarborBay && tz < minZ + 380 && tx > minX - 80 && tx < maxX + 120) continue;
-    if (isClearOfTrack(tx, tz, barrierHalfWidth + 22)) {
+    if (isClearOfTrack(tx, tz, barrierHalfWidth + 26)) {
       const ty = sampleTerrainInfo(tx, tz).height;
       if (ty > -3) {
         treePositions.push({
@@ -3245,14 +3606,14 @@ export function buildTrack(
   const bushSpots: { x: number; y: number; z: number; sx: number; sy: number; sz: number; tint: THREE.Color }[] = [];
   const rockSpots: { x: number; y: number; z: number; sx: number; sy: number; sz: number; rot: number }[] = [];
   for (let i = 2; i < SAMPLE_COUNT; i += 3) {
-    if (isInsideAnyTunnel(i, 1)) continue;
+    if (isInsideAnyTunnel(i, 1) || isNearShortcutPortal(i, 3)) continue;
     const s = samples[i];
     const side = i % 2 === 0 ? 1 : -1;
-    const distOut = barrierHalfWidth + 4.8 + ((i * 11) % 10);
+    const distOut = barrierHalfWidth + 6.5 + ((i * 11) % 10);
     const bx = s.point.x + s.right.x * side * distOut;
     const bz = s.point.z + s.right.z * side * distOut;
     if (hasHarborBay && bz < minZ + 380 && bx > minX - 80 && bx < maxX + 120) continue;
-    if (!isClearOfTrack(bx, bz, barrierHalfWidth + 3.5)) continue;
+    if (!isClearOfTrack(bx, bz, barrierHalfWidth + 5.0)) continue;
     const by = Math.max(s.point.y - 0.8, sampleTerrainInfo(bx, bz).height);
     if (by < -2.2) continue;
 
@@ -3317,18 +3678,18 @@ export function buildTrack(
     group.add(rockInst);
   }
 
-  // Urban / Industrial Close-Track Commercial Storefronts & Neon Facade Signs
+  // Urban / Industrial Close-Track Commercial Storefronts & Neon Facade Signs (Zero clipping margin)
   if (!isCanyonOrSummit && !isForestTrack) {
     const shopSpots: { x: number; y: number; z: number; yaw: number; sx: number; sy: number; sz: number }[] = [];
     for (let i = 4; i < SAMPLE_COUNT; i += 9) {
-      if (isInsideAnyTunnel(i, 2)) continue;
+      if (isInsideAnyTunnel(i, 2) || isNearShortcutPortal(i, 5)) continue;
       const s = samples[i];
       const side = i % 2 === 0 ? 1 : -1;
-      const sxOut = barrierHalfWidth + 13.5 + ((i * 5) % 8);
+      const sxOut = barrierHalfWidth + 24.0 + ((i * 5) % 9);
       const px = s.point.x + s.right.x * side * sxOut;
       const pz = s.point.z + s.right.z * side * sxOut;
       if (hasHarborBay && pz < minZ + 380 && px > minX - 80 && px < maxX + 120) continue;
-      if (!isClearOfTrack(px, pz, barrierHalfWidth + 10.5)) continue;
+      if (!isClearOfTrack(px, pz, barrierHalfWidth + 21.5)) continue;
       const py = sampleTerrainInfo(px, pz).height;
       if (py < -2) continue;
       shopSpots.push({
@@ -3396,18 +3757,18 @@ export function buildTrack(
   const bldgItems: BldgPlacement[] = [];
 
   if (isCanyonOrSummit || isForestTrack) {
-    for (let i = 0; i < SAMPLE_COUNT; i += 8) {
+    for (let i = 0; i < SAMPLE_COUNT; i += 7) {
       const s = samples[i];
       [-1, 1].forEach((side, sIdx) => {
-        const bx = s.point.x + s.right.x * side * (barrierHalfWidth + 32 + ((i * 5) % 24));
-        const bz = s.point.z + s.right.z * side * (barrierHalfWidth + 32 + ((i * 5) % 24));
-        if (isClearOfTrack(bx, bz, barrierHalfWidth + 22)) {
+        const bx = s.point.x + s.right.x * side * (barrierHalfWidth + 46 + ((i * 5) % 28));
+        const bz = s.point.z + s.right.z * side * (barrierHalfWidth + 46 + ((i * 5) % 28));
+        if (isClearOfTrack(bx, bz, barrierHalfWidth + 38)) {
           bldgItems.push({
             x: bx,
             y: sampleTerrainInfo(bx, bz).height - 2,
             z: bz,
             sx: 22 + ((i + sIdx) % 4) * 6,
-            sy: trackId === 'blackridge_summit' ? 32 + ((i * 3) % 52) : 24 + ((i * 3) % 42),
+            sy: trackId === 'blackridge_summit' ? 34 + ((i * 3) % 54) : 26 + ((i * 3) % 44),
             sz: 22 + ((i + sIdx) % 3) * 7,
             rot: Math.atan2(-s.tangent.x, -s.tangent.z) + sIdx * 0.4,
             variant: 0,
@@ -3416,29 +3777,50 @@ export function buildTrack(
       });
     }
   } else {
-    const bStep = trackId === 'downtown_labyrinth' ? 5 : 7;
+    const bStep = trackId === 'downtown_labyrinth' ? 5 : 6;
     for (let i = 0; i < SAMPLE_COUNT; i += bStep) {
       const s = samples[i];
       const yaw = Math.atan2(-s.tangent.x, -s.tangent.z);
       [-1, 1].forEach((side, sIdx) => {
-        const distOut = barrierHalfWidth + 25 + ((i + sIdx * 11) % 26);
+        const distOut = barrierHalfWidth + 39 + ((i + sIdx * 11) % 28);
         const bx = s.point.x + s.right.x * side * distOut;
         const bz = s.point.z + s.right.z * side * distOut;
         if (hasHarborBay && bz < minZ + 380 && bx > minX - 80 && bx < maxX + 120) return;
-        if (isClearOfTrack(bx, bz, barrierHalfWidth + 20)) {
+        if (isClearOfTrack(bx, bz, barrierHalfWidth + 34)) {
           const isDowntown = trackId === 'downtown_labyrinth' || s.progress < 0.2 || s.progress > 0.78;
           bldgItems.push({
             x: bx,
             y: sampleTerrainInfo(bx, bz).height - 1.5,
             z: bz,
             sx: 18 + ((i + sIdx * 3) % 4) * 4,
-            sy: isDowntown ? 52 + ((i * 7) % 76) : 24 + ((i * 5) % 34),
+            sy: isDowntown ? 54 + ((i * 7) % 78) : 26 + ((i * 5) % 36),
             sz: 18 + ((i + sIdx * 5) % 4) * 4,
             rot: yaw,
             variant: (i + sIdx) % 3,
           });
         }
       });
+    }
+
+    // Outer city district skyline blocks for lush background depth (strictly clear of roads)
+    for (let k = 0; k < 120; k++) {
+      const ang = k * 2.39996;
+      const rad = 180 + ((k * 89) % Math.max(600, maxTrackRad + 160));
+      const bx = terrainCenterX + Math.cos(ang) * rad;
+      const bz = terrainCenterZ + Math.sin(ang) * rad;
+      if (hasHarborBay && bz < minZ + 380 && bx > minX - 80 && bx < maxX + 120) continue;
+      if (isClearOfTrack(bx, bz, barrierHalfWidth + 46)) {
+        bldgItems.push({
+          x: bx,
+          y: sampleTerrainInfo(bx, bz).height - 1.5,
+          z: bz,
+          sx: 22 + (k % 4) * 5,
+          sy: 32 + ((k * 11) % 68),
+          sz: 22 + ((k + 2) % 4) * 5,
+          rot: (k % 8) * (Math.PI * 0.25),
+          variant: k % 3,
+        });
+      }
     }
   }
 
@@ -3489,6 +3871,7 @@ export function buildTrack(
       shaftGeo.translate(0, 0.5, 0);
       const setbackGeo = track(new THREE.BoxGeometry(0.68, 1, 0.68));
       setbackGeo.translate(0, 0.5, 0);
+      const roofCrownGeo = track(new THREE.BoxGeometry(0.72, 0.65, 0.72));
       const spireGeo = track(new THREE.CylinderGeometry(0.16, 0.34, 10, 6));
       spireGeo.translate(0, 5, 0);
       const beaconGeo = track(new THREE.SphereGeometry(0.42, 6, 6));
@@ -3496,6 +3879,13 @@ export function buildTrack(
       const winGlow = environment === 'midnight_neon' ? 0.55 : environment === 'noon_clear' ? 0.02 : 0.22;
       const podiumMat = track(new THREE.MeshStandardMaterial({ color: '#181E29', roughness: 0.82, metalness: 0.18 }));
       const crownMat = track(new THREE.MeshStandardMaterial({ color: '#1B2230', metalness: 0.62, roughness: 0.38 }));
+      const roofNeonMat = track(
+        new THREE.MeshStandardMaterial({
+          color: environment === 'midnight_neon' ? '#38BDF8' : '#F59E0B',
+          emissive: new THREE.Color(environment === 'midnight_neon' ? '#0EA5E9' : '#D97706'),
+          emissiveIntensity: environment === 'noon_clear' ? 0.35 : 2.1,
+        }),
+      );
       const beaconRedMat = track(
         new THREE.MeshStandardMaterial({ color: '#EF4444', emissive: new THREE.Color('#EF4444'), emissiveIntensity: 3.0 }),
       );
@@ -3541,6 +3931,7 @@ export function buildTrack(
         const podiums = new THREE.InstancedMesh(podiumGeo, podiumMat, subset.length);
         const shafts = new THREE.InstancedMesh(shaftGeo, mats[vIdx], subset.length);
         const setbacks = new THREE.InstancedMesh(setbackGeo, crownMat, subset.length);
+        const neonCrowns = new THREE.InstancedMesh(roofCrownGeo, roofNeonMat, subset.length);
         const tallOnes = subset.filter((b) => b.sy > 56);
         const spires = tallOnes.length > 0 ? new THREE.InstancedMesh(spireGeo, crownMat, tallOnes.length) : null;
         const beacons = tallOnes.length > 0 ? new THREE.InstancedMesh(beaconGeo, beaconRedMat, tallOnes.length) : null;
@@ -3566,6 +3957,11 @@ export function buildTrack(
           dummy.updateMatrix();
           setbacks.setMatrixAt(idx, dummy.matrix);
 
+          dummy.position.set(bp.x, bp.y + bp.sy + 5.7, bp.z);
+          dummy.scale.set(bp.sx, 1, bp.sz);
+          dummy.updateMatrix();
+          neonCrowns.setMatrixAt(idx, dummy.matrix);
+
           if (spires && beacons && bp.sy > 56) {
             dummy.position.set(bp.x, bp.y + bp.sy + 6.2, bp.z);
             dummy.scale.set(1, 1, 1);
@@ -3579,7 +3975,7 @@ export function buildTrack(
           }
         });
 
-        [podiums, shafts, setbacks].forEach((m) => {
+        [podiums, shafts, setbacks, neonCrowns].forEach((m) => {
           m.instanceMatrix.needsUpdate = true;
           m.computeBoundingSphere();
           group.add(m);
@@ -3592,6 +3988,73 @@ export function buildTrack(
           group.add(spires, beacons);
         }
       });
+    }
+  }
+
+  // --- 16. Distant Horizon Skyline / Mountain Silhouette Ring (Strictly Outside Track Perimeter) ---
+  const horizonTargetCount = 38;
+  const horizonSpots: { hx: number; hz: number; ang: number; i: number }[] = [];
+  for (let i = 0; i < horizonTargetCount; i++) {
+    const ang = (i / horizonTargetCount) * Math.PI * 2;
+    const rad = maxTrackRad + 260 + (i % 4) * 95;
+    const hx = terrainCenterX + Math.cos(ang) * rad;
+    const hz = terrainCenterZ + Math.sin(ang) * rad;
+    if (isClearOfTrack(hx, hz, barrierHalfWidth + 210)) {
+      horizonSpots.push({ hx, hz, ang, i });
+    }
+  }
+  if (horizonSpots.length > 0) {
+    if (isCanyonOrSummit || isForestTrack) {
+      const peakGeo = track(new THREE.ConeGeometry(85, 1, 6));
+      peakGeo.translate(0, 0.5, 0);
+      const peakMat = track(
+        new THREE.MeshStandardMaterial({
+          color: trackId === 'blackridge_summit' ? '#334155' : isForestTrack ? '#1E3A2F' : '#4E3122',
+          roughness: 0.96,
+          metalness: 0.02,
+        }),
+      );
+      const peaks = new THREE.InstancedMesh(peakGeo, peakMat, horizonSpots.length);
+      horizonSpots.forEach((hs, idx) => {
+        const hScale = 165 + ((hs.i * 29) % 140);
+        const baseH = Math.min(-6, sampleTerrainInfo(hs.hx, hs.hz).height - 8);
+        dummy.position.set(hs.hx, baseH, hs.hz);
+        dummy.rotation.set(0, hs.ang + 0.4, 0);
+        dummy.scale.set(1.25 + (hs.i % 3) * 0.35, hScale, 1.15 + (hs.i % 2) * 0.4);
+        dummy.updateMatrix();
+        peaks.setMatrixAt(idx, dummy.matrix);
+      });
+      peaks.instanceMatrix.needsUpdate = true;
+      peaks.computeBoundingSphere();
+      group.add(peaks);
+    } else {
+      const skyTowerGeo = track(new THREE.BoxGeometry(1, 1, 1));
+      skyTowerGeo.translate(0, 0.5, 0);
+      const skyGlassTex = track(createBuildingFacadeTexture(maxAnisotropy, 'glass'));
+      const skyTowerMat = track(
+        new THREE.MeshStandardMaterial({
+          color: '#111827',
+          emissiveMap: skyGlassTex,
+          emissive: new THREE.Color(environment === 'midnight_neon' ? '#38BDF8' : '#F59E0B'),
+          emissiveIntensity: environment === 'noon_clear' ? 0.08 : 0.45,
+          roughness: 0.6,
+          metalness: 0.35,
+        }),
+      );
+      const skyTowers = new THREE.InstancedMesh(skyTowerGeo, skyTowerMat, horizonSpots.length);
+      horizonSpots.forEach((hs, idx) => {
+        const h = 130 + ((hs.i * 37) % 175);
+        const w = 48 + (hs.i % 4) * 14;
+        const baseH = Math.min(-6, sampleTerrainInfo(hs.hx, hs.hz).height - 4);
+        dummy.position.set(hs.hx, baseH, hs.hz);
+        dummy.rotation.set(0, hs.ang, 0);
+        dummy.scale.set(w, h, w * 0.85);
+        dummy.updateMatrix();
+        skyTowers.setMatrixAt(idx, dummy.matrix);
+      });
+      skyTowers.instanceMatrix.needsUpdate = true;
+      skyTowers.computeBoundingSphere();
+      group.add(skyTowers);
     }
   }
 
@@ -3648,22 +4111,36 @@ export function buildTrack(
     }
 
     const s = samples[bestIdx];
+    const prevS = samples[(bestIdx - 1 + SAMPLE_COUNT) % SAMPLE_COUNT];
     const nextS = samples[(bestIdx + 1) % SAMPLE_COUNT];
     const relX = x - s.point.x;
     const relZ = z - s.point.z;
     const lateralOffset = relX * s.right.x + relZ * s.right.z;
     const along = relX * s.tangent.x + relZ * s.tangent.z;
-    const segLen = Math.hypot(nextS.point.x - s.point.x, nextS.point.z - s.point.z) || 1;
-    const tFrac = THREE.MathUtils.clamp(along / segLen, 0, 1);
-    const centerElevY = THREE.MathUtils.lerp(s.point.y, nextS.point.y, tFrac);
-    const bankAngle = THREE.MathUtils.lerp(s.bankAngle, nextS.bankAngle, tFrac);
+
+    let centerElevY: number;
+    let bankAngle: number;
+    let slopePitch: number;
+    if (along >= 0) {
+      const segLen = Math.hypot(nextS.point.x - s.point.x, nextS.point.z - s.point.z) || 1;
+      const tFrac = THREE.MathUtils.clamp(along / segLen, 0, 1);
+      centerElevY = THREE.MathUtils.lerp(s.point.y, nextS.point.y, tFrac);
+      bankAngle = THREE.MathUtils.lerp(s.bankAngle, nextS.bankAngle, tFrac);
+      slopePitch = THREE.MathUtils.lerp(s.slopePitch, nextS.slopePitch, tFrac);
+    } else {
+      const segLen = Math.hypot(s.point.x - prevS.point.x, s.point.z - prevS.point.z) || 1;
+      const tFrac = THREE.MathUtils.clamp(1 + along / segLen, 0, 1);
+      centerElevY = THREE.MathUtils.lerp(prevS.point.y, s.point.y, tFrac);
+      bankAngle = THREE.MathUtils.lerp(prevS.bankAngle, s.bankAngle, tFrac);
+      slopePitch = THREE.MathUtils.lerp(prevS.slopePitch, s.slopePitch, tFrac);
+    }
     const elevationY = centerElevY + lateralOffset * Math.sin(bankAngle);
 
     return {
       sample: s,
       lateralOffset,
       elevationY,
-      slopePitch: s.slopePitch,
+      slopePitch,
       bankAngle,
       distanceSq: bestDistSq,
     };
@@ -3683,7 +4160,7 @@ export function buildTrack(
       tangent: THREE.Vector3;
       distanceSq: number;
     } | null = null;
-    let bestSq = 28 * 28;
+    let bestSq = 34 * 34;
 
     for (let sc = 0; sc < shortcuts.length; sc++) {
       const sObj = shortcuts[sc];
@@ -3732,6 +4209,40 @@ export function buildTrack(
     return bestHit;
   };
 
+  const updateAnimations = (timeSec: number, countdownInt: number, introActive: boolean) => {
+    for (let i = 0; i < animTurbines.length; i++) {
+      animTurbines[i].rotation.z = timeSec * (0.95 + (i % 3) * 0.18) + i * 0.6;
+    }
+    if (lighthouseBeacon) {
+      lighthouseBeacon.rotation.y = timeSec * 0.85;
+    }
+    if (monorailTrain) {
+      monorailTrain.mesh.position.x = Math.sin(timeSec * 0.45) * monorailTrain.span;
+    }
+    if (foundryRingGlowMat) {
+      foundryRingGlowMat.emissiveIntensity = 2.8 + Math.sin(timeSec * 3.4) * 1.1;
+    }
+    for (let i = 0; i < gantryPodMats.length; i++) {
+      const mat = gantryPodMats[i];
+      if (introActive) {
+        const wave = Math.sin(timeSec * 6.5 - i * 0.7) > 0.1;
+        mat.color.set('#F59E0B');
+        mat.emissive.set('#F59E0B');
+        mat.emissiveIntensity = wave ? 3.2 : 0.35;
+      } else if (countdownInt > 0) {
+        const litCount = countdownInt >= 3 ? 2 : countdownInt === 2 ? 4 : 5;
+        const lit = i < litCount;
+        mat.color.set(lit ? '#EF4444' : '#450A0A');
+        mat.emissive.set('#EF4444');
+        mat.emissiveIntensity = lit ? 4.4 : 0.2;
+      } else {
+        mat.color.set('#10B981');
+        mat.emissive.set('#10B981');
+        mat.emissiveIntensity = 4.6;
+      }
+    }
+  };
+
   return {
     id: trackId,
     environment,
@@ -3752,6 +4263,7 @@ export function buildTrack(
     minimapPath,
     getClosestTrackInfo,
     queryShortcut,
+    updateAnimations,
     dispose: () => disposables.forEach((d) => d.dispose()),
   };
 }

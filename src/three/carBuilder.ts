@@ -18,12 +18,16 @@ export interface CarVisualHandles {
   reverseLightMat: THREE.MeshStandardMaterial;
   brakeGlows: THREE.Mesh[];
   nosFlames: THREE.Mesh[];
+  nosCores: THREE.Mesh[];
+  nosHalos: THREE.Mesh[];
   backfireFlames: THREE.Mesh[];
   wheelFrontLeft: THREE.Group;
   wheelFrontRight: THREE.Group;
   wheelSpinners: THREE.Group[];
   lightbarRed?: THREE.MeshStandardMaterial;
   lightbarBlue?: THREE.MeshStandardMaterial;
+  lightbarHaloRed?: THREE.Mesh;
+  lightbarHaloBlue?: THREE.Mesh;
   dispose: () => void;
 }
 
@@ -290,7 +294,7 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
     }),
   );
   const contactShadow = new THREE.Mesh(shadowGeo, shadowMat);
-  contactShadow.position.y = 0.02;
+  contactShadow.position.y = 0.006;
   root.add(contactShadow);
 
   if (isPlayer) {
@@ -307,7 +311,7 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
       }),
     );
     const beamMesh = new THREE.Mesh(beamGeo, beamMat);
-    beamMesh.position.set(0, 0.03, -length * 0.5 - 8.6);
+    beamMesh.position.set(0, 0.014, -length * 0.5 - 8.6);
     root.add(beamMesh);
   }
 
@@ -408,7 +412,7 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
   );
   const chromeMat = track(new THREE.MeshStandardMaterial({ color: '#E2E8F0', metalness: 0.94, roughness: 0.14 }));
 
-  const clearance = wheelRadius * (isRhino ? 0.68 : 0.36);
+  const clearance = wheelRadius * (isRhino ? 0.62 : 0.27);
   const hl = length * 0.5;
   const frontAxleZ = -length * 0.305;
   const rearAxleZ = length * 0.305;
@@ -908,6 +912,8 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
   // Police Bullbar & Detailed Lightbar
   let lightbarRed: THREE.MeshStandardMaterial | undefined;
   let lightbarBlue: THREE.MeshStandardMaterial | undefined;
+  let lightbarHaloRed: THREE.Mesh | undefined;
+  let lightbarHaloBlue: THREE.Mesh | undefined;
   if (isPolice || isRhino) {
     carbonParts.push(
       {
@@ -924,14 +930,14 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
       new THREE.MeshStandardMaterial({
         color: '#EF4444',
         emissive: new THREE.Color('#EF4444'),
-        emissiveIntensity: 3.6,
+        emissiveIntensity: 4.2,
       }),
     );
     lightbarBlue = track(
       new THREE.MeshStandardMaterial({
         color: '#3B82F6',
         emissive: new THREE.Color('#3B82F6'),
-        emissiveIntensity: 3.6,
+        emissiveIntensity: 4.2,
       }),
     );
 
@@ -943,6 +949,35 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
     const centerLed = new THREE.Mesh(track(new THREE.BoxGeometry(width * 0.09, 0.075, 0.18)), headlightMat);
     centerLed.position.set(0, roofY + 0.095, 0.05);
     bodyGroup.add(podL, podR, centerLed);
+
+    const haloGeo = track(new THREE.PlaneGeometry(1.75, 1.35));
+    const redGlowTex = track(createLightGlowTexture('rgba(239, 68, 68, 0.92)'));
+    const blueGlowTex = track(createLightGlowTexture('rgba(59, 130, 246, 0.92)'));
+    const redHaloMat = track(
+      new THREE.MeshBasicMaterial({
+        map: redGlowTex,
+        transparent: true,
+        opacity: 0.78,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    const blueHaloMat = track(
+      new THREE.MeshBasicMaterial({
+        map: blueGlowTex,
+        transparent: true,
+        opacity: 0.78,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    lightbarHaloRed = new THREE.Mesh(haloGeo, redHaloMat);
+    lightbarHaloRed.position.set(-width * 0.18, roofY + 0.16, 0.05);
+    lightbarHaloBlue = new THREE.Mesh(haloGeo, blueHaloMat);
+    lightbarHaloBlue.position.set(width * 0.18, roofY + 0.16, 0.05);
+    bodyGroup.add(lightbarHaloRed, lightbarHaloBlue);
   }
 
   // Merge all static material groups for ultra-fast GPU rendering
@@ -983,23 +1018,52 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
     bodyGroup.add(new THREE.Mesh(track(bakeAndMerge(accentParts)), caliperMat));
   }
 
-  // Dynamic NOS Flames, Gearshift Exhaust Backfire Cones & Brake Glow Halos
+  // Dynamic Multi-Layered NOS Plasma Flames, Cores, Exhaust Halos & Backfire Cones
   const nosFlames: THREE.Mesh[] = [];
+  const nosCores: THREE.Mesh[] = [];
+  const nosHalos: THREE.Mesh[] = [];
   const backfireFlames: THREE.Mesh[] = [];
   const brakeGlows: THREE.Mesh[] = [];
   if (!lowDetail) {
-    const flameGeo = track(new THREE.ConeGeometry(0.1, 1.15, 8));
+    const flameGeo = track(new THREE.ConeGeometry(0.145, 1.85, 10));
     flameGeo.rotateX(Math.PI / 2);
-    flameGeo.translate(0, 0, 0.52);
+    flameGeo.translate(0, 0, 0.86);
     const flameMat = track(
       new THREE.MeshBasicMaterial({
-        color: '#38BDF8',
+        color: '#0EA5E9',
         transparent: true,
-        opacity: 0.94,
+        opacity: 0.9,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
     );
+
+    const coreGeo = track(new THREE.ConeGeometry(0.075, 1.15, 8));
+    coreGeo.rotateX(Math.PI / 2);
+    coreGeo.translate(0, 0, 0.54);
+    const coreMat = track(
+      new THREE.MeshBasicMaterial({
+        color: '#E0F2FE',
+        transparent: true,
+        opacity: 0.98,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+
+    const nosHaloTex = track(createLightGlowTexture('rgba(56, 189, 248, 0.92)'));
+    const nosHaloGeo = track(new THREE.PlaneGeometry(1.15, 0.9));
+    const nosHaloMat = track(
+      new THREE.MeshBasicMaterial({
+        map: nosHaloTex,
+        transparent: true,
+        opacity: 0.85,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+
     const backfireGeo = track(new THREE.ConeGeometry(0.085, 0.72, 7));
     backfireGeo.rotateX(Math.PI / 2);
     backfireGeo.translate(0, 0, 0.34);
@@ -1013,23 +1077,27 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
       }),
     );
 
-    const flameL = new THREE.Mesh(flameGeo, flameMat);
-    flameL.position.set(-0.38, clearance + 0.09, hl + 0.04);
-    flameL.visible = false;
-    const flameR = new THREE.Mesh(flameGeo, flameMat);
-    flameR.position.set(0.38, clearance + 0.09, hl + 0.04);
-    flameR.visible = false;
-    bodyGroup.add(flameL, flameR);
-    nosFlames.push(flameL, flameR);
+    [-0.38, 0.38].forEach((ex) => {
+      const flame = new THREE.Mesh(flameGeo, flameMat);
+      flame.position.set(ex, clearance + 0.09, hl + 0.03);
+      flame.visible = false;
+      const core = new THREE.Mesh(coreGeo, coreMat);
+      core.position.set(ex, clearance + 0.09, hl + 0.03);
+      core.visible = false;
+      const halo = new THREE.Mesh(nosHaloGeo, nosHaloMat);
+      halo.position.set(ex, clearance + 0.12, hl + 0.12);
+      halo.visible = false;
+      bodyGroup.add(flame, core, halo);
+      nosFlames.push(flame);
+      nosCores.push(core);
+      nosHalos.push(halo);
 
-    const bfL = new THREE.Mesh(backfireGeo, backfireMat);
-    bfL.position.set(-0.38, clearance + 0.09, hl + 0.04);
-    bfL.visible = false;
-    const bfR = new THREE.Mesh(backfireGeo, backfireMat);
-    bfR.position.set(0.38, clearance + 0.09, hl + 0.04);
-    bfR.visible = false;
-    bodyGroup.add(bfL, bfR);
-    backfireFlames.push(bfL, bfR);
+      const bf = new THREE.Mesh(backfireGeo, backfireMat);
+      bf.position.set(ex, clearance + 0.09, hl + 0.04);
+      bf.visible = false;
+      bodyGroup.add(bf);
+      backfireFlames.push(bf);
+    });
 
     const glowTex = track(createLightGlowTexture('rgba(239, 68, 68, 0.85)'));
     const glowGeo = track(new THREE.PlaneGeometry(0.92, 0.6));
@@ -1105,12 +1173,16 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
     reverseLightMat,
     brakeGlows,
     nosFlames,
+    nosCores,
+    nosHalos,
     backfireFlames,
     wheelFrontLeft,
     wheelFrontRight,
     wheelSpinners,
     lightbarRed,
     lightbarBlue,
+    lightbarHaloRed,
+    lightbarHaloBlue,
     dispose: () => disposables.forEach((d) => d.dispose()),
   };
 }

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Camera,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -14,6 +15,7 @@ import {
   Play,
   Shield,
   ShieldAlert,
+  SkipForward,
   Target,
   Trophy,
   Volume2,
@@ -21,6 +23,7 @@ import {
   Wrench,
   Zap,
 } from 'lucide-react';
+import { EA_TRAX_PLAYLIST } from '../audio/musicEngine';
 import { soundEngine } from '../audio/soundEngine';
 import {
   BLACKLIST_RIVALS,
@@ -32,7 +35,9 @@ import {
   getMissionsForTier,
   isTierBossUnlocked,
   LIVERY_OPTIONS,
+  NFS_MISSIONS,
   PAINT_SWATCHES,
+  resolveMissionRaceMode,
   RIM_OPTIONS,
   TRACKS,
   UPGRADE_COST,
@@ -42,6 +47,7 @@ import {
   BlacklistRival,
   CareerProfile,
   EnvironmentId,
+  GarageCameraPreset,
   GarageCarConfig,
   LeaderboardEntry,
   LiveryStyle,
@@ -66,6 +72,13 @@ interface Props {
   authBusy: boolean;
   muted: boolean;
   onToggleMute: () => void;
+  musicMuted?: boolean;
+  onToggleMusicMute?: () => void;
+  onSkipTrack?: () => void;
+  onSelectTrackIdx?: (idx: number) => void;
+  currentTrackLabel?: string;
+  garagePreset?: GarageCameraPreset;
+  onSelectGaragePreset?: (preset: GarageCameraPreset) => void;
   onSignIn: () => void;
   onSignOut: () => void;
   onSelectCar: (carId: string) => void;
@@ -94,6 +107,13 @@ export const MainMenuGarage: React.FC<Props> = ({
   authBusy,
   muted,
   onToggleMute,
+  musicMuted = false,
+  onToggleMusicMute,
+  onSkipTrack,
+  onSelectTrackIdx,
+  currentTrackLabel,
+  garagePreset = 'orbit',
+  onSelectGaragePreset,
   onSignIn,
   onSignOut,
   onSelectCar,
@@ -109,6 +129,8 @@ export const MainMenuGarage: React.FC<Props> = ({
   const [selectedEnv, setSelectedEnv] = useState<EnvironmentId>('auto');
   const [patrolsEnabled, setPatrolsEnabled] = useState(true);
   const [garageSection, setGarageSection] = useState<'vehicles' | 'performance' | 'visuals'>('vehicles');
+  const [focusedMissionId, setFocusedMissionId] = useState<string | null>(null);
+  const [traxPickerOpen, setTraxPickerOpen] = useState(false);
 
   const activeSpec = CARS.find((c) => c.id === profile.selectedCarId) ?? CARS[0];
   const activeConfig = garageConfigs[activeSpec.id];
@@ -134,7 +156,7 @@ export const MainMenuGarage: React.FC<Props> = ({
   return (
     <div className="pointer-events-none fixed inset-0 z-10 flex flex-col justify-between">
       {/* Top Bar: Strict 3-Zone Tactical Command Header */}
-      <header className="pointer-events-auto flex items-center justify-between gap-6 px-6 py-3 nfs-carbon-bg border-b-2 border-amber-400/70">
+      <header className="pointer-events-auto flex items-center justify-between gap-6 px-6 py-3 nfs-carbon-bg border-b-2 border-amber-400/70 nfs-anim-slide-down">
         {/* Zone 1: Single-line Wordmark */}
         <div className="font-display italic text-xl font-bold tracking-wider text-white whitespace-nowrap shrink-0 flex items-center gap-2">
           <span>BLACKLIST</span>
@@ -201,9 +223,9 @@ export const MainMenuGarage: React.FC<Props> = ({
         </div>
       </header>
 
-      {/* Top-Left Driver Telemetry Block & Top-Right Audio Toggle */}
+      {/* Top-Left Driver Telemetry Block & Top-Right Audio + EA Trax Picker */}
       <div className="flex items-start justify-between px-6 pt-3">
-        <div className="pointer-events-auto nfs-chamfer nfs-carbon-bg border border-white/15 border-l-4 border-l-amber-400 px-4 py-2.5 space-y-1 max-w-sm">
+        <div className="pointer-events-auto nfs-chamfer nfs-carbon-bg border border-white/15 border-l-4 border-l-amber-400 px-4 py-2.5 space-y-1 max-w-sm nfs-anim-slide-up">
           <div className="text-xs text-slate-300 flex items-center gap-2 font-display uppercase tracking-wide">
             <span className="text-white font-bold truncate">{activeSpec.name}</span>
             <span className="text-slate-600" aria-hidden="true">|</span>
@@ -216,7 +238,7 @@ export const MainMenuGarage: React.FC<Props> = ({
             <span className="text-slate-600" aria-hidden="true">/</span>
             <span className="text-amber-400 font-bold">{formatCurrency(profile.totalBounty)} Bounty</span>
             <span className="text-slate-600" aria-hidden="true">/</span>
-            <span className="text-slate-200 text-xs">{wonTrackIds.length}/10 Won</span>
+            <span className="text-slate-200 text-xs">{completedMissionIds.length}/{NFS_MISSIONS.length} Missions</span>
           </div>
           {nextRival ? (
             <div className="text-[11px] font-mono-tabular pt-0.5 text-slate-300">
@@ -242,38 +264,144 @@ export const MainMenuGarage: React.FC<Props> = ({
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={onToggleMute}
-          aria-label={muted ? 'Unmute audio' : 'Mute audio'}
-          className="pointer-events-auto p-2.5 nfs-chamfer-sm nfs-carbon-bg border border-white/18 text-slate-200 hover:text-amber-400 hover:border-amber-400/60 transition-colors cursor-pointer"
-        >
-          {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-        </button>
+        <div className="pointer-events-auto relative flex items-center gap-1.5 nfs-anim-slide-up">
+          {currentTrackLabel && (
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.triggerUiClick();
+                setTraxPickerOpen((v) => !v);
+              }}
+              className="hidden sm:flex items-center gap-2 px-3 py-2 nfs-chamfer-sm nfs-carbon-bg border border-white/15 hover:border-amber-400/60 text-[11px] font-mono-tabular text-slate-200 max-w-[260px] transition-colors cursor-pointer"
+              title="Open EA Trax Jukebox"
+            >
+              <span className="flex items-end gap-[2px] h-3 shrink-0" aria-hidden="true">
+                <span className={`w-[2px] h-full bg-amber-400 ${musicMuted || muted ? 'opacity-30' : 'nfs-eq-bar'}`} />
+                <span className={`w-[2px] h-full bg-amber-400 ${musicMuted || muted ? 'opacity-30' : 'nfs-eq-bar'}`} style={{ animationDelay: '0.18s' }} />
+                <span className={`w-[2px] h-full bg-amber-400 ${musicMuted || muted ? 'opacity-30' : 'nfs-eq-bar'}`} style={{ animationDelay: '0.35s' }} />
+              </span>
+              <span className="truncate">{currentTrackLabel}</span>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            </button>
+          )}
+          {onSkipTrack && (
+            <button
+              type="button"
+              onClick={onSkipTrack}
+              title="Next EA Trax"
+              aria-label="Next EA Trax"
+              className="p-2.5 nfs-chamfer-sm nfs-carbon-bg border border-white/18 text-slate-200 hover:text-amber-400 hover:border-amber-400/60 transition-colors cursor-pointer"
+            >
+              <SkipForward className="w-4 h-4" />
+            </button>
+          )}
+          {onToggleMusicMute && (
+            <button
+              type="button"
+              onClick={onToggleMusicMute}
+              title={musicMuted ? 'Unmute Music' : 'Mute Music'}
+              aria-label={musicMuted ? 'Unmute Music' : 'Mute Music'}
+              className={`p-2.5 nfs-chamfer-sm nfs-carbon-bg border transition-colors cursor-pointer ${
+                musicMuted
+                  ? 'border-red-500/50 text-red-400 hover:border-red-400'
+                  : 'border-white/18 text-slate-200 hover:text-amber-400 hover:border-amber-400/60'
+              }`}
+            >
+              <Music className="w-4 h-4" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onToggleMute}
+            title={muted ? 'Unmute All Audio' : 'Mute All Audio'}
+            aria-label={muted ? 'Unmute audio' : 'Mute audio'}
+            className="p-2.5 nfs-chamfer-sm nfs-carbon-bg border border-white/18 text-slate-200 hover:text-amber-400 hover:border-amber-400/60 transition-colors cursor-pointer"
+          >
+            {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+          </button>
+
+          {traxPickerOpen && (
+            <div className="absolute right-0 top-12 w-72 max-h-72 overflow-y-auto nfs-chamfer nfs-carbon-bg border border-amber-400/45 p-2 shadow-2xl z-30 nfs-anim-tab-enter space-y-1">
+              <div className="px-2 py-1 text-[10px] font-display uppercase tracking-wider font-bold text-amber-400 border-b border-white/10">
+                EA Trax Rockport Sound System (16)
+              </div>
+              {EA_TRAX_PLAYLIST.map((trk, idx) => {
+                const trackFullLabel = `${trk.title} · ${trk.artist}`;
+                const isSelected = currentTrackLabel === trackFullLabel;
+                return (
+                  <button
+                    key={trk.id}
+                    type="button"
+                    onClick={() => {
+                      soundEngine.triggerUiClick();
+                      onSelectTrackIdx?.(idx);
+                      setTraxPickerOpen(false);
+                    }}
+                    className={`w-full text-left px-2.5 py-1.5 text-xs nfs-chamfer-sm flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-amber-400 text-black font-bold'
+                        : 'hover:bg-white/10 text-slate-200'
+                    }`}
+                  >
+                    <span className="truncate">{trackFullLabel}</span>
+                    <span className={`text-[9px] font-mono-tabular uppercase shrink-0 ${isSelected ? 'text-black/75' : 'text-slate-400'}`}>
+                      {trk.kind === 'stream' ? 'METAL' : 'SYNTH'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Collapsible Bottom Command Dock */}
       <div className="flex flex-col items-center pb-4 px-4">
-        <button
-          type="button"
-          onClick={() => {
-            soundEngine.triggerUiClick();
-            setDockCollapsed((v) => !v);
-          }}
-          className="pointer-events-auto mb-1.5 px-4 py-1 nfs-chamfer-sm nfs-carbon-bg border border-white/18 border-t-2 border-t-amber-400/70 text-[11px] font-display uppercase tracking-wider font-bold text-slate-200 hover:text-amber-300 flex items-center gap-1.5 transition-colors cursor-pointer"
-        >
-          {dockCollapsed ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-          <span>{dockCollapsed ? 'Open Command Dock' : 'Minimize Dock'}</span>
-        </button>
+        <div className="pointer-events-auto mb-1.5 flex items-center gap-2 flex-wrap justify-center">
+          {onSelectGaragePreset && (
+            <div className="flex items-center gap-1 p-0.5 nfs-chamfer-sm nfs-carbon-bg border border-white/15 text-[10px] font-display uppercase tracking-wider font-bold">
+              <Camera className="w-3.5 h-3.5 text-amber-400 ml-1.5 mr-0.5" />
+              {(['orbit', 'front', 'side', 'rear'] as GarageCameraPreset[]).map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => {
+                    soundEngine.triggerUiClick();
+                    onSelectGaragePreset(preset);
+                  }}
+                  className={`px-2 py-0.5 nfs-chamfer-sm transition-colors cursor-pointer ${
+                    garagePreset === preset
+                      ? 'bg-amber-400 text-black'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.triggerUiClick();
+              setDockCollapsed((v) => !v);
+            }}
+            className="px-4 py-1 nfs-chamfer-sm nfs-carbon-bg border border-white/18 border-t-2 border-t-amber-400/70 text-[11px] font-display uppercase tracking-wider font-bold text-slate-200 hover:text-amber-300 flex items-center gap-1.5 transition-colors cursor-pointer"
+          >
+            {dockCollapsed ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            <span>{dockCollapsed ? 'Open Command Dock' : 'Minimize Dock'}</span>
+          </button>
+        </div>
 
         {!dockCollapsed && (
           <section
             aria-label="Garage and Race Dock"
-            className="pointer-events-auto w-full max-w-[1060px] nfs-chamfer nfs-carbon-bg border border-white/15 border-t-2 border-t-amber-400 shadow-2xl overflow-hidden"
+            className="pointer-events-auto w-full max-w-[1100px] nfs-chamfer nfs-carbon-bg border border-white/15 border-t-2 border-t-amber-400 shadow-2xl overflow-hidden nfs-anim-slide-up"
           >
             <div className="h-1 w-full nfs-hazard-stripe border-b border-white/10" />
-            <div className="p-4 sm:p-5">
-              {/* CAREER MISSIONS TAB */}
+            <div key={activeTab} className="p-4 sm:p-5 nfs-anim-tab-enter">
+              {/* CAREER MISSIONS TAB (50 Creative Missions + HOW TO WIN Briefing Panel) */}
               {activeTab === 'missions' && (() => {
                 const activeMinTier = nextRival ? nextRival.rank : 1;
                 const viewTier = Math.max(activeMinTier, selectedTier);
@@ -284,8 +412,12 @@ export const MainMenuGarage: React.FC<Props> = ({
                 const bossTrackMeta = TRACKS.find((t) => t.id === tierRival.trackId);
                 const nextMissionToPlay =
                   tierMissions.find((m) => !completedMissionIds.includes(m.id)) ?? tierMissions[0];
-                const nextMissionMode: RaceMode =
-                  nextMissionToPlay.type === 'pursuit_milestone' ? 'pursuit' : nextMissionToPlay.type;
+                const focusedMission =
+                  tierMissions.find((m) => m.id === focusedMissionId) ?? nextMissionToPlay;
+                const focusedTrackMeta = TRACKS.find((t) => t.id === focusedMission.trackId);
+                const focusedDone = completedMissionIds.includes(focusedMission.id);
+                const focusedMode = resolveMissionRaceMode(focusedMission.type);
+                const nextMissionMode = resolveMissionRaceMode(nextMissionToPlay.type);
 
                 return (
                   <div className="space-y-3">
@@ -294,10 +426,10 @@ export const MainMenuGarage: React.FC<Props> = ({
                       <div className="min-w-0 space-y-0.5">
                         <div className="flex items-center gap-2 text-[11px] font-mono-tabular uppercase">
                           <span className="px-1.5 py-0.5 bg-amber-400 text-black font-bold">
-                            OBJECTIVE
+                            TIER #{tierRival.rank}
                           </span>
                           <span className="text-amber-300 font-bold">
-                            BLACKLIST #{tierRival.rank} {tierRival.alias}
+                            {tierRival.alias}
                           </span>
                           <span className="text-slate-500 hidden sm:inline">·</span>
                           <span className="text-slate-300 hidden sm:inline truncate">{tierRival.carName}</span>
@@ -338,6 +470,7 @@ export const MainMenuGarage: React.FC<Props> = ({
                                 onClick={() => {
                                   soundEngine.triggerUiClick();
                                   setSelectedTier(r.rank);
+                                  setFocusedMissionId(null);
                                 }}
                                 className={`px-2 py-1 text-[11px] font-mono-tabular font-bold nfs-chamfer-sm border transition-colors cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed ${
                                   rSelected
@@ -386,102 +519,122 @@ export const MainMenuGarage: React.FC<Props> = ({
                             className="px-4 py-2 nfs-chamfer-sm bg-amber-400 hover:bg-amber-300 text-black font-display uppercase tracking-wider font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
                           >
                             <Play className="w-3.5 h-3.5 fill-current" />
-                            <span>Play M{nextMissionToPlay.order}: {formatMissionTypeLabel(nextMissionToPlay.type)}</span>
+                            <span>Next M{nextMissionToPlay.order}: {nextMissionToPlay.modeTag}</span>
                           </button>
                         )}
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-stretch">
-                      {/* 3 Missions in Current Tier */}
-                      <div className="md:col-span-8 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      {/* Left: 5 Tier Missions Selector List */}
+                      <div className="md:col-span-5 max-h-[252px] overflow-y-auto pr-1 space-y-1.5">
                         {tierMissions.map((mission) => {
                           const isDone = completedMissionIds.includes(mission.id);
-                          const isRecommended = !isDone && mission.id === nextMissionToPlay.id;
+                          const isFocused = mission.id === focusedMission.id;
                           const trk = TRACKS.find((t) => t.id === mission.trackId);
-                          const launchMode: RaceMode =
-                            mission.type === 'pursuit_milestone' ? 'pursuit' : mission.type;
 
                           return (
-                            <div
+                            <button
                               key={mission.id}
-                              className={`nfs-chamfer-sm border border-white/12 border-l-4 p-3 flex flex-col justify-between ${
-                                isDone
-                                  ? 'bg-[#10181D] border-l-emerald-400'
-                                  : isRecommended
-                                    ? 'bg-[#171B24] border-l-amber-400'
-                                    : 'bg-[#11151E] border-l-slate-500'
+                              type="button"
+                              onClick={() => {
+                                soundEngine.triggerUiClick();
+                                setFocusedMissionId(mission.id);
+                              }}
+                              className={`w-full text-left nfs-chamfer-sm border border-l-4 px-3 py-2 transition-colors cursor-pointer ${
+                                isFocused
+                                  ? 'bg-[#1B2230] border-amber-400 border-l-amber-400'
+                                  : isDone
+                                    ? 'bg-[#10181D] border-white/12 border-l-emerald-400 hover:border-white/25'
+                                    : 'bg-[#11151E] border-white/12 border-l-slate-500 hover:border-white/30'
                               }`}
                             >
-                              <div className="space-y-1">
-                                <div className="flex items-center justify-between gap-1 text-[10px] font-mono-tabular">
-                                  <span className="text-amber-400 font-bold uppercase tracking-wider">
-                                    M{mission.order} · {formatMissionTypeLabel(mission.type)}
-                                  </span>
-                                  {isDone ? (
-                                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                                  ) : (
-                                    <DifficultyTag difficulty={mission.difficulty} />
-                                  )}
+                              <div className="flex items-center justify-between gap-2 text-[10px] font-mono-tabular">
+                                <span className="text-amber-400 font-bold uppercase tracking-wider truncate">
+                                  M{mission.order} · {mission.modeTag}
+                                </span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <DifficultyTag difficulty={mission.difficulty} />
+                                  {isDone && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
                                 </div>
-
-                                <div className="font-display uppercase tracking-wide text-sm font-bold text-white leading-snug">
-                                  {mission.title}
-                                </div>
-
-                                <div className="text-[11px] text-cyan-300 font-medium truncate">
-                                  {trk?.name ?? mission.trackId}
-                                </div>
-
-                                <div className="text-[10px] text-slate-400 flex items-center gap-1 truncate">
-                                  <Music className="w-3 h-3 text-amber-400 shrink-0" />
-                                  <span className="truncate">{trk?.musicTrackName ?? 'Rockport Beats'}</span>
-                                </div>
-
-                                <p className="text-[11px] text-slate-300 leading-snug line-clamp-3 pt-0.5">
-                                  {mission.description}
-                                </p>
                               </div>
-
-                              <div className="pt-2 mt-2 border-t border-white/10 space-y-2">
-                                <div className="flex items-center justify-between text-[11px] font-mono-tabular">
-                                  <span className="text-emerald-400 font-bold">
-                                    +{formatCurrency(mission.cashReward)}
-                                  </span>
-                                  <span className="text-amber-400 font-semibold">
-                                    +{formatCurrency(mission.bountyReward)}
-                                  </span>
-                                </div>
-
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    onStartRace(
-                                      launchMode,
-                                      mission.trackId,
-                                      undefined,
-                                      mission.environment,
-                                      true,
-                                      mission,
-                                    )
-                                  }
-                                  className={`w-full py-1.5 px-2.5 text-xs font-display uppercase tracking-wider font-bold nfs-chamfer-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
-                                    isDone
-                                      ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 border border-emerald-500/45'
-                                      : 'bg-amber-400 hover:bg-amber-300 text-black'
-                                  }`}
-                                >
-                                  <Play className="w-3.5 h-3.5 fill-current" />
-                                  <span>{isDone ? 'Replay' : 'Launch'}</span>
-                                </button>
+                              <div className="font-display uppercase tracking-wide text-sm font-bold text-white leading-tight truncate mt-0.5">
+                                {mission.title}
                               </div>
-                            </div>
+                              <div className="text-[11px] font-mono-tabular text-slate-300 flex items-center justify-between gap-2 mt-0.5">
+                                <span className="text-cyan-300 truncate">{trk?.name ?? mission.trackId}</span>
+                                <span className="text-emerald-400 font-bold shrink-0">+{formatCurrency(mission.cashReward)}</span>
+                              </div>
+                            </button>
                           );
                         })}
                       </div>
 
-                      {/* Boss Gate Card */}
-                      <div className="md:col-span-4 bg-[#11151E] border border-amber-400/35 border-l-4 border-l-red-500 nfs-chamfer-sm p-3.5 flex flex-col justify-between">
+                      {/* Center: Crystal-Clear HOW TO WIN Mission Briefing */}
+                      <div className="md:col-span-4 bg-[#121621] border border-white/15 border-l-4 border-l-cyan-400 nfs-chamfer-sm p-3.5 flex flex-col justify-between">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2 text-[10px] font-mono-tabular uppercase">
+                            <span className="px-1.5 py-0.5 bg-cyan-400/20 text-cyan-300 font-bold">
+                              M{focusedMission.order} BRIEFING · {formatMissionTypeLabel(focusedMission.type)}
+                            </span>
+                            <span className="text-emerald-400 font-bold">
+                              +{formatCurrency(focusedMission.cashReward)} · +{formatCurrency(focusedMission.bountyReward)}
+                            </span>
+                          </div>
+
+                          <div>
+                            <div className="font-display italic uppercase text-base font-bold text-white leading-tight">
+                              {focusedMission.title}
+                            </div>
+                            <div className="text-[11px] text-slate-400 font-mono-tabular mt-0.5">
+                              {focusedTrackMeta?.name} · {focusedTrackMeta?.musicTrackName}
+                            </div>
+                          </div>
+
+                          <div className="bg-black/35 border border-white/10 nfs-chamfer-sm p-2.5 space-y-1.5">
+                            <div className="text-[10px] font-display uppercase tracking-wider font-bold text-amber-400">
+                              HOW TO WIN THIS MISSION:
+                            </div>
+                            <ul className="space-y-1 text-[11px] text-slate-100 leading-snug">
+                              {focusedMission.winRules.map((rule, idx) => (
+                                <li key={idx} className="flex items-start gap-1.5">
+                                  <span className="font-mono-tabular text-amber-400 font-bold shrink-0">{idx + 1}.</span>
+                                  <span>{rule}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          <div className="text-[10px] text-cyan-200 bg-cyan-500/10 border-l-2 border-cyan-400 px-2.5 py-1.5 leading-snug">
+                            <strong className="uppercase font-display text-cyan-300">TIP:</strong> {focusedMission.proTip}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onStartRace(
+                              focusedMode,
+                              focusedMission.trackId,
+                              undefined,
+                              focusedMission.environment,
+                              true,
+                              focusedMission,
+                            )
+                          }
+                          className={`mt-2.5 w-full py-2 px-3 text-xs font-display uppercase tracking-wider font-bold nfs-chamfer-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                            focusedDone
+                              ? 'bg-emerald-500/22 hover:bg-emerald-500/32 text-emerald-200 border border-emerald-500/45'
+                              : 'bg-amber-400 hover:bg-amber-300 text-black'
+                          }`}
+                        >
+                          <Play className="w-3.5 h-3.5 fill-current" />
+                          <span>{focusedDone ? `Replay M${focusedMission.order}` : `Launch M${focusedMission.order}`}</span>
+                        </button>
+                      </div>
+
+                      {/* Right: Boss Gate Card */}
+                      <div className="md:col-span-3 bg-[#11151E] border border-amber-400/35 border-l-4 border-l-red-500 nfs-chamfer-sm p-3.5 flex flex-col justify-between">
                         <div className="space-y-2">
                           <div className="flex items-center justify-between text-[11px] font-mono-tabular uppercase">
                             <span className="text-red-400 font-bold tracking-wider">BOSS DUEL #{tierRival.rank}</span>
@@ -492,29 +645,29 @@ export const MainMenuGarage: React.FC<Props> = ({
 
                           <div>
                             <div className="font-display italic uppercase text-lg font-bold text-white leading-tight">
-                              {tierRival.alias} · {tierRival.name}
+                              {tierRival.alias}
                             </div>
-                            <div className="text-xs text-amber-300 font-semibold mt-0.5">{tierRival.carName}</div>
+                            <div className="text-xs text-amber-300 font-semibold mt-0.5 truncate">{tierRival.carName}</div>
                             <div className="text-[11px] text-slate-400 mt-0.5 truncate">
-                              {bossTrackMeta?.name} · {bossTrackMeta?.musicTrackName}
+                              {bossTrackMeta?.name}
                             </div>
                           </div>
 
                           <div className="space-y-1.5 pt-1.5 border-t border-white/10 text-xs font-mono-tabular">
                             <div className="flex items-center justify-between">
-                              <span className="text-slate-400">Tier Missions</span>
+                              <span className="text-slate-400">Missions</span>
                               <span className={tierGate.allMissionsDone ? 'text-emerald-400 font-bold' : 'text-amber-300 font-bold'}>
                                 {tierGate.missionsDone} / {tierGate.missionsTotal}
                               </span>
                             </div>
                             <div className="flex items-center justify-between">
-                              <span className="text-slate-400">Total Bounty</span>
+                              <span className="text-slate-400">Bounty</span>
                               <span className={tierGate.bountyMet ? 'text-emerald-400 font-bold' : 'text-white font-bold'}>
                                 {formatCurrency(profile.totalBounty)} / {formatCurrency(tierRival.requiredBounty)}
                               </span>
                             </div>
                             <div className="flex items-center justify-between">
-                              <span className="text-slate-400">Cop Takedowns</span>
+                              <span className="text-slate-400">Cop KO</span>
                               <span className={tierGate.takedownsMet ? 'text-emerald-400 font-bold' : 'text-white font-bold'}>
                                 {profile.copsTakedowns} / {tierRival.requiredTakedowns}
                               </span>
@@ -534,21 +687,21 @@ export const MainMenuGarage: React.FC<Props> = ({
                               patrolsEnabled,
                             )
                           }
-                          className="mt-3 w-full py-2.5 px-3 bg-amber-400 hover:bg-amber-300 disabled:bg-white/8 disabled:text-slate-500 text-black font-display uppercase tracking-wider font-bold text-xs sm:text-sm nfs-chamfer-sm flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                          className="mt-3 w-full py-2 px-3 bg-amber-400 hover:bg-amber-300 disabled:bg-white/8 disabled:text-slate-500 text-black font-display uppercase tracking-wider font-bold text-xs nfs-chamfer-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                         >
                           {!tierDefeated && !tierGate.unlocked ? (
                             <>
-                              <Lock className="w-4 h-4" />
-                              <span>
+                              <Lock className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate">
                                 {!tierGate.allMissionsDone
-                                  ? `Clear All 3 Missions (${tierGate.missionsDone}/3)`
-                                  : 'Meet Bounty & KO Gate'}
+                                  ? `Clear ${tierGate.missionsTotal} Missions (${tierGate.missionsDone}/${tierGate.missionsTotal})`
+                                  : 'Meet Bounty & KO'}
                               </span>
                             </>
                           ) : (
                             <>
-                              <Flame className="w-4 h-4" />
-                              <span>{tierDefeated ? `Rematch ${tierRival.alias}` : `Challenge ${tierRival.alias}`}</span>
+                              <Flame className="w-3.5 h-3.5 shrink-0" />
+                              <span>{tierDefeated ? `Rematch #${tierRival.rank}` : `Fight ${tierRival.alias}`}</span>
                             </>
                           )}
                         </button>
@@ -598,7 +751,7 @@ export const MainMenuGarage: React.FC<Props> = ({
                               desc: nextRival
                                 ? nextBossUnlocked
                                   ? 'Pink Slip Ready!'
-                                  : `${nextUnlock?.missionsDone ?? 0}/3M · ${formatCurrency(bountyRemaining)}`
+                                  : `${nextUnlock?.missionsDone ?? 0}/${nextUnlock?.missionsTotal ?? 5}M · ${formatCurrency(bountyRemaining)}`
                                 : 'Defend #1 Crown',
                               icon: Flame,
                             },
@@ -770,7 +923,7 @@ export const MainMenuGarage: React.FC<Props> = ({
                             Next Boss: <span className="text-amber-400 font-bold">#{nextRival.rank} {nextRival.alias}</span>
                           </div>
                           <div className="font-mono-tabular text-slate-300 flex justify-between">
-                            <span>Missions: {nextUnlock?.missionsDone ?? 0}/3</span>
+                            <span>Missions: {nextUnlock?.missionsDone ?? 0}/{nextUnlock?.missionsTotal ?? 5}</span>
                             <span>KO: {profile.copsTakedowns}/{nextRival.requiredTakedowns}</span>
                           </div>
                         </div>
@@ -815,12 +968,12 @@ export const MainMenuGarage: React.FC<Props> = ({
                       </h2>
                       <p className="text-xs text-slate-400">
                         {nextRival
-                          ? `Target #${nextRival.rank} ${nextRival.alias} — Clear all 3 tier missions to seize ${nextRival.carName}`
+                          ? `Target #${nextRival.rank} ${nextRival.alias} — Clear all ${nextUnlock?.missionsTotal ?? 5} tier missions to seize ${nextRival.carName}`
                           : 'All 10 Blacklist rivals defeated. You own Razor’s BMW M3 GTR!'}
                       </p>
                     </div>
                     <div className="text-xs text-slate-300 font-mono-tabular">
-                      {profile.blacklistDefeated}/10 Bosses · {completedMissionIds.length}/30 Missions · {wonTrackIds.length}/10 Circuits
+                      {profile.blacklistDefeated}/10 Bosses · {completedMissionIds.length}/{NFS_MISSIONS.length} Missions · {wonTrackIds.length}/10 Circuits
                     </div>
                   </div>
 
@@ -844,7 +997,7 @@ export const MainMenuGarage: React.FC<Props> = ({
                         <span>
                           Missions:{' '}
                           <span className={nextUnlock?.allMissionsDone ? 'text-emerald-400 font-bold' : 'text-amber-300 font-bold'}>
-                            {nextUnlock?.missionsDone ?? 0}/{nextUnlock?.missionsTotal ?? 3}
+                            {nextUnlock?.missionsDone ?? 0}/{nextUnlock?.missionsTotal ?? 5}
                           </span>
                         </span>
                         <span>
@@ -1311,6 +1464,14 @@ function formatMissionTypeLabel(type: MissionType): string {
       return 'Speedtrap';
     case 'pursuit_milestone':
       return 'Pursuit';
+    case 'shortcut_heist':
+      return 'Shortcut Heist';
+    case 'drift_showdown':
+      return 'Drift Duel';
+    case 'stunt_blitz':
+      return 'Stunt Blitz';
+    case 'interceptor':
+      return 'Interceptor';
   }
 }
 

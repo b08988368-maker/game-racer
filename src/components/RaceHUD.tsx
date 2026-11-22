@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Camera, Flag, Flame, Pause, Radio, ShieldAlert, Volume2, VolumeX } from 'lucide-react';
+import { Camera, CheckCircle2, Circle, FastForward, Flag, Flame, Music, Pause, Radio, ShieldAlert, SkipForward, Volume2, VolumeX } from 'lucide-react';
 import { ENVIRONMENTS, formatCurrency, formatTimeMs } from '../data/gameData';
 import { RaceMode, RaceTelemetry } from '../types/game';
 
@@ -7,9 +7,16 @@ interface Props {
   telemetry: RaceTelemetry;
   mode: RaceMode;
   muted: boolean;
+  musicMuted: boolean;
+  showDebug?: boolean;
+  aeLookEnabled?: boolean;
+  onToggleAeLook?: () => void;
   onToggleMute: () => void;
+  onToggleMusicMute: () => void;
+  onSkipTrack: () => void;
   onCycleCamera: () => void;
   onPause: () => void;
+  onSkipIntro?: () => void;
   onFinishFreeroam?: () => void;
   onTouchInput: (key: 'throttle' | 'brake' | 'left' | 'right' | 'nitrous' | 'speedbreaker' | 'handbrake', down: boolean) => void;
 }
@@ -18,9 +25,16 @@ export const RaceHUD: React.FC<Props> = ({
   telemetry,
   mode,
   muted,
+  musicMuted,
+  showDebug = false,
+  aeLookEnabled = true,
+  onToggleAeLook,
   onToggleMute,
+  onToggleMusicMute,
+  onSkipTrack,
   onCycleCamera,
   onPause,
+  onSkipIntro,
   onFinishFreeroam,
   onTouchInput,
 }) => {
@@ -116,7 +130,72 @@ export const RaceHUD: React.FC<Props> = ({
         />
       )}
 
-      {/* Top Row */}
+      {/* Cinema Widescreen Intro & Outro Letterbox Overlays */}
+      {(telemetry.cinematicPhase === 'intro' || telemetry.cinematicPhase === 'outro') && (
+        <>
+          <div className="fixed top-0 left-0 right-0 h-14 sm:h-16 bg-black/95 border-b border-amber-400/35 nfs-letterbox-top z-20 pointer-events-none" />
+          <div className="fixed bottom-0 left-0 right-0 h-16 sm:h-20 bg-black/95 border-t border-amber-400/35 nfs-letterbox-bottom z-20 pointer-events-none" />
+
+          {telemetry.cinematicPhase === 'intro' && (
+            <div className="fixed inset-x-0 bottom-24 z-20 flex flex-col items-center px-4 gap-3 pointer-events-none">
+              <div className="max-w-xl w-full nfs-chamfer nfs-carbon-bg border border-white/18 border-l-4 border-l-amber-400 px-5 py-3.5 text-center shadow-2xl nfs-anim-stamp">
+                <div className="text-[11px] font-mono-tabular uppercase tracking-widest text-amber-400 font-bold">
+                  STARTING GRID FLYOVER
+                </div>
+                <div className="font-display italic uppercase text-2xl sm:text-3xl font-bold text-white tracking-wide mt-0.5">
+                  {telemetry.introLabel}
+                </div>
+                {telemetry.introSubLabel && (
+                  <p className="text-xs sm:text-sm text-slate-200 mt-1">{telemetry.introSubLabel}</p>
+                )}
+              </div>
+              {onSkipIntro && (
+                <button
+                  type="button"
+                  onClick={onSkipIntro}
+                  className="pointer-events-auto px-4 py-1.5 nfs-chamfer-sm bg-amber-400 hover:bg-amber-300 text-black font-display uppercase tracking-wider font-bold text-xs flex items-center gap-1.5 shadow-lg transition-colors cursor-pointer nfs-anim-slide-up"
+                >
+                  <FastForward className="w-3.5 h-3.5" />
+                  <span>Skip Intro [Space]</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {telemetry.cinematicPhase === 'outro' && (
+            <div className="fixed top-20 inset-x-0 z-20 flex justify-center px-4 pointer-events-none">
+              <div
+                className={`px-7 py-3 nfs-chamfer nfs-carbon-bg border border-white/20 border-l-4 shadow-2xl nfs-anim-stamp text-center ${
+                  telemetry.outroOutcome === 'win'
+                    ? 'border-l-amber-400'
+                    : telemetry.outroOutcome === 'busted'
+                      ? 'border-l-red-500'
+                      : 'border-l-slate-400'
+                }`}
+              >
+                <div
+                  className={`font-display italic uppercase text-3xl sm:text-4xl font-black tracking-wider ${
+                    telemetry.outroOutcome === 'win'
+                      ? 'text-amber-400'
+                      : telemetry.outroOutcome === 'busted'
+                        ? 'text-red-500'
+                        : 'text-white'
+                  }`}
+                >
+                  {telemetry.outroOutcome === 'win'
+                    ? 'VICTORY'
+                    : telemetry.outroOutcome === 'busted'
+                      ? 'BUSTED BY RPD'
+                      : 'EVENT COMPLETE'}
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Top Row (Hidden cleanly during cinema intro/outro for dramatic full-bleed 3D shots) */}
+      {telemetry.cinematicPhase !== 'intro' && telemetry.cinematicPhase !== 'outro' && (
       <div className="relative flex items-start justify-between p-4 sm:p-5 gap-4">
         {/* Top-Left: Radar Minimap & Telemetry Block */}
         <div className="flex items-start gap-3">
@@ -180,16 +259,43 @@ export const RaceHUD: React.FC<Props> = ({
             </div>
           </div>
 
-          <div className="nfs-chamfer nfs-carbon-bg border border-white/15 border-l-4 border-l-amber-400 px-4 py-2.5 space-y-1">
+          <div className="nfs-chamfer nfs-carbon-bg border border-white/15 border-l-4 border-l-amber-400 px-4 py-2.5 space-y-1 max-w-[300px]">
             {telemetry.activeMissionTitle && (
-              <div className="border-b border-white/12 pb-1 mb-1">
-                <div className="text-[11px] font-display font-bold uppercase tracking-wider text-amber-400 truncate max-w-[260px]">
-                  {telemetry.activeMissionTitle}
-                </div>
-                {telemetry.activeMissionObjective && (
-                  <div className="text-[11px] font-mono-tabular text-slate-200 truncate max-w-[260px]">
-                    {telemetry.activeMissionObjective}
+              <div className="border-b border-white/12 pb-1.5 mb-1 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[11px] font-display font-bold uppercase tracking-wider text-amber-400 truncate">
+                    {telemetry.activeMissionTitle}
                   </div>
+                  {telemetry.activeMissionModeTag && (
+                    <span className="px-1.5 py-0.5 bg-amber-400/20 text-amber-300 text-[9px] font-mono-tabular font-bold uppercase shrink-0">
+                      {telemetry.activeMissionModeTag}
+                    </span>
+                  )}
+                </div>
+                {telemetry.missionChecklist.length > 0 ? (
+                  <div className="space-y-0.5">
+                    {telemetry.missionChecklist.map((item, idx) => (
+                      <div key={idx} className="flex items-center justify-between gap-2 text-[10px] font-mono-tabular">
+                        <span className={`flex items-center gap-1 truncate ${item.done ? 'text-emerald-300' : 'text-slate-200'}`}>
+                          {item.done ? (
+                            <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                          ) : (
+                            <Circle className="w-3 h-3 text-slate-500 shrink-0" />
+                          )}
+                          <span className="truncate">{item.label}</span>
+                        </span>
+                        <span className={`font-bold shrink-0 ${item.done ? 'text-emerald-400' : 'text-amber-300'}`}>
+                          {item.current}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  telemetry.activeMissionObjective && (
+                    <div className="text-[11px] font-mono-tabular text-slate-200 truncate">
+                      {telemetry.activeMissionObjective}
+                    </div>
+                  )
                 )}
               </div>
             )}
@@ -326,11 +432,21 @@ export const RaceHUD: React.FC<Props> = ({
             )}
             <div className="text-[10px] font-mono-tabular text-slate-400 pt-0.5 flex flex-wrap items-center gap-x-2">
               <span className="uppercase">{ENVIRONMENTS.find((e) => e.id === telemetry.environment)?.label ?? telemetry.environment}</span>
-              <span className="text-slate-500">· {telemetry.musicTrackName}</span>
+              <span className={musicMuted || muted ? 'text-slate-500 line-through' : 'text-amber-300/90'}>
+                · {telemetry.musicTrackName}
+              </span>
               {telemetry.shortcutsTaken > 0 && (
                 <span className="text-emerald-400 font-bold">· SHORTCUTS {telemetry.shortcutsTaken}</span>
               )}
             </div>
+            {showDebug && (
+              <div className="text-[10px] font-mono-tabular text-cyan-300 pt-0.5 border-t border-white/10 flex flex-wrap items-center gap-x-3">
+                <span>FPS {telemetry.fps ?? '--'}</span>
+                <span>CAM {telemetry.cameraMode.toUpperCase()}</span>
+                <span>COPS {telemetry.activeCops}</span>
+                <span>HEAT {telemetry.heatLevel}</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -444,8 +560,30 @@ export const RaceHUD: React.FC<Props> = ({
             </button>
             <button
               type="button"
+              onClick={onSkipTrack}
+              title="Next EA Trax (M)"
+              aria-label="Next EA Trax"
+              className="p-2.5 nfs-chamfer-sm nfs-carbon-bg border border-white/18 text-slate-200 hover:text-amber-400 hover:border-amber-400/60 transition-colors cursor-pointer"
+            >
+              <SkipForward className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onToggleMusicMute}
+              title={musicMuted ? 'Unmute Music' : 'Mute Music'}
+              aria-label={musicMuted ? 'Unmute Music' : 'Mute Music'}
+              className={`p-2.5 nfs-chamfer-sm nfs-carbon-bg border transition-colors cursor-pointer ${
+                musicMuted
+                  ? 'border-red-500/50 text-red-400 hover:border-red-400'
+                  : 'border-white/18 text-slate-200 hover:text-amber-400 hover:border-amber-400/60'
+              }`}
+            >
+              <Music className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
               onClick={onToggleMute}
-              title={muted ? 'Unmute' : 'Mute'}
+              title={muted ? 'Unmute All' : 'Mute All'}
               className="p-2.5 nfs-chamfer-sm nfs-carbon-bg border border-white/18 text-slate-200 hover:text-amber-400 hover:border-amber-400/60 transition-colors cursor-pointer"
             >
               {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
@@ -461,16 +599,21 @@ export const RaceHUD: React.FC<Props> = ({
           </div>
         </div>
       </div>
+      )}
 
       {/* Center-Top Countdown & Callouts */}
+      {telemetry.cinematicPhase !== 'intro' && telemetry.cinematicPhase !== 'outro' && (
       <div className="fixed top-20 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none">
         {telemetry.countdown > 0 && (
-          <div className="font-display italic text-7xl font-bold text-amber-400 drop-shadow-[0_4px_16px_rgba(0,0,0,0.95)] tabular-nums">
+          <div
+            key={`cd-${telemetry.countdown}`}
+            className="font-display italic text-7xl font-bold text-amber-400 drop-shadow-[0_4px_16px_rgba(0,0,0,0.95)] tabular-nums nfs-anim-stamp"
+          >
             {telemetry.countdown}
           </div>
         )}
         {telemetry.wrongWay && (
-          <div className="px-5 py-1.5 nfs-chamfer-sm bg-red-600/95 border-l-4 border-white text-white font-display font-bold uppercase tracking-widest text-sm">
+          <div className="px-5 py-1.5 nfs-chamfer-sm bg-red-600/95 border-l-4 border-white text-white font-display font-bold uppercase tracking-widest text-sm nfs-anim-stamp">
             WRONG WAY — TURN AROUND
           </div>
         )}
@@ -481,7 +624,8 @@ export const RaceHUD: React.FC<Props> = ({
         )}
         {telemetry.callout && (
           <div
-            className={`px-4 py-1.5 nfs-chamfer-sm nfs-carbon-bg border border-white/15 border-l-4 font-display font-bold uppercase tracking-wider text-sm ${
+            key={`co-${telemetry.callout.id}`}
+            className={`px-4 py-1.5 nfs-chamfer-sm nfs-carbon-bg border border-white/15 border-l-4 font-display font-bold uppercase tracking-wider text-sm nfs-anim-slide-up ${
               telemetry.callout.tone === 'red'
                 ? 'border-l-red-500 text-red-400'
                 : telemetry.callout.tone === 'cyan'
@@ -495,8 +639,10 @@ export const RaceHUD: React.FC<Props> = ({
           </div>
         )}
       </div>
+      )}
 
       {/* Bottom Row */}
+      {telemetry.cinematicPhase !== 'intro' && telemetry.cinematicPhase !== 'outro' && (
       <div className="fixed bottom-4 left-4 right-4 flex items-end justify-between gap-4">
         <div className="space-y-2">
           {(telemetry.isDrifting || telemetry.isSlipstreaming || telemetry.nearMissCombo > 1) && (
@@ -518,8 +664,24 @@ export const RaceHUD: React.FC<Props> = ({
               )}
             </div>
           )}
-          <div className="hidden md:flex items-center gap-3 px-3.5 py-2 nfs-chamfer-sm nfs-carbon-bg border border-white/15 border-l-2 border-l-amber-400 text-[11px] font-mono-tabular uppercase tracking-wide text-slate-300">
-            <span><strong className="text-white">WASD</strong> Drive</span>
+          <div className="pointer-events-auto hidden md:flex items-center gap-2.5 px-3.5 py-2 nfs-chamfer-sm nfs-carbon-bg border border-white/15 border-l-2 border-l-amber-400 text-[11px] font-mono-tabular uppercase tracking-wide text-slate-300">
+            {aeLookEnabled ? (
+              <>
+                <span><strong className="text-white">Arrows</strong> Drive</span>
+                <span aria-hidden="true">·</span>
+                <span><strong className="text-cyan-300">A/E</strong> Look L/R</span>
+                <span aria-hidden="true">·</span>
+                <span><strong className="text-cyan-300">A+E</strong> Back</span>
+              </>
+            ) : (
+              <>
+                <span><strong className="text-white">WASD</strong> Drive</span>
+                <span aria-hidden="true">·</span>
+                <span><strong className="text-cyan-300">Q/E</strong> Look L/R</span>
+                <span aria-hidden="true">·</span>
+                <span><strong className="text-cyan-300">Q+E</strong> Back</span>
+              </>
+            )}
             <span aria-hidden="true">·</span>
             <span><strong className="text-white">Space</strong> Drift</span>
             <span aria-hidden="true">·</span>
@@ -527,9 +689,31 @@ export const RaceHUD: React.FC<Props> = ({
             <span aria-hidden="true">·</span>
             <span><strong className="text-amber-400">X</strong> Breaker</span>
             <span aria-hidden="true">·</span>
-            <span><strong className="text-emerald-400">Green</strong> Shortcut</span>
+            <span><strong className="text-emerald-400">R</strong> Reset</span>
             <span aria-hidden="true">·</span>
             <span><strong className="text-white">C</strong> Cam</span>
+            <span aria-hidden="true">·</span>
+            <span><strong className="text-white">M</strong> Track</span>
+            {onToggleAeLook && (
+              <>
+                <span aria-hidden="true">·</span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    onToggleAeLook();
+                  }}
+                  title="Switch between A/E Look (Arrows Drive) and Q/E Look (WASD Drive)"
+                  className={`px-2 py-0.5 nfs-chamfer-sm border text-[10px] font-bold transition-colors cursor-pointer ${
+                    aeLookEnabled
+                      ? 'bg-cyan-500/20 border-cyan-400/60 text-cyan-200 hover:bg-cyan-500/35'
+                      : 'bg-white/10 border-white/25 text-slate-200 hover:bg-white/20'
+                  }`}
+                >
+                  {aeLookEnabled ? 'LOOK: A/E' : 'LOOK: Q/E'}
+                </button>
+              </>
+            )}
           </div>
 
           {/* Mobile Touch Controls */}
@@ -705,6 +889,7 @@ export const RaceHUD: React.FC<Props> = ({
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 };

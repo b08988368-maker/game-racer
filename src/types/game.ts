@@ -34,9 +34,11 @@ export type TrackDifficulty = 'Easy' | 'Medium' | 'Hard' | 'Expert';
 export type LiveryStyle = 'clean' | 'stripes' | 'most_wanted' | 'boss_carbon';
 export type RimStyle = 'chrome' | 'black' | 'gold' | 'bronze';
 
-export type CameraMode = 'chase_far' | 'chase_close' | 'hood';
+export type CameraMode = 'chase_far' | 'chase_close' | 'hood' | 'bumper';
+export type GarageCameraPreset = 'orbit' | 'front' | 'side' | 'rear';
 
 export type PursuitState = 'none' | 'pursuit' | 'cooldown' | 'evaded' | 'busted';
+export type CinematicPhase = 'intro' | 'countdown' | 'racing' | 'outro';
 
 export type MissionType =
   | 'circuit'
@@ -44,14 +46,25 @@ export type MissionType =
   | 'knockout'
   | 'tollbooth'
   | 'speedtrap'
-  | 'pursuit_milestone';
+  | 'pursuit_milestone'
+  | 'shortcut_heist'
+  | 'drift_showdown'
+  | 'stunt_blitz'
+  | 'interceptor';
+
+export interface MissionChecklistItem {
+  label: string;
+  current: string;
+  done: boolean;
+}
 
 export interface MissionDefinition {
   id: string;
   tierRank: number; // 10 down to 1
-  order: number; // 1..3 within tier
+  order: number; // 1..5 within tier
   title: string;
   type: MissionType;
+  modeTag: string;
   trackId: TrackId;
   environment: Exclude<EnvironmentId, 'auto'>;
   laps?: number;
@@ -60,9 +73,17 @@ export interface MissionDefinition {
   targetBounty?: number;
   targetTakedowns?: number;
   minHeat?: number;
+  targetShortcuts?: number;
+  targetDriftSec?: number;
+  targetNearMisses?: number;
+  targetAirtimeSec?: number;
+  targetSmashables?: number;
   aiTierBoost: number; // 0..4 simulated AI upgrade/pace tier
   cashReward: number;
   bountyReward: number;
+  objectiveSummary: string;
+  winRules: string[];
+  proTip: string;
   description: string;
 }
 
@@ -199,11 +220,20 @@ export interface RaceTelemetry {
   speedTrapLeaderKmh: number;
   speedTrapTargetKmh: number;
   speedTrapHits: number;
+  driftTimeTotalSec: number;
+  airTimeTotalSec: number;
+  smashablesHit: number;
   activeMissionTitle: string | null;
+  activeMissionModeTag: string | null;
   activeMissionObjective: string | null;
+  missionChecklist: MissionChecklistItem[];
   musicTrackName: string;
   progress: number; // 0..1
   wrongWay: boolean;
+  cinematicPhase: CinematicPhase;
+  introLabel: string | null;
+  introSubLabel: string | null;
+  outroOutcome: 'win' | 'busted' | 'loss' | null;
   countdown: number; // 3, 2, 1, 0, -1 (active)
   heatLevel: number; // 1..5
   pursuitState: PursuitState;
@@ -224,6 +254,7 @@ export interface RaceTelemetry {
   minimapShortcuts?: { x: number; z: number }[][];
   minimapBlips: MinimapBlip[];
   cameraMode: CameraMode;
+  fps?: number;
 }
 
 export interface RaceResult {
@@ -243,10 +274,15 @@ export interface RaceResult {
   copsTakedowns: number;
   highestHeat: number;
   shortcutsTaken?: number;
+  driftTimeTotalSec?: number;
+  airTimeTotalSec?: number;
+  smashablesHit?: number;
+  nearMissCount?: number;
   speedTrapTotalKmh?: number;
   missionId?: string;
   missionTitle?: string;
   missionCompleted?: boolean;
+  missionFailReason?: string;
   isNewTrackWin?: boolean;
   rivalDefeated?: BlacklistRival;
   bossCarAwarded?: CarSpec;

@@ -34,15 +34,15 @@ export const PostRaceModal: React.FC<PostRaceProps> = ({ result, profile, onRace
     result.busted || result.knockedOut || result.tollboothExpired || Boolean(result.missionTitle && !result.missionCompleted);
 
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center bg-[#06070A]/86 p-4">
+    <div className="fixed inset-0 z-30 flex items-center justify-center bg-[#06070A]/62 backdrop-blur-[2px] p-4">
       <div
-        className={`w-full max-w-lg nfs-chamfer nfs-carbon-bg border border-white/18 border-l-4 overflow-hidden shadow-2xl ${
+        className={`w-full max-w-lg nfs-chamfer nfs-carbon-bg border border-white/18 border-l-4 overflow-hidden shadow-2xl nfs-anim-slide-up ${
           isDefeat ? 'border-l-red-500' : result.won ? 'border-l-amber-400' : 'border-l-slate-400'
         }`}
       >
         <div className="h-1.5 w-full nfs-hazard-stripe border-b border-white/10" />
         <div className="p-6 space-y-4">
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start justify-between gap-4 nfs-anim-stamp">
             <div>
               <div className="text-xs font-mono-tabular uppercase tracking-wider text-slate-400">
                 {trackMeta?.name ?? result.trackId} · {envLabel}
@@ -84,21 +84,34 @@ export const PostRaceModal: React.FC<PostRaceProps> = ({ result, profile, onRace
 
           {result.missionTitle && (
             <div
-              className={`nfs-chamfer-sm px-3.5 py-2.5 text-xs border border-white/10 border-l-4 flex items-center gap-2 ${
+              className={`nfs-chamfer-sm px-3.5 py-2.5 text-xs border border-white/10 border-l-4 space-y-1 ${
                 result.missionCompleted
                   ? 'bg-emerald-500/12 border-l-emerald-400 text-emerald-200'
                   : 'bg-red-500/12 border-l-red-500 text-red-200'
               }`}
             >
-              {result.missionCompleted ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              ) : (
-                <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" />
+              <div className="flex items-center gap-2">
+                {result.missionCompleted ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                ) : (
+                  <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" />
+                )}
+                <span>
+                  {result.missionCompleted ? 'MISSION CLEARED:' : 'MISSION INCOMPLETE:'}{' '}
+                  <strong className="text-white">{result.missionTitle}</strong>
+                </span>
+              </div>
+              {!result.missionCompleted && result.missionFailReason && (
+                <div className="text-[11px] font-mono-tabular text-red-300 pl-6">
+                  {result.missionFailReason}
+                </div>
               )}
-              <span>
-                {result.missionCompleted ? 'MISSION CLEARED:' : 'MISSION INCOMPLETE:'}{' '}
-                <strong className="text-white">{result.missionTitle}</strong>
-              </span>
+            </div>
+          )}
+
+          {!result.missionTitle && isDefeat && result.missionFailReason && (
+            <div className="bg-red-500/12 border border-white/10 border-l-4 border-l-red-500 nfs-chamfer-sm px-3.5 py-2 text-xs text-red-200">
+              {result.missionFailReason}
             </div>
           )}
 
@@ -135,7 +148,7 @@ export const PostRaceModal: React.FC<PostRaceProps> = ({ result, profile, onRace
               label={result.mode === 'pursuit' ? 'Pursuit Time' : 'Total Time'}
               value={formatTimeMs(result.totalTimeMs)}
             />
-            <MetricBox label="Shortcuts Used" value={String(result.shortcutsTaken ?? 0)} />
+            <MetricBox label="Shortcuts · Near Miss" value={`${result.shortcutsTaken ?? 0} · ${result.nearMissCount ?? 0}`} />
             <MetricBox label="Cops KO · Heat" value={`${result.copsTakedowns} · H${result.highestHeat}`} />
           </div>
 
@@ -229,10 +242,12 @@ function MetricBox({
 }
 
 export const PauseModal: React.FC<{
+  aeLookEnabled: boolean;
+  onToggleAeLook: () => void;
   onResume: () => void;
   onRestart: () => void;
   onQuit: () => void;
-}> = ({ onResume, onRestart, onQuit }) => {
+}> = ({ aeLookEnabled, onToggleAeLook, onResume, onRestart, onQuit }) => {
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-[#06070A]/82 p-4">
       <div className="w-full max-w-sm nfs-chamfer nfs-carbon-bg border border-white/18 border-l-4 border-l-amber-400 overflow-hidden shadow-2xl">
@@ -249,6 +264,17 @@ export const PauseModal: React.FC<{
               className="w-full py-2.5 px-4 nfs-chamfer-sm bg-amber-400 hover:bg-amber-300 text-black font-display uppercase tracking-wider font-bold text-sm transition-colors cursor-pointer"
             >
               Resume Race
+            </button>
+            <button
+              type="button"
+              onClick={onToggleAeLook}
+              className={`w-full py-2.5 px-4 nfs-chamfer-sm border text-xs font-mono-tabular uppercase tracking-wider font-bold transition-colors cursor-pointer ${
+                aeLookEnabled
+                  ? 'bg-cyan-500/18 hover:bg-cyan-500/28 border-cyan-400/60 text-cyan-200'
+                  : 'bg-[#151923] hover:bg-[#1E2433] border-white/20 text-slate-200'
+              }`}
+            >
+              {aeLookEnabled ? 'Look: A Left · E Right · A+E Back (Arrows Drive)' : 'Look: Q Left · E Right · Q+E Back (WASD Drive)'}
             </button>
             <button
               type="button"
