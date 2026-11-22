@@ -49,6 +49,7 @@ interface RacerEntity {
   shuntCooldown: number;
   copSlowdownTimer: number;
   activeShortcutId: number | null;
+  reachedShortcutCore: boolean;
   shortcutPassCooldown: number;
   trackIdx: number;
   progress: number;
@@ -236,6 +237,8 @@ export class RacingEngine {
   private spikedTimer = 0;
   private playerOnCurb = false;
   private playerNearBarrier = false;
+  private currentWallScrape = 0;
+  private speedTrapFlashTimer = 0;
   private gridRevRpm = 0.22;
   private steerInputSmooth = 0;
   private lastPlayerGear = 0;
@@ -1044,6 +1047,9 @@ export class RacingEngine {
     this.isSlipstreaming = false;
     this.spikedTimer = 0;
     this.playerOnCurb = false;
+    this.playerNearBarrier = false;
+    this.currentWallScrape = 0;
+    this.speedTrapFlashTimer = 0;
     this.steerInputSmooth = 0;
     this.lastPlayerGear = 0;
     this.backfireTimer = -0.5;
@@ -1182,6 +1188,7 @@ export class RacingEngine {
       shuntCooldown: 0,
       copSlowdownTimer: 0,
       activeShortcutId: null,
+      reachedShortcutCore: false,
       shortcutPassCooldown: 0,
       trackIdx: startSampleIdx,
       progress: gridStart.progress,
@@ -1236,6 +1243,7 @@ export class RacingEngine {
         shuntCooldown: 0,
         copSlowdownTimer: 0,
         activeShortcutId: null,
+        reachedShortcutCore: false,
         shortcutPassCooldown: 0,
         trackIdx: startSampleIdx,
         progress: gridStart.progress,
@@ -1313,6 +1321,7 @@ export class RacingEngine {
           shuntCooldown: 0,
           copSlowdownTimer: 0,
           activeShortcutId: null,
+          reachedShortcutCore: false,
           shortcutPassCooldown: 0,
           trackIdx: offsets[i].idx,
           progress: s.progress,
@@ -1614,6 +1623,7 @@ export class RacingEngine {
     const p = this.player;
     const info = this.track.getClosestTrackInfo(p.pos.x, p.pos.z, p.trackIdx);
     p.activeShortcutId = null;
+    p.reachedShortcutCore = false;
     p.trackIdx = info.sample.index;
     p.pos.copy(info.sample.point);
     p.pos.y = info.sample.point.y + ROAD_SURFACE_OFFSET;
@@ -1960,6 +1970,9 @@ export class RacingEngine {
       this.nearMissComboTimer = Math.max(0, this.nearMissComboTimer - rawDt);
       if (this.nearMissComboTimer === 0) this.nearMissCombo = 0;
     }
+    if (this.speedTrapFlashTimer > 0) {
+      this.speedTrapFlashTimer = Math.max(0, this.speedTrapFlashTimer - rawDt);
+    }
 
     this.raceElapsedMs += dt * 1000;
 
@@ -2300,6 +2313,28 @@ export class RacingEngine {
       }
     }
 
+    const launchWheelspin =
+      !airborne && this.input.throttle && Math.abs(p.forwardSpeed) < 17 && !nosActive
+        ? THREE.MathUtils.clamp(1 - Math.abs(p.forwardSpeed) / 17, 0, 1) * 0.85
+        : 0;
+    if (launchWheelspin > 0.25) {
+      this.skidAccum += rawDt;
+      if (this.skidAccum > 0.05) {
+        this.skidAccum = 0;
+        const sinH = Math.sin(p.heading);
+        const cosH = Math.cos(p.heading);
+        const rx = cosH * 0.85;
+        const rz = -sinH * 0.85;
+        this.placeSkidmark(p.pos.x + sinH * 1.4 - rx, p.pos.y, p.pos.z + cosH * 1.4 - rz, p.heading);
+        this.placeSkidmark(p.pos.x + sinH * 1.4 + rx, p.pos.y, p.pos.z + cosH * 1.4 + rz, p.heading);
+      }
+      if (Math.random() < 0.72) {
+        _v1.set(p.pos.x + (Math.random() - 0.5) * 1.4, p.pos.y + 0.16, p.pos.z + (Math.random() - 0.5) * 1.4);
+        _v2.set((Math.random() - 0.5) * 1.8, 1.5, (Math.random() - 0.5) * 1.8);
+        this.spawnParticle(_v1, _v2, '#94A3B8', 0.9, 0.52);
+      }
+    }
+
     const driftSlip = airborne ? 0 : Math.min(1, Math.abs(p.lateralSpeed) / 7.8);
     const wasDrifting = this.isDrifting;
     this.isDrifting = !airborne && driftSlip > 0.24 && Math.abs(p.forwardSpeed) > 14;
@@ -2328,7 +2363,13 @@ export class RacingEngine {
       if (wasDrifting && this.driftHoldSec >= 0.55 && p.forwardSpeed > 20 && this.input.throttle) {
         this.driftBoostTimer = 1.25;
         p.forwardSpeed = Math.min(maxForwardMs, p.forwardSpeed + 7.2);
-        this.pushCallout('DRIFT EXIT BOOST!', 'amber');
+        const driftCash = Math.round(this.driftHoldSec * 280);
+        if (driftCash >= 150) {
+          this.sessionBounty += driftCash;
+          this.pushCallout(`DRIFT EXIT BOOST! +$${driftCash.toLocaleString()} BOUNTY`, 'amber');
+        } else {
+          this.pushCallout('DRIFT EXIT BOOST!', 'amber');
+        }
       }
       this.driftHoldSec = 0;
     }
@@ -2341,6 +2382,7 @@ export class RacingEngine {
     p.pos.x += (fwdX * p.forwardSpeed + rightX * p.lateralSpeed) * dt;
     p.pos.z += (fwdZ * p.forwardSpeed + rightZ * p.lateralSpeed) * dt;
 
+    this.currentWallScrape = THREE.MathUtils.damp(this.currentWallScrape, 0, 14, rawDt);
     this.constrainToTrackAndUpdateLap(p, dt, true);
 
     const airPitch = p.airHeight > 0.12 ? THREE.MathUtils.clamp(p.verticalVel * 0.011, -0.11, 0.13) : 0;
@@ -2424,6 +2466,8 @@ export class RacingEngine {
       inTunnel,
       drafting: this.isSlipstreaming,
       nearBarrier: this.playerNearBarrier,
+      wallScrape: this.currentWallScrape,
+      wheelspin: launchWheelspin,
       timeScale: this.isSpeedbreaker ? 0.42 : 1.0,
     });
   }
@@ -2436,24 +2480,29 @@ export class RacingEngine {
     // Smart shortcut routing for competitive Blacklist bosses & pro AI
     let usingShortcutGuide = false;
     if (ai.activeShortcutId !== null) {
-      const scHit = this.track.queryShortcut(ai.pos.x, ai.pos.z);
+      const scHit = this.track.queryShortcut(ai.pos.x, ai.pos.z, ai.activeShortcutId);
       if (scHit && scHit.shortcut.id === ai.activeShortcutId) {
-        const lookIdx = Math.min(scHit.shortcut.points.length - 1, scHit.ptIndex + 4);
+        const lookIdx = Math.min(scHit.shortcut.points.length - 1, scHit.ptIndex + 5);
         _v1.copy(scHit.shortcut.points[lookIdx]);
         usingShortcutGuide = true;
       }
     }
 
     if (!usingShortcutGuide) {
+      let aimingForShortcut = false;
       if (ai.aiSkill >= 0.84 && this.track.shortcuts.length > 0 && ai.activeShortcutId === null) {
         for (let i = 0; i < this.track.shortcuts.length; i++) {
           const sc = this.track.shortcuts[i];
-          const ahead = (sc.startIdx - ai.trackIdx + nSamples) % nSamples;
-          if (ahead >= 2 && ahead <= 24) {
-            ai.laneTarget = sc.side * (this.track.roadHalfWidth + 1.1);
+          const ahead = (sc.entryCutStartIdx - ai.trackIdx + nSamples) % nSamples;
+          if (ahead <= 20) {
+            ai.laneTarget = sc.side * (this.track.roadHalfWidth + 1.25);
+            aimingForShortcut = true;
             break;
           }
         }
+      }
+      if (!aimingForShortcut && Math.abs(ai.laneTarget) > this.track.roadHalfWidth - 1.2) {
+        ai.laneTarget = Math.sign(ai.laneTarget) * (this.track.roadHalfWidth * 0.42);
       }
 
       // Dynamic overtaking across traffic
@@ -2782,12 +2831,16 @@ export class RacingEngine {
     }
 
     const nSamples = this.track.samples.length;
-    const scHit = this.track.queryShortcut(r.pos.x, r.pos.z);
+    const rampOffset = Math.max(0, groundHeight - (info.elevationY + ROAD_SURFACE_OFFSET));
+    const scHit =
+      r.activeShortcutId !== null
+        ? this.track.queryShortcut(r.pos.x, r.pos.z, r.activeShortcutId)
+        : this.track.queryShortcut(r.pos.x, r.pos.z);
 
     // Determine active shortcut corridor cleanly:
-    // - If already inside a shortcut, stay locked to it until cleanly emerging onto the main road.
-    // - If not yet inside a shortcut, ONLY enter through the entry portal (frac <= 0.22), never at an exit!
-    const scLockLimitSq = scHit ? (scHit.shortcut.halfWidth + 5.8) * (scHit.shortcut.halfWidth + 5.8) : 0;
+    // - If already inside a shortcut, stay locked to it until emerging onto the main road.
+    // - If not yet inside a shortcut, enter seamlessly only when crossing onto the shortcut mouth shoulder.
+    const scLockLimitSq = scHit ? (scHit.shortcut.halfWidth + 4.8) * (scHit.shortcut.halfWidth + 4.8) : 0;
     const canContinueShortcut = Boolean(
       r.activeShortcutId !== null &&
         scHit &&
@@ -2797,22 +2850,44 @@ export class RacingEngine {
     const canEnterShortcut = Boolean(
       r.activeShortcutId === null &&
         scHit &&
-        scHit.frac <= 0.24 &&
-        Math.abs(scHit.lateral) <= scHit.shortcut.halfWidth + 2.4 &&
-        (Math.abs(info.lateralOffset) > this.track.roadHalfWidth - 3.4 || scHit.frac >= 0.04) &&
+        scHit.frac >= 0.005 &&
+        scHit.frac <= scHit.shortcut.innerStartFrac + 0.05 &&
+        info.lateralOffset * scHit.shortcut.side > this.track.roadHalfWidth - 1.0 &&
+        Math.abs(scHit.lateral) <= scHit.shortcut.halfWidth - 0.35 &&
         r.forwardSpeed > -4.0,
     );
 
     if ((canContinueShortcut || canEnterShortcut) && scHit) {
-      r.activeShortcutId = scHit.shortcut.id;
-      groundHeight = scHit.elevationY + ROAD_SURFACE_OFFSET;
-      r.pos.y = groundHeight + Math.max(0, r.airHeight);
-      r.slopePitch = THREE.MathUtils.damp(r.slopePitch, scHit.slopePitch, 10, dt);
-      r.bankRoll = THREE.MathUtils.damp(r.bankRoll, 0, 10, dt);
+      const sc = scHit.shortcut;
+      if (r.activeShortcutId === null) {
+        r.reachedShortcutCore = false;
+      }
+      r.activeShortcutId = sc.id;
+      if (scHit.frac >= sc.innerStartFrac + 0.06 && scHit.frac <= sc.innerEndFrac - 0.03) {
+        r.reachedShortcutCore = true;
+      }
+
+      // Smoothly blend elevation, pitch, and banking across entry/exit merge throats (zero height pops)
+      let mergeBlend = 1;
+      if (scHit.frac < sc.innerStartFrac && sc.innerStartFrac > 0.01) {
+        mergeBlend = THREE.MathUtils.clamp(scHit.frac / sc.innerStartFrac, 0, 1);
+      } else if (scHit.frac > sc.innerEndFrac && sc.innerEndFrac < 0.99) {
+        mergeBlend = THREE.MathUtils.clamp((1 - scHit.frac) / (1 - sc.innerEndFrac), 0, 1);
+      }
+      const blendedElev = THREE.MathUtils.lerp(info.elevationY, scHit.elevationY, mergeBlend);
+      groundHeight = blendedElev + ROAD_SURFACE_OFFSET + rampOffset;
+      r.pos.y = Math.max(groundHeight, groundHeight + Math.max(0, r.airHeight));
+      r.slopePitch = THREE.MathUtils.damp(
+        r.slopePitch,
+        THREE.MathUtils.lerp(info.slopePitch, scHit.slopePitch, mergeBlend),
+        10,
+        dt,
+      );
+      r.bankRoll = THREE.MathUtils.damp(r.bankRoll, THREE.MathUtils.lerp(info.bankAngle, 0, mergeBlend), 10, dt);
 
       // Smash through breakable shortcut barricade planks
-      for (let pk = 0; pk < scHit.shortcut.planks.length; pk++) {
-        const plank = scHit.shortcut.planks[pk];
+      for (let pk = 0; pk < sc.planks.length; pk++) {
+        const plank = sc.planks[pk];
         if (!plank.smashed && r.pos.distanceToSquared(plank.mesh.position) < 3.4 * 3.4) {
           plank.smashed = true;
           plank.respawnTimer = 16;
@@ -2834,35 +2909,67 @@ export class RacingEngine {
 
       if (isPlayer) {
         this.playerOnCurb = false;
-        this.playerNearBarrier = Math.abs(scHit.lateral) > scHit.shortcut.halfWidth - 2.6;
+        this.playerNearBarrier = Math.abs(scHit.lateral) > sc.halfWidth - 2.6;
       }
 
-      // Continuous watertight shortcut barriers:
-      // - Outer barrier side ALWAYS clamps across 0..1 so you can NEVER fall off the outside of a shortcut!
-      // - Inner wall clamps across the closed middle corridor (0.045 < frac < 0.955).
-      const maxScLat = scHit.shortcut.halfWidth - 1.05;
-      const outerSide = scHit.shortcut.side;
-      const inClosedMid = scHit.frac > 0.045 && scHit.frac < 0.955;
+      // Watertight shortcut barriers synchronized 1:1 with trackBuilder innerStartFrac..innerEndFrac:
+      // - Outer barrier side ALWAYS clamps across 0..1 so vehicles never fall off.
+      // - Inner wall clamps ONLY along the solid concrete divider span (innerStartFrac..innerEndFrac).
+      const maxScLat = sc.halfWidth - 1.05;
+      const outerSide = sc.side;
+      const inClosedMid = scHit.frac >= sc.innerStartFrac && scHit.frac <= sc.innerEndFrac;
       const hitOuterWall = scHit.lateral * outerSide > maxScLat;
       const hitInnerWall = inClosedMid && scHit.lateral * outerSide < -maxScLat;
 
       if (hitOuterWall || hitInnerWall) {
         const sSign = hitOuterWall ? outerSide : -outerSide;
-        const sEx = Math.min(Math.abs(scHit.lateral) - maxScLat + 0.06, 1.35);
+        const rawPen = (hitOuterWall ? scHit.lateral * outerSide : -scHit.lateral * outerSide) - maxScLat;
+        const sEx = Math.min(Math.max(0, rawPen), 3.6);
         const scRightX = -scHit.tangent.z;
         const scRightZ = scHit.tangent.x;
         r.pos.x -= scRightX * sSign * sEx;
         r.pos.z -= scRightZ * sSign * sEx;
-        const scHead = Math.atan2(-scHit.tangent.x, -scHit.tangent.z);
-        let hDiff = scHead - r.heading;
-        while (hDiff > Math.PI) hDiff -= Math.PI * 2;
-        while (hDiff < -Math.PI) hDiff += Math.PI * 2;
-        const pointingIntoScWall = Math.sin(hDiff) * sSign > 0;
-        if (pointingIntoScWall) {
-          r.heading += hDiff * Math.min(1, dt * 10);
-          r.forwardSpeed *= 0.992;
-          if (isPlayer && Math.abs(r.forwardSpeed) > 20 && Math.abs(Math.sin(hDiff)) > 0.16) {
-            soundEngine.triggerImpact(0.32);
+
+        // Smooth wall-sliding physics: cancel outward normal velocity instead of yanking steering on rails
+        const fwdX = -Math.sin(r.heading);
+        const fwdZ = -Math.cos(r.heading);
+        const rgtX = Math.cos(r.heading);
+        const rgtZ = -Math.sin(r.heading);
+        const vx = fwdX * r.forwardSpeed + rgtX * r.lateralSpeed;
+        const vz = fwdZ * r.forwardSpeed + rgtZ * r.lateralSpeed;
+        const wallNx = scRightX * sSign;
+        const wallNz = scRightZ * sSign;
+        const vn = vx * wallNx + vz * wallNz;
+
+        if (vn > 0) {
+          const nvx = vx - wallNx * vn;
+          const nvz = vz - wallNz * vn;
+          const impactSeverity = Math.min(1, vn / Math.max(12, Math.hypot(vx, vz)));
+          const wallScrub = impactSeverity > 0.36 ? 0.78 : impactSeverity > 0.16 ? 0.91 : 0.992;
+          r.forwardSpeed = (nvx * fwdX + nvz * fwdZ) * wallScrub;
+          r.lateralSpeed = (nvx * rgtX + nvz * rgtZ) * 0.45;
+
+          const scHead = Math.atan2(-scHit.tangent.x, -scHit.tangent.z);
+          let hDiff = scHead - r.heading;
+          while (hDiff > Math.PI) hDiff -= Math.PI * 2;
+          while (hDiff < -Math.PI) hDiff += Math.PI * 2;
+          if (Math.sin(hDiff) * sSign > 0) {
+            r.heading += hDiff * Math.min(0.4, (0.3 + impactSeverity * 0.65) * dt * 7.0);
+          }
+
+          if (isPlayer && Math.abs(r.forwardSpeed) > 16) {
+            this.currentWallScrape = Math.max(
+              this.currentWallScrape,
+              THREE.MathUtils.clamp((Math.abs(r.forwardSpeed) - 14) / 45, 0.25, 1.0),
+            );
+            if (Math.random() < 0.65) {
+              _v1.set(r.pos.x + wallNx * 0.95, r.pos.y + 0.45, r.pos.z + wallNz * 0.95);
+              _v2.set((Math.random() - 0.5) * 6, 2.5 + Math.random() * 3.5, (Math.random() - 0.5) * 6);
+              this.spawnParticle(_v1, _v2, '#FBBF24', 0.36, 0.24);
+            }
+            if (Math.abs(r.forwardSpeed) > 20 && impactSeverity > 0.20) {
+              soundEngine.triggerImpact(Math.min(0.65, 0.24 + impactSeverity * 0.55));
+            }
           }
         }
       }
@@ -2871,8 +2978,8 @@ export class RacingEngine {
       r.pos.y = Math.max(groundHeight, r.pos.y);
 
       // Keep trackIdx & progress continuously synchronized along bypassed main-track span
-      const scStartIdx = scHit.shortcut.startIdx;
-      const scEndIdx = scHit.shortcut.endIdx;
+      const scStartIdx = sc.startIdx;
+      const scEndIdx = sc.endIdx;
       const spanIdx = scEndIdx >= scStartIdx ? scEndIdx - scStartIdx : scEndIdx + nSamples - scStartIdx;
       r.trackIdx = (scStartIdx + Math.round(spanIdx * scHit.frac)) % nSamples;
       const startProg = this.track.samples[scStartIdx]?.progress ?? prevProgress;
@@ -2881,33 +2988,34 @@ export class RacingEngine {
       r.progress = (startProg + spanProg * scHit.frac) % 1;
       r.totalProgress = r.lap - 1 + r.progress;
 
-      // Seamless shoulder exit back onto main track ONLY when already inside main road barriers
-      const insideMainBarriers = Math.abs(info.lateralOffset) <= this.track.barrierHalfWidth - 1.35;
+      // Seamless merge back onto main track with ZERO position snap
+      const insideMainBarriers = Math.abs(info.lateralOffset) <= this.track.barrierHalfWidth - 1.15;
       const mergedAtExit =
         insideMainBarriers &&
-        (scHit.frac >= 0.975 || (scHit.frac >= 0.91 && Math.abs(info.lateralOffset) < this.track.roadHalfWidth - 0.15));
+        scHit.frac > sc.innerEndFrac &&
+        (scHit.frac >= 0.985 || info.lateralOffset * sc.side < this.track.roadHalfWidth - 0.7);
       const abortedAtEntry =
-        scHit.frac <= 0.04 && Math.abs(info.lateralOffset) < this.track.roadHalfWidth - 1.9;
+        scHit.frac < sc.innerStartFrac && info.lateralOffset * sc.side < this.track.roadHalfWidth - 1.35;
 
       if (mergedAtExit) {
-        if (isPlayer && r.shortcutPassCooldown <= 0) {
+        if (isPlayer && r.reachedShortcutCore && r.shortcutPassCooldown <= 0) {
           r.shortcutPassCooldown = 8.0;
           this.shortcutsTaken++;
-          this.nitrous = Math.min(100, this.nitrous + 18);
-          this.sessionBounty += 1000;
-          this.pushCallout(`SHORTCUT: ${scHit.shortcut.label.toUpperCase()}! +$1,000 · NOS +18%`, 'emerald');
+          this.nitrous = Math.min(100, this.nitrous + 25);
+          this.sessionBounty += 1500;
+          this.pushCallout(`SHORTCUT: ${sc.label.toUpperCase()}! +$1,500 · NOS +25%`, 'emerald');
           soundEngine.triggerBeep(true);
         }
         r.activeShortcutId = null;
-        r.trackIdx = scHit.shortcut.endIdx;
-        const exitInfo = this.track.getClosestTrackInfo(r.pos.x, r.pos.z, r.trackIdx);
+        r.reachedShortcutCore = false;
+        const exitInfo = this.track.getClosestTrackInfo(r.pos.x, r.pos.z, sc.endIdx);
         r.trackIdx = exitInfo.sample.index;
         r.progress = exitInfo.sample.progress;
         r.totalProgress = r.lap - 1 + r.progress;
       } else if (abortedAtEntry) {
         r.activeShortcutId = null;
-        r.trackIdx = scHit.shortcut.startIdx;
-        const entryInfo = this.track.getClosestTrackInfo(r.pos.x, r.pos.z, r.trackIdx);
+        r.reachedShortcutCore = false;
+        const entryInfo = this.track.getClosestTrackInfo(r.pos.x, r.pos.z, sc.startIdx);
         r.trackIdx = entryInfo.sample.index;
         r.progress = entryInfo.sample.progress;
         r.totalProgress = r.lap - 1 + r.progress;
@@ -2917,6 +3025,7 @@ export class RacingEngine {
 
     if (r.activeShortcutId !== null) {
       r.activeShortcutId = null;
+      r.reachedShortcutCore = false;
       const reSync = this.track.getClosestTrackInfo(r.pos.x, r.pos.z, r.trackIdx);
       r.trackIdx = reSync.sample.index;
       r.progress = reSync.sample.progress;
@@ -2982,44 +3091,64 @@ export class RacingEngine {
 
     r.totalProgress = r.lap - 1 + r.progress;
 
-    // ONLY open the main-track barrier where the car is physically aimed inside the shortcut entry funnel mouth!
-    // Never leave an 80-meter wide hole where cars can fall off elevated bridges or roads.
+    // ONLY open the main-track barrier where a cutout exists (entry throat or exit merge funnel).
+    // Everywhere else on the highway, continuous reinforced barriers keep vehicles solidly contained.
     const latSign = info.lateralOffset >= 0 ? 1 : -1;
     const insideShortcutMouth = Boolean(
       scHit &&
         scHit.shortcut.side === latSign &&
-        scHit.frac <= 0.24 &&
-        Math.abs(scHit.lateral) <= scHit.shortcut.halfWidth + 2.4,
+        Math.abs(scHit.lateral) <= scHit.shortcut.halfWidth - 0.35 &&
+        (scHit.frac <= scHit.shortcut.innerStartFrac || scHit.frac >= scHit.shortcut.innerEndFrac),
     );
 
     const maxLat = this.track.barrierHalfWidth - 1.15;
     if (!insideShortcutMouth && Math.abs(info.lateralOffset) > maxLat) {
       const sign = Math.sign(info.lateralOffset);
-      const excess = Math.min(Math.abs(info.lateralOffset) - maxLat + 0.06, 1.8);
+      const excess = Math.min(Math.max(0, Math.abs(info.lateralOffset) - maxLat), 4.5);
       r.pos.x -= info.sample.right.x * sign * excess;
       r.pos.z -= info.sample.right.z * sign * excess;
 
-      const tangentHeading = Math.atan2(-info.sample.tangent.x, -info.sample.tangent.z);
-      let hDiff = tangentHeading - r.heading;
-      while (hDiff > Math.PI) hDiff -= Math.PI * 2;
-      while (hDiff < -Math.PI) hDiff += Math.PI * 2;
+      // Cancel outward velocity component along barrier normal so vehicle slides smoothly without bouncing/teleporting
+      const fwdX = -Math.sin(r.heading);
+      const fwdZ = -Math.cos(r.heading);
+      const rgtX = Math.cos(r.heading);
+      const rgtZ = -Math.sin(r.heading);
+      const vx = fwdX * r.forwardSpeed + rgtX * r.lateralSpeed;
+      const vz = fwdZ * r.forwardSpeed + rgtZ * r.lateralSpeed;
+      const wallNx = info.sample.right.x * sign;
+      const wallNz = info.sample.right.z * sign;
+      const vn = vx * wallNx + vz * wallNz;
 
-      // Only deflect heading & scrub speed when angled INTO the barrier (never snag when steering away)
-      const pointingIntoWall = Math.sin(hDiff) * sign > 0;
-      if (pointingIntoWall) {
-        r.heading += hDiff * Math.min(1, dt * 8.5);
-        const impactSeverity = Math.abs(Math.sin(hDiff));
-        const wallScrub = impactSeverity > 0.30 ? 0.64 : impactSeverity > 0.14 ? 0.84 : 0.985;
-        r.forwardSpeed *= wallScrub;
-        if (r.lateralSpeed * sign > 0) {
-          r.lateralSpeed *= 0.20;
+      if (vn > 0) {
+        const nvx = vx - wallNx * vn;
+        const nvz = vz - wallNz * vn;
+        const impactSeverity = Math.min(1, vn / Math.max(12, Math.hypot(vx, vz)));
+        const wallScrub = impactSeverity > 0.34 ? 0.68 : impactSeverity > 0.16 ? 0.86 : 0.988;
+        r.forwardSpeed = (nvx * fwdX + nvz * fwdZ) * wallScrub;
+        r.lateralSpeed = (nvx * rgtX + nvz * rgtZ) * 0.35;
+
+        const tangentHeading = Math.atan2(-info.sample.tangent.x, -info.sample.tangent.z);
+        let hDiff = tangentHeading - r.heading;
+        while (hDiff > Math.PI) hDiff -= Math.PI * 2;
+        while (hDiff < -Math.PI) hDiff += Math.PI * 2;
+        if (Math.sin(hDiff) * sign > 0) {
+          r.heading += hDiff * Math.min(0.45, (0.3 + impactSeverity * 0.7) * dt * 6.5);
         }
-        if (isPlayer && Math.abs(r.forwardSpeed) > 18 && impactSeverity > 0.14) {
-          this.camShake = Math.max(this.camShake, Math.min(0.32, impactSeverity * 0.5));
-          soundEngine.triggerImpact(Math.min(0.75, 0.28 + impactSeverity * 0.68));
-          _v1.set(r.pos.x, r.pos.y + 0.5, r.pos.z);
-          _v2.set((Math.random() - 0.5) * 6, 3 + Math.random() * 3, (Math.random() - 0.5) * 6);
-          this.spawnParticle(_v1, _v2, '#F59E0B', 0.45, 0.3);
+
+        if (isPlayer && Math.abs(r.forwardSpeed) > 16) {
+          this.currentWallScrape = Math.max(
+            this.currentWallScrape,
+            THREE.MathUtils.clamp((Math.abs(r.forwardSpeed) - 14) / 45, 0.25, 1.0),
+          );
+          if (Math.random() < 0.68) {
+            _v1.set(r.pos.x + wallNx * 0.9, r.pos.y + 0.45, r.pos.z + wallNz * 0.9);
+            _v2.set((Math.random() - 0.5) * 6, 2.5 + Math.random() * 3.5, (Math.random() - 0.5) * 6);
+            this.spawnParticle(_v1, _v2, '#FBBF24', 0.38, 0.26);
+          }
+          if (Math.abs(r.forwardSpeed) > 18 && impactSeverity > 0.16) {
+            this.camShake = Math.max(this.camShake, Math.min(0.32, impactSeverity * 0.5));
+            soundEngine.triggerImpact(Math.min(0.75, 0.28 + impactSeverity * 0.68));
+          }
         }
       }
     }
@@ -3031,17 +3160,17 @@ export class RacingEngine {
       const r = this.racers[i];
       if (r.knockedOut) continue;
       if (r.activeShortcutId !== null) {
-        const scHit = this.track.queryShortcut(r.pos.x, r.pos.z);
+        const scHit = this.track.queryShortcut(r.pos.x, r.pos.z, r.activeShortcutId);
         if (scHit && scHit.shortcut.id === r.activeShortcutId) {
           const maxScLat = scHit.shortcut.halfWidth - 1.05;
           const outerSide = scHit.shortcut.side;
-          const inClosedMid = scHit.frac > 0.045 && scHit.frac < 0.955;
+          const inClosedMid = scHit.frac >= scHit.shortcut.innerStartFrac && scHit.frac <= scHit.shortcut.innerEndFrac;
           if (scHit.lateral * outerSide > maxScLat) {
-            const sEx = Math.min(scHit.lateral * outerSide - maxScLat + 0.04, 2.2);
+            const sEx = Math.min(scHit.lateral * outerSide - maxScLat, 3.6);
             r.pos.x -= -scHit.tangent.z * outerSide * sEx;
             r.pos.z -= scHit.tangent.x * outerSide * sEx;
           } else if (inClosedMid && scHit.lateral * outerSide < -maxScLat) {
-            const sEx = Math.min(-scHit.lateral * outerSide - maxScLat + 0.04, 2.2);
+            const sEx = Math.min(-scHit.lateral * outerSide - maxScLat, 3.6);
             r.pos.x -= -scHit.tangent.z * -outerSide * sEx;
             r.pos.z -= scHit.tangent.x * -outerSide * sEx;
           }
@@ -3057,13 +3186,13 @@ export class RacingEngine {
       const insideMouth = Boolean(
         scHit &&
           scHit.shortcut.side === latSign &&
-          scHit.frac <= 0.16 &&
-          Math.abs(scHit.lateral) <= scHit.shortcut.halfWidth - 0.35,
+          Math.abs(scHit.lateral) <= scHit.shortcut.halfWidth - 0.35 &&
+          (scHit.frac <= scHit.shortcut.innerStartFrac || scHit.frac >= scHit.shortcut.innerEndFrac),
       );
       const maxLat = this.track.barrierHalfWidth - 1.15;
       if (!insideMouth && Math.abs(info.lateralOffset) > maxLat) {
         const sign = Math.sign(info.lateralOffset);
-        const excess = Math.min(Math.abs(info.lateralOffset) - maxLat + 0.04, 2.2);
+        const excess = Math.min(Math.abs(info.lateralOffset) - maxLat, 4.5);
         r.pos.x -= info.sample.right.x * sign * excess;
         r.pos.z -= info.sample.right.z * sign * excess;
       }
@@ -3269,6 +3398,7 @@ export class RacingEngine {
 
           if (r.isPlayer) {
             trapMat.emissiveIntensity = 9.0;
+            this.speedTrapFlashTimer = 0.28;
             if (rounded > this.speedTrapBestKmh) this.speedTrapBestKmh = rounded;
             const bonus = rounded >= trap.targetKmh ? 1500 : 500;
             this.sessionBounty += bonus;
@@ -3387,6 +3517,13 @@ export class RacingEngine {
         cop.pos.z += -Math.cos(cop.heading) * cop.speed * dt;
         const cInfo = this.track.getClosestTrackInfo(cop.pos.x, cop.pos.z, cop.trackIdx);
         cop.trackIdx = cInfo.sample.index;
+        const maxPatrolLat = this.track.barrierHalfWidth - 1.2;
+        if (Math.abs(cInfo.lateralOffset) > maxPatrolLat) {
+          const sign = Math.sign(cInfo.lateralOffset);
+          const ex = Math.abs(cInfo.lateralOffset) - maxPatrolLat;
+          cop.pos.x -= cInfo.sample.right.x * sign * ex;
+          cop.pos.z -= cInfo.sample.right.z * sign * ex;
+        }
         cop.pos.y = cInfo.elevationY + ROAD_SURFACE_OFFSET;
         cop.visual.root.position.copy(cop.pos);
         cop.visual.root.rotation.set(cInfo.slopePitch, cop.heading, -cInfo.bankAngle, 'YXZ');
@@ -3680,15 +3817,43 @@ export class RacingEngine {
         cop.pos.z += -Math.cos(cop.heading) * cop.speed * dt;
 
         const cInfo = this.track.getClosestTrackInfo(cop.pos.x, cop.pos.z, cop.trackIdx);
-        cop.pos.y = cInfo.elevationY + ROAD_SURFACE_OFFSET;
-        const maxLat = this.track.barrierHalfWidth - 1.2;
-        if (Math.abs(cInfo.lateralOffset) > maxLat) {
-          const sign = Math.sign(cInfo.lateralOffset);
-          const ex = Math.min(Math.abs(cInfo.lateralOffset) - maxLat, 2.5);
-          cop.pos.x -= cInfo.sample.right.x * sign * ex;
-          cop.pos.z -= cInfo.sample.right.z * sign * ex;
+        const copScHit =
+          target.activeShortcutId !== null
+            ? this.track.queryShortcut(cop.pos.x, cop.pos.z, target.activeShortcutId)
+            : this.track.queryShortcut(cop.pos.x, cop.pos.z);
+        const copInShortcut = Boolean(
+          copScHit &&
+            Math.abs(copScHit.lateral) <= copScHit.shortcut.halfWidth - 0.3 &&
+            (target.activeShortcutId === copScHit.shortcut.id ||
+              (copScHit.frac >= copScHit.shortcut.innerStartFrac && copScHit.frac <= copScHit.shortcut.innerEndFrac)),
+        );
+        if (copInShortcut && copScHit) {
+          const maxCopScLat = copScHit.shortcut.halfWidth - 1.15;
+          const scOuter = copScHit.shortcut.side;
+          const inScMid =
+            copScHit.frac >= copScHit.shortcut.innerStartFrac && copScHit.frac <= copScHit.shortcut.innerEndFrac;
+          if (copScHit.lateral * scOuter > maxCopScLat) {
+            const ex = Math.min(copScHit.lateral * scOuter - maxCopScLat, 3.5);
+            cop.pos.x -= -copScHit.tangent.z * scOuter * ex;
+            cop.pos.z -= copScHit.tangent.x * scOuter * ex;
+          } else if (inScMid && copScHit.lateral * scOuter < -maxCopScLat) {
+            const ex = Math.min(-copScHit.lateral * scOuter - maxCopScLat, 3.5);
+            cop.pos.x -= -copScHit.tangent.z * -scOuter * ex;
+            cop.pos.z -= copScHit.tangent.x * -scOuter * ex;
+          }
+          cop.pos.y = copScHit.elevationY + ROAD_SURFACE_OFFSET;
+          cop.visual.root.rotation.set(copScHit.slopePitch, cop.heading, 0, 'YXZ');
+        } else {
+          cop.pos.y = cInfo.elevationY + ROAD_SURFACE_OFFSET;
+          const maxLat = this.track.barrierHalfWidth - 1.2;
+          if (Math.abs(cInfo.lateralOffset) > maxLat) {
+            const sign = Math.sign(cInfo.lateralOffset);
+            const ex = Math.min(Math.abs(cInfo.lateralOffset) - maxLat, 3.5);
+            cop.pos.x -= cInfo.sample.right.x * sign * ex;
+            cop.pos.z -= cInfo.sample.right.z * sign * ex;
+          }
+          cop.visual.root.rotation.set(cInfo.slopePitch, cop.heading, -cInfo.bankAngle, 'YXZ');
         }
-        cop.visual.root.rotation.set(cInfo.slopePitch, cop.heading, -cInfo.bankAngle, 'YXZ');
       } else {
         const rbInfo = this.track.getClosestTrackInfo(cop.pos.x, cop.pos.z, cop.trackIdx);
         cop.pos.y = rbInfo.elevationY + ROAD_SURFACE_OFFSET;
@@ -3790,14 +3955,32 @@ export class RacingEngine {
       }
 
       if (!cop.isRoadblock && !cop.wrecked) {
-        const postCopInfo = this.track.getClosestTrackInfo(cop.pos.x, cop.pos.z, cop.trackIdx);
-        cop.pos.y = postCopInfo.elevationY + ROAD_SURFACE_OFFSET;
-        const maxCopLat = this.track.barrierHalfWidth - 1.2;
-        if (Math.abs(postCopInfo.lateralOffset) > maxCopLat) {
-          const sign = Math.sign(postCopInfo.lateralOffset);
-          const ex = Math.min(Math.abs(postCopInfo.lateralOffset) - maxCopLat, 2.5);
-          cop.pos.x -= postCopInfo.sample.right.x * sign * ex;
-          cop.pos.z -= postCopInfo.sample.right.z * sign * ex;
+        const postScHit = this.track.queryShortcut(cop.pos.x, cop.pos.z);
+        const postInSc = Boolean(
+          postScHit &&
+            Math.abs(postScHit.lateral) <= postScHit.shortcut.halfWidth - 0.3 &&
+            postScHit.frac >= postScHit.shortcut.innerStartFrac &&
+            postScHit.frac <= postScHit.shortcut.innerEndFrac,
+        );
+        if (postInSc && postScHit) {
+          const maxCopScLat = postScHit.shortcut.halfWidth - 1.15;
+          if (Math.abs(postScHit.lateral) > maxCopScLat) {
+            const sign = Math.sign(postScHit.lateral);
+            const ex = Math.min(Math.abs(postScHit.lateral) - maxCopScLat, 3.5);
+            cop.pos.x -= -postScHit.tangent.z * sign * ex;
+            cop.pos.z -= postScHit.tangent.x * sign * ex;
+          }
+          cop.pos.y = postScHit.elevationY + ROAD_SURFACE_OFFSET;
+        } else {
+          const postCopInfo = this.track.getClosestTrackInfo(cop.pos.x, cop.pos.z, cop.trackIdx);
+          cop.pos.y = postCopInfo.elevationY + ROAD_SURFACE_OFFSET;
+          const maxCopLat = this.track.barrierHalfWidth - 1.2;
+          if (Math.abs(postCopInfo.lateralOffset) > maxCopLat) {
+            const sign = Math.sign(postCopInfo.lateralOffset);
+            const ex = Math.min(Math.abs(postCopInfo.lateralOffset) - maxCopLat, 3.5);
+            cop.pos.x -= postCopInfo.sample.right.x * sign * ex;
+            cop.pos.z -= postCopInfo.sample.right.z * sign * ex;
+          }
         }
       }
 
@@ -4425,6 +4608,33 @@ export class RacingEngine {
     if (this.callout && now > this.callout.expiresAt) this.callout = null;
     if (this.radioDispatch && now > this.radioExpiresAt) this.radioDispatch = null;
 
+    let upcomingShortcut: { label: string; side: 'left' | 'right'; distanceM: number } | null = null;
+    if (p.activeShortcutId === null && this.track.shortcuts.length > 0 && cinematicPhase === 'racing') {
+      const nSamples = this.track.samples.length;
+      let bestDelta = 26;
+      for (let i = 0; i < this.track.shortcuts.length; i++) {
+        const sc = this.track.shortcuts[i];
+        const pastOpen = (p.trackIdx - sc.entryCutStartIdx + nSamples) % nSamples;
+        if (pastOpen <= 4) {
+          upcomingShortcut = {
+            label: sc.label,
+            side: sc.side < 0 ? 'left' : 'right',
+            distanceM: 0,
+          };
+          break;
+        }
+        const deltaToOpen = (sc.entryCutStartIdx - p.trackIdx + nSamples) % nSamples;
+        if (deltaToOpen >= 1 && deltaToOpen < bestDelta) {
+          bestDelta = deltaToOpen;
+          upcomingShortcut = {
+            label: sc.label,
+            side: sc.side < 0 ? 'left' : 'right',
+            distanceM: Math.max(5, Math.round(((deltaToOpen / nSamples) * this.track.totalLength) / 5) * 5),
+          };
+        }
+      }
+    }
+
     this.callbacks.onTelemetry({
       speedKmh,
       rpm,
@@ -4478,6 +4688,10 @@ export class RacingEngine {
       nearMissCombo: this.nearMissCombo,
       speedTrapBestKmh: this.speedTrapBestKmh,
       shortcutsTaken: this.shortcutsTaken,
+      upcomingShortcut,
+      driftHoldSec: this.isDrifting ? Number(this.driftHoldSec.toFixed(1)) : 0,
+      driftComboScore: this.isDrifting ? Math.round(this.driftHoldSec * 280) : 0,
+      speedTrapFlash: this.speedTrapFlashTimer > 0,
       environment: this.activeEnvironment,
       patrolsEnabled: this.patrolsEnabled,
       radioDispatch: this.radioDispatch,

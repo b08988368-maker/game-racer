@@ -856,36 +856,46 @@ export function createShortcutSurfaceTexture(maxAnisotropy: number): THREE.Canva
   canvas.height = 512;
   const ctx = canvas.getContext('2d')!;
 
-  // Distinct concrete-service-alley pavement with subtle emerald edge guides
-  ctx.fillStyle = '#181E24';
+  // Distinct high-contrast concrete bypass deck so shortcuts pop unmistakably vs dark main highway
+  ctx.fillStyle = '#202B33';
   ctx.fillRect(0, 0, 256, 512);
 
-  // Paving stone texture blocks
+  // Brushed concrete service block texture
   for (let y = 0; y < 512; y += 32) {
-    ctx.fillStyle = y % 64 === 0 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.08)';
-    ctx.fillRect(16, y + 2, 224, 28);
+    ctx.fillStyle = y % 64 === 0 ? 'rgba(255,255,255,0.055)' : 'rgba(6,12,18,0.14)';
+    ctx.fillRect(20, y + 2, 216, 28);
   }
 
-  // Bright emerald + amber safety edges
-  ctx.fillStyle = '#10B981';
-  ctx.fillRect(6, 0, 8, 512);
-  ctx.fillRect(242, 0, 8, 512);
+  // Twin bright emerald + hazard amber curb guide bands
+  ctx.fillStyle = '#34D399';
+  ctx.fillRect(4, 0, 12, 512);
+  ctx.fillRect(240, 0, 12, 512);
   ctx.fillStyle = '#F59E0B';
   for (let y = 0; y < 512; y += 48) {
-    ctx.fillRect(16, y, 5, 24);
-    ctx.fillRect(235, y, 5, 24);
+    ctx.fillRect(18, y, 6, 26);
+    ctx.fillRect(232, y, 6, 26);
   }
 
   // Bold repeating illuminated forward chevrons down center of shortcut lane
-  ctx.strokeStyle = 'rgba(16, 185, 129, 0.78)';
-  ctx.lineWidth = 14;
+  ctx.strokeStyle = '#34D399';
+  ctx.lineWidth = 18;
   ctx.lineCap = 'square';
-  for (let y = 44; y < 512; y += 128) {
+  for (let y = 36; y < 512; y += 128) {
     ctx.beginPath();
-    ctx.moveTo(76, y + 48);
+    ctx.moveTo(64, y + 54);
     ctx.lineTo(128, y);
-    ctx.lineTo(180, y + 48);
+    ctx.lineTo(192, y + 54);
     ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(253, 224, 71, 0.72)';
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.moveTo(86, y + 76);
+    ctx.lineTo(128, y + 42);
+    ctx.lineTo(170, y + 76);
+    ctx.stroke();
+    ctx.strokeStyle = '#34D399';
+    ctx.lineWidth = 18;
   }
 
   const tex = new THREE.CanvasTexture(canvas);
@@ -896,37 +906,179 @@ export function createShortcutSurfaceTexture(maxAnisotropy: number): THREE.Canva
   return tex;
 }
 
+export function createRoadShortcutArrowTexture(
+  maxAnisotropy: number,
+  side: -1 | 1,
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.clearRect(0, 0, 256, 256);
+
+  // Subtle dark backing halo for crisp asphalt contrast
+  ctx.fillStyle = 'rgba(4, 24, 18, 0.52)';
+  ctx.beginPath();
+  ctx.roundRect(24, 18, 208, 220, 24);
+  ctx.fill();
+
+  ctx.strokeStyle = '#34D399';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(30, 24, 196, 208);
+
+  // Drawn bold diagonal turn-off arrow pointing toward shortcut side
+  const dir = side < 0 ? -1 : 1;
+  ctx.save();
+  ctx.translate(128, 128);
+  ctx.rotate(dir * 0.42);
+
+  // Double chevron shaft
+  ctx.fillStyle = '#34D399';
+  ctx.beginPath();
+  ctx.moveTo(0, -86);
+  ctx.lineTo(54, -22);
+  ctx.lineTo(22, -22);
+  ctx.lineTo(22, 68);
+  ctx.lineTo(-22, 68);
+  ctx.lineTo(-22, -22);
+  ctx.lineTo(-54, -22);
+  ctx.closePath();
+  ctx.fill();
+
+  // Inner bright highlight core
+  ctx.fillStyle = '#FEF08A';
+  ctx.beginPath();
+  ctx.moveTo(0, -68);
+  ctx.lineTo(28, -32);
+  ctx.lineTo(10, -32);
+  ctx.lineTo(10, 50);
+  ctx.lineTo(-10, 50);
+  ctx.lineTo(-10, -32);
+  ctx.lineTo(-28, -32);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
+  return tex;
+}
+
+function drawBlockArrow(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  dir: -1 | 1,
+  size: number,
+  fill: string,
+) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  if (dir < 0) ctx.scale(-1, 1);
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.moveTo(-size * 0.55, -size * 0.24);
+  ctx.lineTo(size * 0.05, -size * 0.24);
+  ctx.lineTo(size * 0.05, -size * 0.54);
+  ctx.lineTo(size * 0.58, 0);
+  ctx.lineTo(size * 0.05, size * 0.54);
+  ctx.lineTo(size * 0.05, size * 0.24);
+  ctx.lineTo(-size * 0.55, size * 0.24);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
 export function createShortcutSignTexture(
   maxAnisotropy: number,
   label: string,
+  side: -1 | 1 = 1,
 ): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 192;
   const ctx = canvas.getContext('2d')!;
 
-  ctx.fillStyle = '#071310';
+  ctx.fillStyle = '#041C15';
   ctx.fillRect(0, 0, 512, 192);
 
-  // Hazard stripe header
+  // High-contrast emerald & amber framing bars
   ctx.fillStyle = '#10B981';
-  ctx.fillRect(0, 0, 512, 18);
+  ctx.fillRect(0, 0, 512, 16);
   ctx.fillStyle = '#F59E0B';
-  ctx.fillRect(0, 174, 512, 18);
+  ctx.fillRect(0, 176, 512, 16);
 
-  ctx.strokeStyle = '#34D399';
+  ctx.strokeStyle = '#6EE7B7';
   ctx.lineWidth = 6;
-  ctx.strokeRect(8, 22, 496, 148);
+  ctx.strokeRect(8, 20, 496, 152);
 
-  ctx.fillStyle = '#34D399';
-  ctx.font = 'bold 46px sans-serif';
+  const arrowLeft = side < 0;
+  ctx.fillStyle = '#10B981';
+  ctx.fillRect(arrowLeft ? 20 : 388, 28, 104, 136);
+  drawBlockArrow(ctx, arrowLeft ? 72 : 440, 96, side, 72, '#041C15');
+
+  const textCenter = arrowLeft ? 314 : 198;
+  ctx.fillStyle = '#6EE7B7';
+  ctx.font = 'bold 44px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('>> SHORTCUT BYPASS <<', 256, 76);
+  ctx.fillText('SHORTCUT IN', textCenter, 72);
 
   ctx.fillStyle = '#F8FAFC';
-  ctx.font = 'bold 28px sans-serif';
-  ctx.fillText(label.toUpperCase(), 256, 134);
+  ctx.font = 'bold 25px sans-serif';
+  ctx.fillText(label.toUpperCase(), textCenter, 130);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = maxAnisotropy;
+  return tex;
+}
+
+export function createShortcutAdvanceSignTexture(
+  maxAnisotropy: number,
+  label: string,
+  side: -1 | 1,
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 192;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.fillStyle = '#051E17';
+  ctx.fillRect(0, 0, 512, 192);
+
+  // Crisp emerald & amber border bars
+  ctx.fillStyle = '#10B981';
+  ctx.fillRect(0, 0, 512, 14);
+  ctx.fillStyle = '#F59E0B';
+  ctx.fillRect(0, 178, 512, 14);
+
+  ctx.strokeStyle = '#6EE7B7';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(10, 18, 492, 156);
+
+  // Huge drawn vector arrow badge on the turn-off side
+  const arrowLeft = side < 0;
+  ctx.fillStyle = '#F59E0B';
+  ctx.fillRect(arrowLeft ? 20 : 376, 26, 116, 140);
+  drawBlockArrow(ctx, arrowLeft ? 78 : 434, 96, side, 78, '#051E17');
+
+  const textCenter = arrowLeft ? 312 : 198;
+  ctx.fillStyle = '#34D399';
+  ctx.font = 'bold 44px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('SHORTCUT 100M', textCenter, 66);
+
+  ctx.fillStyle = '#F8FAFC';
+  ctx.font = 'bold 26px sans-serif';
+  ctx.fillText(arrowLeft ? 'KEEP LEFT // TURN IN' : 'KEEP RIGHT // TURN IN', textCenter, 114);
+
+  ctx.fillStyle = '#FDE68A';
+  ctx.font = 'bold 20px sans-serif';
+  ctx.fillText(label.toUpperCase(), textCenter, 148);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;

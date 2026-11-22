@@ -246,6 +246,10 @@ export interface RaceTelemetry {
   nearMissCombo: number;
   speedTrapBestKmh: number;
   shortcutsTaken: number;
+  upcomingShortcut?: { label: string; side: 'left' | 'right'; distanceM: number } | null;
+  driftHoldSec?: number;
+  driftComboScore?: number;
+  speedTrapFlash?: boolean;
   environment: Exclude<EnvironmentId, 'auto'>;
   patrolsEnabled: boolean;
   radioDispatch: string | null;

@@ -40,7 +40,14 @@ export const RaceHUD: React.FC<Props> = ({
 }) => {
   const minimapData = useMemo(() => {
     const pts = telemetry.minimapPath;
-    if (!pts.length) return { pathD: '', shortcutDs: [] as string[], toMap: (_x: number, _z: number) => ({ x: 64, y: 64 }) };
+    if (!pts.length) {
+      return {
+        pathD: '',
+        shortcutDs: [] as string[],
+        shortcutEntries: [] as { x: number; y: number }[],
+        toMap: (_x: number, _z: number) => ({ x: 64, y: 64 }),
+      };
+    }
 
     let minX = Infinity;
     let maxX = -Infinity;
@@ -72,7 +79,8 @@ export const RaceHUD: React.FC<Props> = ({
         })
         .join(' ') + ' Z';
 
-    const shortcutDs = (telemetry.minimapShortcuts ?? []).map((scPts) =>
+    const rawScs = telemetry.minimapShortcuts ?? [];
+    const shortcutDs = rawScs.map((scPts) =>
       scPts
         .map((p, idx) => {
           const m = toMap(p.x, p.z);
@@ -80,8 +88,11 @@ export const RaceHUD: React.FC<Props> = ({
         })
         .join(' '),
     );
+    const shortcutEntries = rawScs
+      .filter((scPts) => scPts.length > 0)
+      .map((scPts) => toMap(scPts[0].x, scPts[0].z));
 
-    return { pathD: d, shortcutDs, toMap };
+    return { pathD: d, shortcutDs, shortcutEntries, toMap };
   }, [telemetry.minimapPath, telemetry.minimapShortcuts]);
 
   const rpmAngle = -215 + telemetry.rpm * 250;
@@ -126,6 +137,18 @@ export const RaceHUD: React.FC<Props> = ({
           style={{
             background:
               'radial-gradient(circle at 85% 15%, rgba(239, 68, 68, 0.16) 0%, transparent 42%), radial-gradient(circle at 15% 15%, rgba(59, 130, 246, 0.16) 0%, transparent 42%)',
+          }}
+        />
+      )}
+
+      {/* Speed-Trap Radar Strobe Flash */}
+      {telemetry.speedTrapFlash && (
+        <div
+          className="fixed inset-0 pointer-events-none"
+          style={{
+            background:
+              'radial-gradient(circle at center, rgba(224, 242, 254, 0.18) 20%, rgba(56, 189, 248, 0.34) 100%)',
+            boxShadow: 'inset 0 0 70px rgba(255, 255, 255, 0.45)',
           }}
         />
       )}
@@ -216,10 +239,19 @@ export const RaceHUD: React.FC<Props> = ({
                     key={`sc-${idx}`}
                     d={sd}
                     fill="none"
-                    stroke="#10B981"
-                    strokeWidth="2.8"
+                    stroke="#34D399"
+                    strokeWidth="3.0"
                     strokeDasharray="3 2"
                     strokeLinecap="round"
+                  />
+                ))}
+                {minimapData.shortcutEntries.map((pt, idx) => (
+                  <polygon
+                    key={`sce-${idx}`}
+                    points={`${pt.x},${pt.y - 4.2} ${pt.x + 4.2},${pt.y} ${pt.x},${pt.y + 4.2} ${pt.x - 4.2},${pt.y}`}
+                    fill="#34D399"
+                    stroke="#062019"
+                    strokeWidth="1.2"
                   />
                 ))}
                 {telemetry.minimapBlips.map((b, idx) => {
@@ -638,6 +670,20 @@ export const RaceHUD: React.FC<Props> = ({
             {telemetry.callout.text}
           </div>
         )}
+        {telemetry.upcomingShortcut && (
+          <div className="px-4 py-1 nfs-chamfer-sm nfs-carbon-bg border border-emerald-400/50 border-l-4 border-l-emerald-400 flex items-center gap-2.5 text-xs font-display font-bold uppercase tracking-wider text-emerald-300">
+            <span className="text-amber-300">
+              {telemetry.upcomingShortcut.distanceM === 0
+                ? telemetry.upcomingShortcut.side === 'left'
+                  ? '◀ TURN LEFT NOW · SHORTCUT'
+                  : 'SHORTCUT · TURN RIGHT NOW ▶'
+                : telemetry.upcomingShortcut.side === 'left'
+                  ? `◀ KEEP LEFT · SHORTCUT IN ${telemetry.upcomingShortcut.distanceM}M`
+                  : `SHORTCUT IN ${telemetry.upcomingShortcut.distanceM}M · KEEP RIGHT ▶`}
+            </span>
+            <span className="text-white/80 font-mono-tabular text-[11px]">{telemetry.upcomingShortcut.label}</span>
+          </div>
+        )}
       </div>
       )}
 
@@ -648,8 +694,12 @@ export const RaceHUD: React.FC<Props> = ({
           {(telemetry.isDrifting || telemetry.isSlipstreaming || telemetry.nearMissCombo > 1) && (
             <div className="flex flex-wrap items-center gap-2">
               {telemetry.isDrifting && (
-                <div className="inline-block px-3 py-1 nfs-chamfer-sm nfs-carbon-bg border border-white/15 border-l-4 border-l-amber-400 font-display uppercase tracking-wider text-xs font-bold text-amber-400">
-                  POWER SLIDE · +NOS
+                <div className="inline-block px-3 py-1 nfs-chamfer-sm nfs-carbon-bg border border-white/15 border-l-4 border-l-amber-400 font-display uppercase tracking-wider text-xs font-bold text-amber-400 font-mono-tabular">
+                  POWER SLIDE
+                  {telemetry.driftHoldSec && telemetry.driftHoldSec > 0 ? ` ${telemetry.driftHoldSec.toFixed(1)}S` : ''}
+                  {telemetry.driftComboScore && telemetry.driftComboScore >= 150
+                    ? ` · +$${telemetry.driftComboScore.toLocaleString()}`
+                    : ' · +NOS'}
                 </div>
               )}
               {telemetry.isSlipstreaming && (
