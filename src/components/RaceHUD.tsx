@@ -1,5 +1,39 @@
 import React, { useMemo } from 'react';
-import { Camera, CheckCircle2, Circle, FastForward, Flag, Flame, Music, Pause, Radio, ShieldAlert, SkipForward, Volume2, VolumeX } from 'lucide-react';
+import {
+  Activity,
+  Bot,
+  Camera,
+  CheckCircle2,
+  Circle,
+  CloudFog,
+  CloudRain,
+  FastForward,
+  Flag,
+  Flame,
+  Gamepad2,
+  Ghost,
+  History,
+  Music,
+  Pause,
+  Radio,
+  RotateCcw,
+  Settings,
+  ShieldAlert,
+  SkipForward,
+  Sliders,
+  Sun,
+  Volume2,
+  VolumeX,
+  Wrench,
+} from 'lucide-react';
+import { AI_PERSONALITY_TRAITS } from '../config/aiConfig';
+import { HANDLING_PRESETS, SURFACE_MODIFIERS } from '../config/physicsConfig';
+import {
+  ControlBindings,
+  formatKeyCode,
+  getDefaultControlBindings,
+  TouchControlsMode,
+} from '../config/settingsConfig';
 import { ENVIRONMENTS, formatCurrency, formatTimeMs } from '../data/gameData';
 import { RaceMode, RaceTelemetry } from '../types/game';
 
@@ -9,8 +43,19 @@ interface Props {
   muted: boolean;
   musicMuted: boolean;
   showDebug?: boolean;
+  aiDebugOpen?: boolean;
+  tuningOpen?: boolean;
   aeLookEnabled?: boolean;
+  touchControlsMode?: TouchControlsMode;
+  controlBindings?: ControlBindings;
   onToggleAeLook?: () => void;
+  onToggleTuning?: () => void;
+  onToggleDebug?: () => void;
+  onToggleAiDebug?: () => void;
+  onToggleGhost?: () => void;
+  onRewind?: () => void;
+  onInstantRestart?: () => void;
+  onOpenSettings?: () => void;
   onToggleMute: () => void;
   onToggleMusicMute: () => void;
   onSkipTrack: () => void;
@@ -27,8 +72,19 @@ export const RaceHUD: React.FC<Props> = ({
   muted,
   musicMuted,
   showDebug = false,
+  aiDebugOpen = false,
+  tuningOpen = false,
   aeLookEnabled = true,
+  touchControlsMode = 'auto',
+  controlBindings,
   onToggleAeLook,
+  onToggleTuning,
+  onToggleDebug,
+  onToggleAiDebug,
+  onToggleGhost,
+  onRewind,
+  onInstantRestart,
+  onOpenSettings,
   onToggleMute,
   onToggleMusicMute,
   onSkipTrack,
@@ -38,6 +94,7 @@ export const RaceHUD: React.FC<Props> = ({
   onFinishFreeroam,
   onTouchInput,
 }) => {
+  const keys = controlBindings ?? getDefaultControlBindings(aeLookEnabled);
   const minimapData = useMemo(() => {
     const pts = telemetry.minimapPath;
     if (!pts.length) {
@@ -151,6 +208,23 @@ export const RaceHUD: React.FC<Props> = ({
             boxShadow: 'inset 0 0 70px rgba(255, 255, 255, 0.45)',
           }}
         />
+      )}
+
+      {/* U3 Slow-Motion Takedown / Heavy Impact Camera Frame */}
+      {telemetry.takedownCamActive && (
+        <>
+          <div
+            className="fixed inset-0 pointer-events-none"
+            style={{
+              background:
+                'radial-gradient(circle at center, transparent 48%, rgba(245, 158, 11, 0.24) 100%)',
+              boxShadow: 'inset 0 0 80px rgba(0, 0, 0, 0.65)',
+            }}
+          />
+          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-20 px-4 py-1 nfs-chamfer-sm nfs-carbon-bg border border-amber-400/60 border-l-4 border-l-amber-400 font-display italic font-bold uppercase tracking-widest text-xs text-amber-300 pointer-events-none">
+            IMPACT CAM · 0.28x SLOW-MO
+          </div>
+        </>
       )}
 
       {/* Cinema Widescreen Intro & Outro Letterbox Overlays */}
@@ -470,16 +544,146 @@ export const RaceHUD: React.FC<Props> = ({
               {telemetry.shortcutsTaken > 0 && (
                 <span className="text-emerald-400 font-bold">· SHORTCUTS {telemetry.shortcutsTaken}</span>
               )}
+              {telemetry.handlingMode && (
+                <span className="text-cyan-300/90">· {HANDLING_PRESETS[telemetry.handlingMode].label.toUpperCase()}</span>
+              )}
+              {telemetry.gamepadConnected && (
+                <span className="inline-flex items-center gap-1 text-emerald-300 font-bold">
+                  · <Gamepad2 className="w-3 h-3 inline" /> PAD
+                </span>
+              )}
+              {telemetry.weatherState && (
+                <span className="inline-flex items-center gap-1 text-sky-300">
+                  ·{' '}
+                  {telemetry.weatherState === 'rain' ? (
+                    <CloudRain className="w-3 h-3 inline" />
+                  ) : telemetry.weatherState === 'fog' ? (
+                    <CloudFog className="w-3 h-3 inline" />
+                  ) : (
+                    <Sun className="w-3 h-3 inline" />
+                  )}{' '}
+                  {telemetry.weatherState.toUpperCase()}
+                  {(telemetry.roadWetness ?? 0) > 0.12
+                    ? ` ${Math.round((telemetry.roadWetness ?? 0) * 100)}% WET`
+                    : ''}
+                </span>
+              )}
+              {(telemetry.damagePercent ?? 0) > 0 && (
+                <span
+                  className={`inline-flex items-center gap-1 font-bold ${
+                    (telemetry.damagePercent ?? 0) >= 60 ? 'text-red-400' : 'text-amber-300'
+                  }`}
+                >
+                  · <Wrench className="w-3 h-3 inline" /> DMG {telemetry.damagePercent}%
+                  {(telemetry.detachedPartsCount ?? 0) > 0 ? ` (${telemetry.detachedPartsCount})` : ''}
+                </span>
+              )}
             </div>
-            {showDebug && (
-              <div className="text-[10px] font-mono-tabular text-cyan-300 pt-0.5 border-t border-white/10 flex flex-wrap items-center gap-x-3">
-                <span>FPS {telemetry.fps ?? '--'}</span>
-                <span>CAM {telemetry.cameraMode.toUpperCase()}</span>
-                <span>COPS {telemetry.activeCops}</span>
-                <span>HEAT {telemetry.heatLevel}</span>
-              </div>
-            )}
           </div>
+          {showDebug && telemetry.devTelemetry && (
+            <div className="nfs-chamfer nfs-carbon-bg border border-cyan-400/45 border-l-4 border-l-cyan-400 px-3.5 py-2.5 w-[310px] space-y-2 text-[10px] font-mono-tabular">
+              <div className="flex items-center justify-between border-b border-white/10 pb-1">
+                <span className="font-display font-bold uppercase tracking-wider text-cyan-300 text-[11px]">
+                  DEV TELEMETRY [F3 / `]
+                </span>
+                <span className="text-amber-300 font-bold uppercase">
+                  {SURFACE_MODIFIERS[telemetry.devTelemetry.surface].label}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-x-2 gap-y-1 text-slate-200">
+                <div>
+                  FPS <span className="text-white font-bold">{telemetry.devTelemetry.fps}</span>
+                </div>
+                <div>
+                  FRM <span className="text-white font-bold">{telemetry.devTelemetry.frameMs.toFixed(1)}ms</span>
+                </div>
+                <div>
+                  PHY <span className="text-emerald-300 font-bold">{telemetry.devTelemetry.physicsMs.toFixed(2)}ms</span>
+                </div>
+                <div>
+                  DRAW <span className="text-white font-bold">{telemetry.devTelemetry.drawCalls}</span>
+                </div>
+                <div>
+                  ENT <span className="text-white font-bold">{telemetry.devTelemetry.activeEntities}</span>
+                </div>
+                <div>
+                  STEP <span className="text-cyan-300 font-bold">{telemetry.devTelemetry.substeps}x120Hz</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-white/10">
+                {telemetry.devTelemetry.wheels.map((w) => {
+                  const slipPct = Math.round(w.slipRatio * 100);
+                  const compPct = Math.round(w.compression * 100);
+                  return (
+                    <div key={w.id} className="bg-[#0B0E14] border border-white/10 px-2 py-1 space-y-0.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-amber-300">{w.id}</span>
+                        <span className="text-slate-300">{Math.round(w.loadN)}N</span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-400">
+                        <span>SLP {slipPct}%</span>
+                        <span>ANG {w.slipAngleDeg.toFixed(0)}°</span>
+                      </div>
+                      <div className="h-1 bg-white/10 overflow-hidden">
+                        <div
+                          className={`h-full ${compPct > 80 ? 'bg-red-400' : 'bg-cyan-400'}`}
+                          style={{ width: `${compPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {aiDebugOpen && telemetry.aiDebugEntries && telemetry.aiDebugEntries.length > 0 && (
+            <div className="nfs-chamfer nfs-carbon-bg border border-amber-400/45 border-l-4 border-l-amber-400 px-3.5 py-2.5 w-[330px] space-y-1.5 text-[10px] font-mono-tabular">
+              <div className="flex items-center justify-between border-b border-white/10 pb-1">
+                <span className="font-display font-bold uppercase tracking-wider text-amber-300 text-[11px]">
+                  AI RACER TELEMETRY [{formatKeyCode(keys.toggleAiDebug.primary)}]
+                </span>
+                <span className="text-slate-400">LINE + TARGET KM/H</span>
+              </div>
+              <div className="space-y-1">
+                {telemetry.aiDebugEntries.map((ai, i) => {
+                  const trait = AI_PERSONALITY_TRAITS[ai.personality];
+                  return (
+                    <div key={`${ai.name}-${i}`} className="bg-[#0B0E14] border border-white/10 px-2 py-1 space-y-0.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-white truncate">
+                          {ai.name}{' '}
+                          <span className="text-[9px] text-cyan-300">[{trait.shortTag}]</span>
+                        </span>
+                        <span
+                          className={`px-1 py-0.2 text-[9px] font-bold uppercase ${
+                            ai.action === 'NOS' || ai.action === 'DRAFT'
+                              ? 'bg-cyan-500/20 text-cyan-300'
+                              : ai.action === 'PASS' || ai.action === 'DEFEND'
+                                ? 'bg-amber-400/20 text-amber-300'
+                                : ai.action === 'BRAKE' || ai.action === 'DODGE'
+                                  ? 'bg-red-500/20 text-red-300'
+                                  : 'bg-white/10 text-slate-300'
+                          }`}
+                        >
+                          {ai.action}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-300">
+                        <span>
+                          {ai.speedKmh}/{ai.targetSpeedKmh} <span className="text-slate-500">km/h</span>
+                        </span>
+                        <span>NOS {ai.nitrous}%</span>
+                        <span className="text-emerald-300">x{ai.adaptiveMult.toFixed(2)}</span>
+                        <span className={ai.gapMeters >= 0 ? 'text-amber-300' : 'text-slate-400'}>
+                          {ai.gapMeters >= 0 ? `+${ai.gapMeters}m` : `${ai.gapMeters}m`}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Top-Right: Pursuit Status, Police Scanner & Utility Buttons */}
@@ -529,6 +733,29 @@ export const RaceHUD: React.FC<Props> = ({
                       }`}
                     />
                   ))}
+                </div>
+
+                <div className="flex items-center justify-between text-[10px] font-mono-tabular uppercase">
+                  <span
+                    className={
+                      telemetry.inCooldownZone
+                        ? 'text-emerald-300 font-bold'
+                        : telemetry.policeLosActive
+                          ? 'text-red-300 font-bold'
+                          : 'text-amber-300'
+                    }
+                  >
+                    {telemetry.inCooldownZone
+                      ? 'HIDING BAY COVER'
+                      : telemetry.policeLosActive
+                        ? 'VISUAL LOS LOCKED'
+                        : 'LOS BROKEN'}
+                  </span>
+                  {telemetry.helicopterActive && (
+                    <span className={telemetry.inCooldownZone ? 'text-slate-400' : 'text-amber-300 font-bold'}>
+                      {telemetry.inCooldownZone ? 'CHOPPER MASKED' : 'CHOPPER 2'}
+                    </span>
+                  )}
                 </div>
 
                 {telemetry.pursuitState === 'cooldown' ? (
@@ -582,10 +809,133 @@ export const RaceHUD: React.FC<Props> = ({
                 <span>Bank Run</span>
               </button>
             )}
+            {onRewind && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  onRewind();
+                }}
+                disabled={
+                  (!telemetry.rewindUnlimited && (telemetry.rewindsLeft ?? 0) <= 0) ||
+                  (telemetry.rewindBufferSec ?? 0) < 0.25
+                }
+                title={`Rewind 2.75s (${formatKeyCode(keys.rewind.primary)}) · ${
+                  telemetry.rewindUnlimited ? 'Unlimited' : `${telemetry.rewindsLeft ?? 0} left`
+                }`}
+                aria-label="Rewind"
+                className="px-2.5 py-2 nfs-chamfer-sm nfs-carbon-bg border border-white/18 text-slate-200 hover:text-cyan-300 hover:border-cyan-400/60 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center gap-1 text-[11px] font-mono-tabular font-bold"
+              >
+                <History className="w-3.5 h-3.5" />
+                <span>{telemetry.rewindUnlimited ? '∞' : telemetry.rewindsLeft ?? 0}</span>
+              </button>
+            )}
+            {onInstantRestart && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  onInstantRestart();
+                }}
+                title={`Instant Restart (${formatKeyCode(keys.instantRestart.primary)})`}
+                aria-label="Instant Restart"
+                className="p-2.5 nfs-chamfer-sm nfs-carbon-bg border border-white/18 text-slate-200 hover:text-amber-400 hover:border-amber-400/60 transition-colors cursor-pointer"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
+            )}
+            {onToggleGhost && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  onToggleGhost();
+                }}
+                title={`Toggle Best Ghost (${formatKeyCode(keys.toggleGhost.primary)})${
+                  telemetry.hasBestGhost ? '' : ' — finish a clean run to record'
+                }`}
+                aria-label="Toggle Best Ghost"
+                className={`p-2.5 nfs-chamfer-sm nfs-carbon-bg border transition-colors cursor-pointer ${
+                  telemetry.ghostEnabled
+                    ? 'border-cyan-400 text-cyan-300'
+                    : 'border-white/18 text-slate-300 hover:text-cyan-300 hover:border-cyan-400/60'
+                }`}
+              >
+                <Ghost className="w-4 h-4" />
+              </button>
+            )}
+            {onToggleAiDebug && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  onToggleAiDebug();
+                }}
+                title={`AI Racing Line & Telemetry (${formatKeyCode(keys.toggleAiDebug.primary)})`}
+                aria-label="Toggle AI Debug"
+                className={`p-2.5 nfs-chamfer-sm nfs-carbon-bg border transition-colors cursor-pointer ${
+                  aiDebugOpen
+                    ? 'border-amber-400 text-amber-300'
+                    : 'border-white/18 text-slate-200 hover:text-amber-300 hover:border-amber-400/60'
+                }`}
+              >
+                <Bot className="w-4 h-4" />
+              </button>
+            )}
+            {onToggleTuning && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  onToggleTuning();
+                }}
+                title={`Live Physics Tuning (${formatKeyCode(keys.toggleTuning.primary)})`}
+                aria-label="Live Physics Tuning"
+                className={`p-2.5 nfs-chamfer-sm nfs-carbon-bg border transition-colors cursor-pointer ${
+                  tuningOpen
+                    ? 'border-amber-400 text-amber-400'
+                    : 'border-white/18 text-slate-200 hover:text-amber-400 hover:border-amber-400/60'
+                }`}
+              >
+                <Sliders className="w-4 h-4" />
+              </button>
+            )}
+            {onToggleDebug && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  onToggleDebug();
+                }}
+                title={`Dev Telemetry (${formatKeyCode(keys.toggleTelemetry.primary)} / \`)`}
+                aria-label="Dev Telemetry Overlay"
+                className={`p-2.5 nfs-chamfer-sm nfs-carbon-bg border transition-colors cursor-pointer ${
+                  showDebug
+                    ? 'border-cyan-400 text-cyan-300'
+                    : 'border-white/18 text-slate-200 hover:text-cyan-300 hover:border-cyan-400/60'
+                }`}
+              >
+                <Activity className="w-4 h-4" />
+              </button>
+            )}
+            {onOpenSettings && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  onOpenSettings();
+                }}
+                title="Driver & System Settings"
+                aria-label="Driver & System Settings"
+                className="p-2.5 nfs-chamfer-sm nfs-carbon-bg border border-white/18 text-slate-200 hover:text-amber-400 hover:border-amber-400/60 transition-colors cursor-pointer"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+            )}
             <button
               type="button"
               onClick={onCycleCamera}
-              title="Switch Camera (C)"
+              title={`Switch Camera (${formatKeyCode(keys.cycleCamera.primary)})`}
               className="p-2.5 nfs-chamfer-sm nfs-carbon-bg border border-white/18 text-slate-200 hover:text-amber-400 hover:border-amber-400/60 transition-colors cursor-pointer"
             >
               <Camera className="w-4 h-4" />
@@ -593,7 +943,7 @@ export const RaceHUD: React.FC<Props> = ({
             <button
               type="button"
               onClick={onSkipTrack}
-              title="Next EA Trax (M)"
+              title={`Next EA Trax (${formatKeyCode(keys.nextMusicTrack.primary)})`}
               aria-label="Next EA Trax"
               className="p-2.5 nfs-chamfer-sm nfs-carbon-bg border border-white/18 text-slate-200 hover:text-amber-400 hover:border-amber-400/60 transition-colors cursor-pointer"
             >
@@ -714,36 +1064,42 @@ export const RaceHUD: React.FC<Props> = ({
               )}
             </div>
           )}
-          <div className="pointer-events-auto hidden md:flex items-center gap-2.5 px-3.5 py-2 nfs-chamfer-sm nfs-carbon-bg border border-white/15 border-l-2 border-l-amber-400 text-[11px] font-mono-tabular uppercase tracking-wide text-slate-300">
-            {aeLookEnabled ? (
-              <>
-                <span><strong className="text-white">Arrows</strong> Drive</span>
-                <span aria-hidden="true">·</span>
-                <span><strong className="text-cyan-300">A/E</strong> Look L/R</span>
-                <span aria-hidden="true">·</span>
-                <span><strong className="text-cyan-300">A+E</strong> Back</span>
-              </>
-            ) : (
-              <>
-                <span><strong className="text-white">WASD</strong> Drive</span>
-                <span aria-hidden="true">·</span>
-                <span><strong className="text-cyan-300">Q/E</strong> Look L/R</span>
-                <span aria-hidden="true">·</span>
-                <span><strong className="text-cyan-300">Q+E</strong> Back</span>
-              </>
-            )}
+          <div className="pointer-events-auto hidden md:flex items-center flex-wrap gap-2 px-3.5 py-2 nfs-chamfer-sm nfs-carbon-bg border border-white/15 border-l-2 border-l-amber-400 text-[11px] font-mono-tabular uppercase tracking-wide text-slate-300">
+            <span>
+              <strong className="text-white">
+                {formatKeyCode(keys.throttle.primary)}/{formatKeyCode(keys.left.primary)}/{formatKeyCode(keys.brake.primary)}/{formatKeyCode(keys.right.primary)}
+              </strong>{' '}
+              Drive
+            </span>
             <span aria-hidden="true">·</span>
-            <span><strong className="text-white">Space</strong> Drift</span>
+            <span>
+              <strong className="text-cyan-300">
+                {formatKeyCode(keys.lookLeft.primary)}/{formatKeyCode(keys.lookRight.primary)}
+              </strong>{' '}
+              Look
+            </span>
             <span aria-hidden="true">·</span>
-            <span><strong className="text-cyan-400">Shift</strong> NOS</span>
+            <span><strong className="text-white">{formatKeyCode(keys.handbrake.primary)}</strong> Drift</span>
             <span aria-hidden="true">·</span>
-            <span><strong className="text-amber-400">X</strong> Breaker</span>
+            <span><strong className="text-cyan-400">{formatKeyCode(keys.nitrous.primary)}</strong> NOS</span>
             <span aria-hidden="true">·</span>
-            <span><strong className="text-emerald-400">R</strong> Reset</span>
+            <span><strong className="text-amber-400">{formatKeyCode(keys.speedbreaker.primary)}</strong> Breaker</span>
             <span aria-hidden="true">·</span>
-            <span><strong className="text-white">C</strong> Cam</span>
+            <span><strong className="text-emerald-400">{formatKeyCode(keys.resetToTrack.primary)}</strong> Reset</span>
             <span aria-hidden="true">·</span>
-            <span><strong className="text-white">M</strong> Track</span>
+            <span><strong className="text-cyan-300">{formatKeyCode(keys.rewind.primary)}</strong> Rewind</span>
+            <span aria-hidden="true">·</span>
+            <span><strong className="text-amber-300">{formatKeyCode(keys.instantRestart.primary)}</strong> Restart</span>
+            <span aria-hidden="true">·</span>
+            <span><strong className="text-white">{formatKeyCode(keys.cycleCamera.primary)}</strong> Cam</span>
+            <span aria-hidden="true">·</span>
+            <span><strong className="text-amber-300">{formatKeyCode(keys.toggleTuning.primary)}</strong> Tune</span>
+            <span aria-hidden="true">·</span>
+            <span><strong className="text-cyan-300">{formatKeyCode(keys.toggleTelemetry.primary)}</strong> Telemetry</span>
+            <span aria-hidden="true">·</span>
+            <span><strong className="text-amber-300">{formatKeyCode(keys.toggleAiDebug.primary)}</strong> AI</span>
+            <span aria-hidden="true">·</span>
+            <span><strong className="text-cyan-300">{formatKeyCode(keys.toggleGhost.primary)}</strong> Ghost</span>
             {onToggleAeLook && (
               <>
                 <span aria-hidden="true">·</span>
@@ -766,8 +1122,16 @@ export const RaceHUD: React.FC<Props> = ({
             )}
           </div>
 
-          {/* Mobile Touch Controls */}
-          <div className="pointer-events-auto flex md:hidden items-center gap-2">
+          {/* Mobile / Optional On-Screen Touch Controls */}
+          <div
+            className={`pointer-events-auto items-center gap-2 ${
+              touchControlsMode === 'always'
+                ? 'flex'
+                : touchControlsMode === 'off'
+                  ? 'hidden'
+                  : 'flex md:hidden'
+            }`}
+          >
             <button
               type="button"
               onPointerDown={() => onTouchInput('left', true)}

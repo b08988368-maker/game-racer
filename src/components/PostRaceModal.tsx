@@ -1,5 +1,17 @@
 import React from 'react';
-import { CheckCircle2, KeyRound, RotateCcw, ShieldAlert, Trophy, Wrench } from 'lucide-react';
+import {
+  Check,
+  CheckCircle2,
+  Copy,
+  Ghost,
+  KeyRound,
+  RotateCcw,
+  Settings,
+  ShieldAlert,
+  Sliders,
+  Trophy,
+  Wrench,
+} from 'lucide-react';
 import { soundEngine } from '../audio/soundEngine';
 import {
   BLACKLIST_RIVALS,
@@ -14,11 +26,22 @@ import { CareerProfile, RaceResult } from '../types/game';
 interface PostRaceProps {
   result: RaceResult;
   profile: CareerProfile;
+  isNewGhostRecord?: boolean;
+  ghostCopied?: boolean;
+  onExportGhost?: () => void;
   onRaceAgain: () => void;
   onReturnGarage: () => void;
 }
 
-export const PostRaceModal: React.FC<PostRaceProps> = ({ result, profile, onRaceAgain, onReturnGarage }) => {
+export const PostRaceModal: React.FC<PostRaceProps> = ({
+  result,
+  profile,
+  isNewGhostRecord = false,
+  ghostCopied = false,
+  onExportGhost,
+  onRaceAgain,
+  onReturnGarage,
+}) => {
   const trackMeta = TRACKS.find((t) => t.id === result.trackId);
   const envLabel = ENVIRONMENTS.find((e) => e.id === result.environment)?.label ?? result.environment;
   const nextRival = BLACKLIST_RIVALS.find((r) => r.rank === 10 - profile.blacklistDefeated);
@@ -188,6 +211,39 @@ export const PostRaceModal: React.FC<PostRaceProps> = ({ result, profile, onRace
             </div>
           )}
 
+          {isNewGhostRecord && (
+            <div className="bg-cyan-500/12 border border-cyan-400/45 border-l-4 border-l-cyan-400 nfs-chamfer-sm px-3.5 py-2 text-xs text-cyan-200 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Ghost className="w-4 h-4 text-cyan-300 shrink-0" />
+                <span>
+                  <strong className="text-white">NEW GHOST RECORD SAVED!</strong> Beat your personal best holographic run next attempt.
+                </span>
+              </div>
+              {onExportGhost && (
+                <button
+                  type="button"
+                  onClick={onExportGhost}
+                  className="px-2.5 py-1 nfs-chamfer-sm bg-cyan-500/20 hover:bg-cyan-500/35 border border-cyan-400/60 text-[10px] font-mono-tabular font-bold text-cyan-100 flex items-center gap-1 shrink-0 cursor-pointer"
+                >
+                  {ghostCopied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  <span>{ghostCopied ? 'COPIED' : 'SHARE CODE'}</span>
+                </button>
+              )}
+            </div>
+          )}
+          {!isNewGhostRecord && onExportGhost && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={onExportGhost}
+                className="px-2.5 py-1 nfs-chamfer-sm bg-[#0B0D13] hover:bg-[#141822] border border-cyan-400/35 text-[11px] font-mono-tabular text-cyan-300 flex items-center gap-1.5 cursor-pointer"
+              >
+                {ghostCopied ? <Check className="w-3 h-3" /> : <Ghost className="w-3 h-3" />}
+                <span>{ghostCopied ? 'Ghost Share JSON Copied' : 'Copy Best Track Ghost JSON'}</span>
+              </button>
+            </div>
+          )}
+
           <div className="flex items-center gap-3 pt-1">
             <button
               type="button"
@@ -244,10 +300,12 @@ function MetricBox({
 export const PauseModal: React.FC<{
   aeLookEnabled: boolean;
   onToggleAeLook: () => void;
+  onOpenTuning?: () => void;
+  onOpenSettings?: () => void;
   onResume: () => void;
   onRestart: () => void;
   onQuit: () => void;
-}> = ({ aeLookEnabled, onToggleAeLook, onResume, onRestart, onQuit }) => {
+}> = ({ aeLookEnabled, onToggleAeLook, onOpenTuning, onOpenSettings, onResume, onRestart, onQuit }) => {
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-[#06070A]/82 p-4">
       <div className="w-full max-w-sm nfs-chamfer nfs-carbon-bg border border-white/18 border-l-4 border-l-amber-400 overflow-hidden shadow-2xl">
@@ -265,6 +323,36 @@ export const PauseModal: React.FC<{
             >
               Resume Race
             </button>
+            {(onOpenTuning || onOpenSettings) && (
+              <div className="grid grid-cols-2 gap-2">
+                {onOpenTuning && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.triggerUiClick();
+                      onOpenTuning();
+                    }}
+                    className="py-2 px-3 nfs-chamfer-sm bg-[#151923] hover:bg-[#1E2433] border border-amber-400/40 text-amber-300 font-display uppercase tracking-wider font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    <span>Tune (T)</span>
+                  </button>
+                )}
+                {onOpenSettings && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.triggerUiClick();
+                      onOpenSettings();
+                    }}
+                    className="py-2 px-3 nfs-chamfer-sm bg-[#151923] hover:bg-[#1E2433] border border-white/20 text-slate-200 font-display uppercase tracking-wider font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                    <span>Settings</span>
+                  </button>
+                )}
+              </div>
+            )}
             <button
               type="button"
               onClick={onToggleAeLook}

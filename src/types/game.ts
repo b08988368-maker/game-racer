@@ -1,3 +1,24 @@
+import type { AiPersonality, AiSettings, RubberBandingMode } from '../config/aiConfig';
+import type { AssistSettings, HandlingMode, PhysicsTuningParams, SurfaceType } from '../config/physicsConfig';
+import type { ControlAction, ControlBindings, GraphicsQuality, TouchControlsMode } from '../config/settingsConfig';
+import type { ActiveWeatherState, WeatherMode } from '../config/weatherConfig';
+
+export type {
+  ActiveWeatherState,
+  AiPersonality,
+  AiSettings,
+  AssistSettings,
+  ControlAction,
+  ControlBindings,
+  GraphicsQuality,
+  HandlingMode,
+  PhysicsTuningParams,
+  RubberBandingMode,
+  SurfaceType,
+  TouchControlsMode,
+  WeatherMode,
+};
+
 export type RaceMode =
   | 'circuit'
   | 'sprint'
@@ -193,6 +214,39 @@ export interface MinimapBlip {
   heading?: number;
 }
 
+export interface WheelTelemetry {
+  id: 'FL' | 'FR' | 'RL' | 'RR';
+  slipRatio: number;
+  slipAngleDeg: number;
+  loadN: number;
+  compression: number;
+  surface: SurfaceType;
+}
+
+export interface AiDebugEntry {
+  id: string;
+  name: string;
+  personality: AiPersonality;
+  action: string;
+  speedKmh: number;
+  targetSpeedKmh: number;
+  nitrous: number;
+  adaptiveMult: number;
+  gapMeters: number;
+}
+
+export interface DevTelemetryData {
+  fps: number;
+  frameMs: number;
+  physicsMs: number;
+  drawCalls: number;
+  activeEntities: number;
+  substeps: number;
+  surface: SurfaceType;
+  handlingMode: HandlingMode;
+  wheels: [WheelTelemetry, WheelTelemetry, WheelTelemetry, WheelTelemetry];
+}
+
 export interface RaceTelemetry {
   speedKmh: number;
   rpm: number; // 0..1
@@ -259,6 +313,24 @@ export interface RaceTelemetry {
   minimapBlips: MinimapBlip[];
   cameraMode: CameraMode;
   fps?: number;
+  surfaceType?: SurfaceType;
+  handlingMode?: HandlingMode;
+  gamepadConnected?: boolean;
+  rewindsLeft?: number;
+  rewindUnlimited?: boolean;
+  rewindBufferSec?: number;
+  hasBestGhost?: boolean;
+  ghostEnabled?: boolean;
+  aiDebugEntries?: AiDebugEntry[];
+  weatherState?: ActiveWeatherState;
+  roadWetness?: number;
+  damagePercent?: number;
+  detachedPartsCount?: number;
+  policeLosActive?: boolean;
+  inCooldownZone?: boolean;
+  helicopterActive?: boolean;
+  takedownCamActive?: boolean;
+  devTelemetry?: DevTelemetryData;
 }
 
 export interface RaceResult {

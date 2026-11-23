@@ -12,6 +12,11 @@ import {
 export interface CarVisualHandles {
   root: THREE.Group;
   bodyGroup: THREE.Group;
+  hoodGroup?: THREE.Group;
+  frontBumperGroup?: THREE.Group;
+  rearBumperGroup?: THREE.Group;
+  spoilerGroup?: THREE.Group;
+  paintHex: string;
   bodyMaterials: THREE.Material[];
   rimMaterials: THREE.MeshStandardMaterial[];
   brakeLightMat: THREE.MeshStandardMaterial;
@@ -427,6 +432,11 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
   const chromeParts: GeoPart[] = [];
   const accentParts: GeoPart[] = [];
 
+  let hoodGroup: THREE.Group | undefined;
+  let frontBumperGroup: THREE.Group | undefined;
+  let rearBumperGroup: THREE.Group | undefined;
+  let spoilerGroup: THREE.Group | undefined;
+
   let roofY = clearance + height;
 
   if (isTrafficTruck) {
@@ -689,19 +699,42 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
       }
     }
 
-    // 4. Style-Specific Hood, Intakes, Intercooler & Engine Details
+    // 4. Style-Specific Hood, Intakes, Intercooler & Engine Details (Hinged detachable hoodGroup on non-police hero/rivals)
     const hoodY = clearance + noseH;
     if (!lowDetail && !isPolice) {
+      const hGroup = new THREE.Group();
+      hoodGroup = hGroup;
+      const hoodPivotZ = -hl * 0.24;
+      hGroup.position.set(0, hoodY, hoodPivotZ);
+      bodyGroup.add(hGroup);
+
+      const hoodLidW = bw * (isExotic ? 0.84 : 0.88);
+      const hoodLidLen = Math.max(0.55, noseLen * 0.86);
+      const hoodLidCenterRelZ = -hl * 0.54 - hoodPivotZ;
+      const hoodLidMat = isBossCar || isExotic ? carbonMat : solidPaintMat;
+      const hoodLidMesh = new THREE.Mesh(
+        track(makeChamferCube(hoodLidW, 0.045, hoodLidLen, 0.014, false)),
+        hoodLidMat,
+      );
+      hoodLidMesh.position.set(0, 0.015, hoodLidCenterRelZ);
+      hoodLidMesh.castShadow = true;
+      hoodGroup.add(hoodLidMesh);
+
       if (isMuscle) {
-        // Protruding Supercharger Blower Scoop + Twin Chrome Intake Barrels
-        carbonParts.push({
-          geo: makeChamferCube(bw * 0.34, 0.15, length * 0.24, 0.025, false),
-          pos: [0, hoodY + 0.06, -hl * 0.44],
-        });
-        chromeParts.push(
-          { geo: new THREE.CylinderGeometry(0.06, 0.06, 0.12, 8), pos: [-0.11, hoodY + 0.11, -hl * 0.56], rot: [Math.PI / 2, 0, 0] },
-          { geo: new THREE.CylinderGeometry(0.06, 0.06, 0.12, 8), pos: [0.11, hoodY + 0.11, -hl * 0.56], rot: [Math.PI / 2, 0, 0] },
+        const blower = new THREE.Mesh(
+          track(makeChamferCube(bw * 0.34, 0.15, length * 0.24, 0.025, false)),
+          carbonMat,
         );
+        blower.position.set(0, 0.07, -hl * 0.44 - hoodPivotZ);
+        hoodGroup.add(blower);
+
+        const pipeGeo = track(new THREE.CylinderGeometry(0.06, 0.06, 0.12, 8));
+        pipeGeo.rotateX(Math.PI / 2);
+        [-0.11, 0.11].forEach((px) => {
+          const pipe = new THREE.Mesh(pipeGeo, chromeMat);
+          pipe.position.set(px, 0.12, -hl * 0.56 - hoodPivotZ);
+          hGroup.add(pipe);
+        });
         // Matte Black Rear Window Louver Slats
         for (let lv = 0; lv < 4; lv++) {
           carbonParts.push({
@@ -718,7 +751,6 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
             { geo: new THREE.BoxGeometry(0.18, 0.03, 0.58), pos: [sx * 1.02, clearance + lowerH * 0.48, 0.22] },
           );
         });
-        // Mid-engine louvers + twin brushed aluminum intake plenums under rear deck
         chromeParts.push(
           { geo: new THREE.BoxGeometry(0.22, 0.08, 0.62), pos: [-0.22, clearance + tailH + 0.01, hl * 0.56] },
           { geo: new THREE.BoxGeometry(0.22, 0.08, 0.62), pos: [0.22, clearance + tailH + 0.01, hl * 0.56] },
@@ -731,64 +763,96 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
           });
         });
       } else if (isSedan) {
-        // Rally Box Hood Scoop + Twin NACA Vents
-        solidPaintParts.push({
-          geo: makeChamferCube(bw * 0.32, 0.11, 0.46, 0.02, false),
-          pos: [0, hoodY + 0.04, -hl * 0.50],
-        });
-        carbonParts.push({
-          geo: new THREE.BoxGeometry(bw * 0.26, 0.07, 0.06),
-          pos: [0, hoodY + 0.04, -hl * 0.72],
-        });
-      } else {
-        // Street Coupe / GT-R Stepped Hood Power Bulge + Twin Carbon Heat Extractors
-        carbonParts.push(
-          { geo: new THREE.BoxGeometry(0.26, 0.04, 0.46), pos: [-bw * 0.18, hoodY + 0.005, -hl * 0.52] },
-          { geo: new THREE.BoxGeometry(0.26, 0.04, 0.46), pos: [bw * 0.18, hoodY + 0.005, -hl * 0.52] },
+        const scoop = new THREE.Mesh(
+          track(makeChamferCube(bw * 0.32, 0.11, 0.46, 0.02, false)),
+          solidPaintMat,
         );
+        scoop.position.set(0, 0.05, -hl * 0.50 - hoodPivotZ);
+        const vent = new THREE.Mesh(track(new THREE.BoxGeometry(bw * 0.26, 0.07, 0.06)), carbonMat);
+        vent.position.set(0, 0.05, -hl * 0.72 - hoodPivotZ);
+        hoodGroup.add(scoop, vent);
+      } else {
+        const extractorGeo = track(new THREE.BoxGeometry(0.26, 0.04, 0.46));
+        [-bw * 0.18, bw * 0.18].forEach((ex) => {
+          const ext = new THREE.Mesh(extractorGeo, carbonMat);
+          ext.position.set(ex, 0.032, -hl * 0.52 - hoodPivotZ);
+          hGroup.add(ext);
+        });
       }
     }
 
     // 5. Front Chin Splitter, Recessed FMIC Intercooler, Side Skirts & Multi-Fin Rear Diffuser
     const splitterExtend = isBossCar ? 0.42 : 0.30;
     carbonParts.push(
-      { geo: makeChamferCube(bw * (isBossCar ? 1.06 : 0.99), 0.06, splitterExtend, 0.015, lowDetail), pos: [0, clearance + 0.02, -hl - 0.01] },
       { geo: makeChamferCube(bw * (isBossCar ? 1.04 : 1.00), 0.08, midLen * 1.02, 0.015, lowDetail), pos: [0, clearance + 0.03, midCenterZ] },
-      { geo: makeChamferCube(bw * 0.92, 0.18, 0.24, 0.02, lowDetail), pos: [0, clearance + 0.08, hl - 0.03] },
-      // Front bumper recessed grille pocket
-      { geo: new THREE.BoxGeometry(bw * 0.56, lowerH * 0.34, 0.10), pos: [0, clearance + lowerH * 0.28, -hl + 0.02] },
     );
 
-    if (!lowDetail) {
-      // Exposed Brushed Aluminum Intercooler Core + Front Tow Hook
-      chromeParts.push(
-        { geo: new THREE.BoxGeometry(bw * 0.46, lowerH * 0.24, 0.08), pos: [0, clearance + lowerH * 0.26, -hl + 0.005] },
+    if (!lowDetail && !isPolice) {
+      frontBumperGroup = new THREE.Group();
+      const fbPivotZ = -hl + 0.14;
+      frontBumperGroup.position.set(0, clearance + 0.12, fbPivotZ);
+      frontBumperGroup.userData.baseZ = fbPivotZ;
+      bodyGroup.add(frontBumperGroup);
+
+      const frontLip = new THREE.Mesh(
+        track(makeChamferCube(bw * (isBossCar ? 1.06 : 0.99), 0.06, splitterExtend, 0.015, false)),
+        carbonMat,
       );
-      if (!isPolice) {
-        accentParts.push({
-          geo: new THREE.BoxGeometry(0.08, 0.03, 0.12),
-          pos: [bw * 0.24, clearance + 0.08, -hl - 0.10],
-        });
-      }
-      // Quad-Fin Rear Diffuser Blades
-      [-0.36, -0.13, 0.13, 0.36].forEach((dx) => {
-        carbonParts.push({
-          geo: new THREE.BoxGeometry(0.038, 0.18, 0.28),
-          pos: [dx, clearance + 0.09, hl + 0.01],
-        });
-      });
+      frontLip.position.set(0, -0.10, -hl - 0.01 - fbPivotZ);
+
+      const frontGrill = new THREE.Mesh(
+        track(new THREE.BoxGeometry(bw * 0.56, lowerH * 0.34, 0.10)),
+        carbonMat,
+      );
+      frontGrill.position.set(0, lowerH * 0.28 - 0.12, -hl + 0.02 - fbPivotZ);
+
+      const intercooler = new THREE.Mesh(
+        track(new THREE.BoxGeometry(bw * 0.46, lowerH * 0.24, 0.08)),
+        chromeMat,
+      );
+      intercooler.position.set(0, lowerH * 0.26 - 0.12, -hl + 0.005 - fbPivotZ);
+
+      const towHook = new THREE.Mesh(track(new THREE.BoxGeometry(0.08, 0.03, 0.12)), caliperMat);
+      towHook.position.set(bw * 0.24, -0.04, -hl - 0.10 - fbPivotZ);
+
+      frontBumperGroup.add(frontLip, frontGrill, intercooler, towHook);
 
       if (isBossCar) {
-        // Exclusive Boss Front Dive-Plane Canards
+        const canardGeo = track(new THREE.BoxGeometry(0.16, 0.03, 0.26));
         [-bw * 0.51, bw * 0.51].forEach((cx) => {
           const s = cx < 0 ? -1 : 1;
-          carbonParts.push({
-            geo: new THREE.BoxGeometry(0.16, 0.03, 0.26),
-            pos: [cx, clearance + 0.18, -hl + 0.22],
-            rot: [0.14, s * 0.22, s * -0.10],
-          });
+          const canard = new THREE.Mesh(canardGeo, carbonMat);
+          canard.position.set(cx, 0.06, -hl + 0.22 - fbPivotZ);
+          canard.rotation.set(0.14, s * 0.22, s * -0.10);
+          frontBumperGroup!.add(canard);
         });
       }
+
+      // Hinged Detachable Rear Bumper & Diffuser Assembly
+      rearBumperGroup = new THREE.Group();
+      const rbPivotZ = hl - 0.12;
+      rearBumperGroup.position.set(0, clearance + 0.12, rbPivotZ);
+      bodyGroup.add(rearBumperGroup);
+
+      const rearValance = new THREE.Mesh(
+        track(makeChamferCube(bw * 0.92, 0.18, 0.24, 0.02, false)),
+        carbonMat,
+      );
+      rearValance.position.set(0, -0.04, hl - 0.03 - rbPivotZ);
+      rearBumperGroup.add(rearValance);
+
+      const finGeo = track(new THREE.BoxGeometry(0.038, 0.18, 0.28));
+      [-0.36, -0.13, 0.13, 0.36].forEach((dx) => {
+        const fin = new THREE.Mesh(finGeo, carbonMat);
+        fin.position.set(dx, -0.03, hl + 0.01 - rbPivotZ);
+        rearBumperGroup!.add(fin);
+      });
+    } else {
+      carbonParts.push(
+        { geo: makeChamferCube(bw * (isBossCar ? 1.06 : 0.99), 0.06, splitterExtend, 0.015, lowDetail), pos: [0, clearance + 0.02, -hl - 0.01] },
+        { geo: makeChamferCube(bw * 0.92, 0.18, 0.24, 0.02, lowDetail), pos: [0, clearance + 0.08, hl - 0.03] },
+        { geo: new THREE.BoxGeometry(bw * 0.56, lowerH * 0.34, 0.10), pos: [0, clearance + lowerH * 0.28, -hl + 0.02] },
+      );
     }
 
     // 6. Cubic Xenon Headlight Blocks & Signature Taillights
@@ -815,7 +879,6 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
     }
 
     if (isGtr && !lowDetail) {
-      // Quad GT-R Ring / Cube Taillights
       [-bw * 0.36, -bw * 0.22, bw * 0.22, bw * 0.36].forEach((tx) => {
         const ringG = new THREE.TorusGeometry(0.048, 0.016, 6, 12);
         taillightParts.push({ geo: ringG, pos: [tx, tailLampY, hl + 0.015] });
@@ -842,51 +905,88 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
         }),
       );
       const plate = new THREE.Mesh(track(new THREE.BoxGeometry(0.36, 0.11, 0.03)), plateMat);
-      plate.position.set(0, clearance + tailH * 0.34, hl + 0.01);
-      bodyGroup.add(plate);
+      if (rearBumperGroup) {
+        plate.position.set(0, clearance + tailH * 0.34 - (clearance + 0.12), hl + 0.01 - (hl - 0.12));
+        rearBumperGroup.add(plate);
+      } else {
+        plate.position.set(0, clearance + tailH * 0.34, hl + 0.01);
+        bodyGroup.add(plate);
+      }
     }
 
-    // 7. Distinct Class Spoilers & Wings
+    // 7. Distinct Class Spoilers & Wings inside Hinged Detachable spoilerGroup
     if (!isPolice && !lowDetail) {
       const deckY = clearance + tailH;
+      const wingPivotZ = isHatch ? cabEndZ + 0.08 : hl - 0.16;
+      const wingPivotY = isHatch ? roofY : deckY;
+      spoilerGroup = new THREE.Group();
+      spoilerGroup.position.set(0, wingPivotY, wingPivotZ);
+      bodyGroup.add(spoilerGroup);
+
       if (isBossCar) {
         const wingH = 0.32;
-        carbonParts.push(
-          { geo: makeChamferCube(bw * 1.04, 0.045, 0.32, 0.01, false), pos: [0, deckY + wingH, hl - 0.17], rot: [0.10, 0, 0] },
-          { geo: makeChamferCube(bw * 0.96, 0.035, 0.18, 0.01, false), pos: [0, deckY + wingH + 0.08, hl - 0.12], rot: [0.16, 0, 0] },
-          { geo: new THREE.BoxGeometry(0.04, wingH + 0.04, 0.18), pos: [-bw * 0.24, deckY + wingH * 0.5, hl - 0.20] },
-          { geo: new THREE.BoxGeometry(0.04, wingH + 0.04, 0.18), pos: [bw * 0.24, deckY + wingH * 0.5, hl - 0.20] },
+        const mainWing = new THREE.Mesh(
+          track(makeChamferCube(bw * 1.04, 0.045, 0.32, 0.01, false)),
+          carbonMat,
         );
-        solidPaintParts.push(
-          { geo: makeChamferCube(0.04, 0.24, 0.40, 0.01, false), pos: [-bw * 0.52, deckY + wingH + 0.02, hl - 0.16] },
-          { geo: makeChamferCube(0.04, 0.24, 0.40, 0.01, false), pos: [bw * 0.52, deckY + wingH + 0.02, hl - 0.16] },
+        mainWing.position.set(0, wingH, -0.01);
+        mainWing.rotation.x = 0.10;
+        const upperFlap = new THREE.Mesh(
+          track(makeChamferCube(bw * 0.96, 0.035, 0.18, 0.01, false)),
+          carbonMat,
         );
-      } else if (isMuscle) {
-        // Aggressive Kicked-Up Ducktail Block Spoiler
-        solidPaintParts.push({
-          geo: makeChamferCube(bw * 0.90, 0.12, 0.20, 0.02, false),
-          pos: [0, deckY + 0.05, hl - 0.13],
-          rot: [-0.36, 0, 0],
+        upperFlap.position.set(0, wingH + 0.08, 0.04);
+        upperFlap.rotation.x = 0.16;
+        const strutGeo = track(new THREE.BoxGeometry(0.04, wingH + 0.04, 0.18));
+        const endplateGeo = track(makeChamferCube(0.04, 0.24, 0.40, 0.01, false));
+        [-1, 1].forEach((s) => {
+          const st = new THREE.Mesh(strutGeo, carbonMat);
+          st.position.set(s * bw * 0.24, wingH * 0.5, -0.04);
+          const ep = new THREE.Mesh(endplateGeo, solidPaintMat);
+          ep.position.set(s * bw * 0.52, wingH + 0.02, 0);
+          spoilerGroup!.add(st, ep);
         });
+        spoilerGroup.add(mainWing, upperFlap);
+      } else if (isMuscle) {
+        const duck = new THREE.Mesh(
+          track(makeChamferCube(bw * 0.90, 0.12, 0.20, 0.02, false)),
+          solidPaintMat,
+        );
+        duck.position.set(0, 0.05, 0.03);
+        duck.rotation.x = -0.36;
+        spoilerGroup.add(duck);
       } else if (isHatch) {
-        // Roof-mounted Hot-Hatch Box Spoiler
-        solidPaintParts.push(
-          { geo: makeChamferCube(cabW * 0.98, 0.07, 0.28, 0.015, false), pos: [0, roofY + 0.04, cabEndZ + 0.08], rot: [0.12, 0, 0] },
-          { geo: new THREE.BoxGeometry(0.04, 0.12, 0.26), pos: [-cabW * 0.48, roofY + 0.02, cabEndZ + 0.08] },
-          { geo: new THREE.BoxGeometry(0.04, 0.12, 0.26), pos: [cabW * 0.48, roofY + 0.02, cabEndZ + 0.08] },
+        const roofWing = new THREE.Mesh(
+          track(makeChamferCube(cabW * 0.98, 0.07, 0.28, 0.015, false)),
+          solidPaintMat,
         );
+        roofWing.position.set(0, 0.04, 0);
+        roofWing.rotation.x = 0.12;
+        const sideGeo = track(new THREE.BoxGeometry(0.04, 0.12, 0.26));
+        [-1, 1].forEach((s) => {
+          const st = new THREE.Mesh(sideGeo, solidPaintMat);
+          st.position.set(s * cabW * 0.48, 0.02, 0);
+          spoilerGroup!.add(st);
+        });
+        spoilerGroup.add(roofWing);
       } else {
-        // Tall Boxy WRC / GT Rear Wing
         const wingH = isGtr || isSedan ? 0.28 : 0.22;
-        carbonParts.push(
-          { geo: makeChamferCube(bw * 0.94, 0.045, 0.28, 0.01, false), pos: [0, deckY + wingH, hl - 0.16], rot: [0.09, 0, 0] },
-          { geo: new THREE.BoxGeometry(0.042, wingH, 0.15), pos: [-bw * 0.24, deckY + wingH * 0.5, hl - 0.18] },
-          { geo: new THREE.BoxGeometry(0.042, wingH, 0.15), pos: [bw * 0.24, deckY + wingH * 0.5, hl - 0.18] },
+        const blade = new THREE.Mesh(
+          track(makeChamferCube(bw * 0.94, 0.045, 0.28, 0.01, false)),
+          carbonMat,
         );
-        solidPaintParts.push(
-          { geo: new THREE.BoxGeometry(0.04, 0.18, 0.34), pos: [-bw * 0.47, deckY + wingH, hl - 0.16] },
-          { geo: new THREE.BoxGeometry(0.04, 0.18, 0.34), pos: [bw * 0.47, deckY + wingH, hl - 0.16] },
-        );
+        blade.position.set(0, wingH, 0);
+        blade.rotation.x = 0.09;
+        const strutGeo = track(new THREE.BoxGeometry(0.042, wingH, 0.15));
+        const endGeo = track(new THREE.BoxGeometry(0.04, 0.18, 0.34));
+        [-1, 1].forEach((s) => {
+          const st = new THREE.Mesh(strutGeo, carbonMat);
+          st.position.set(s * bw * 0.24, wingH * 0.5, -0.02);
+          const ep = new THREE.Mesh(endGeo, solidPaintMat);
+          ep.position.set(s * bw * 0.47, wingH, 0);
+          spoilerGroup!.add(st, ep);
+        });
+        spoilerGroup.add(blade);
       }
     }
   }
@@ -1167,6 +1267,11 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
   return {
     root,
     bodyGroup,
+    hoodGroup,
+    frontBumperGroup,
+    rearBumperGroup,
+    spoilerGroup,
+    paintHex,
     bodyMaterials: [paintMat, solidPaintMat],
     rimMaterials: [rimMat],
     brakeLightMat,
@@ -1185,4 +1290,55 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
     lightbarHaloBlue,
     dispose: () => disposables.forEach((d) => d.dispose()),
   };
+}
+
+/**
+ * Zero-allocation visual chassis deformation & detachable part visibility updater.
+ */
+export function applyCarVisualDamage(
+  visual: CarVisualHandles,
+  frontDmg: number,
+  rearDmg: number,
+  sideDmg: number,
+  detachedHood: boolean,
+  detachedFrontBumper: boolean,
+  detachedRearBumper: boolean,
+  detachedSpoiler: boolean,
+): void {
+  // Subtle crumpled chassis compression & panel twist on heavy impacts
+  const zComp = 1 - Math.min(0.055, (frontDmg + rearDmg) * 0.025);
+  const ySquash = 1 + Math.min(0.02, (frontDmg + rearDmg) * 0.008);
+  const xComp = 1 - Math.min(0.035, sideDmg * 0.03);
+  visual.bodyGroup.scale.set(xComp, ySquash, zComp);
+
+  if (visual.hoodGroup) {
+    visual.hoodGroup.visible = !detachedHood;
+    if (!detachedHood) {
+      visual.hoodGroup.rotation.x = frontDmg * 0.24; // buckles upward at front edge
+      visual.hoodGroup.rotation.z = sideDmg * 0.04;
+    }
+  }
+  if (visual.frontBumperGroup) {
+    visual.frontBumperGroup.visible = !detachedFrontBumper;
+    if (!detachedFrontBumper) {
+      visual.frontBumperGroup.rotation.x = -frontDmg * 0.22; // sags forward/down
+      visual.frontBumperGroup.rotation.z = sideDmg * 0.09;
+      const baseZ = (visual.frontBumperGroup.userData.baseZ as number | undefined) ?? 0;
+      visual.frontBumperGroup.position.z = baseZ + frontDmg * 0.08;
+    }
+  }
+  if (visual.rearBumperGroup) {
+    visual.rearBumperGroup.visible = !detachedRearBumper;
+    if (!detachedRearBumper) {
+      visual.rearBumperGroup.rotation.x = rearDmg * 0.22;
+      visual.rearBumperGroup.rotation.z = -sideDmg * 0.08;
+    }
+  }
+  if (visual.spoilerGroup) {
+    visual.spoilerGroup.visible = !detachedSpoiler;
+    if (!detachedSpoiler) {
+      visual.spoilerGroup.rotation.z = sideDmg * 0.16 + rearDmg * 0.08;
+      visual.spoilerGroup.rotation.x = -rearDmg * 0.14;
+    }
+  }
 }

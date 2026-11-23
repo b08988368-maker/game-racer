@@ -13,6 +13,7 @@ import {
   Lock,
   Music,
   Play,
+  Settings,
   Shield,
   ShieldAlert,
   SkipForward,
@@ -79,6 +80,7 @@ interface Props {
   currentTrackLabel?: string;
   garagePreset?: GarageCameraPreset;
   onSelectGaragePreset?: (preset: GarageCameraPreset) => void;
+  onOpenSettings?: () => void;
   onSignIn: () => void;
   onSignOut: () => void;
   onSelectCar: (carId: string) => void;
@@ -114,6 +116,7 @@ export const MainMenuGarage: React.FC<Props> = ({
   currentTrackLabel,
   garagePreset = 'orbit',
   onSelectGaragePreset,
+  onOpenSettings,
   onSignIn,
   onSignOut,
   onSelectCar,
@@ -319,6 +322,20 @@ export const MainMenuGarage: React.FC<Props> = ({
           >
             {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </button>
+          {onOpenSettings && (
+            <button
+              type="button"
+              onClick={() => {
+                soundEngine.triggerUiClick();
+                onOpenSettings();
+              }}
+              title="Driver, Graphics & Control Settings"
+              aria-label="Open Settings"
+              className="p-2.5 nfs-chamfer-sm nfs-carbon-bg border border-white/18 text-slate-200 hover:text-amber-400 hover:border-amber-400/60 transition-colors cursor-pointer"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+          )}
 
           {traxPickerOpen && (
             <div className="absolute right-0 top-12 w-72 max-h-72 overflow-y-auto nfs-chamfer nfs-carbon-bg border border-amber-400/45 p-2 shadow-2xl z-30 nfs-anim-tab-enter space-y-1">

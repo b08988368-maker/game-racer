@@ -8,9 +8,23 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { musicEngine } from './audio/musicEngine';
 import { soundEngine } from './audio/soundEngine';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { LiveTuningPanel } from './components/LiveTuningPanel';
 import { MainMenuGarage, MenuTab } from './components/MainMenuGarage';
 import { PauseModal, PostRaceModal } from './components/PostRaceModal';
 import { RaceHUD } from './components/RaceHUD';
+import { SettingsModal } from './components/SettingsModal';
+import { AiSettings, DEFAULT_AI_SETTINGS } from './config/aiConfig';
+import { HANDLING_PRESETS, HandlingMode } from './config/physicsConfig';
+import {
+  ControlAction,
+  getDefaultControlBindings,
+  GraphicsQuality,
+  loadDriverSettings,
+  PersistedDriverSettings,
+  saveDriverSettings,
+  TouchControlsMode,
+} from './config/settingsConfig';
+import { WeatherMode } from './config/weatherConfig';
 import {
   CARS,
   getDefaultCarConfig,
@@ -30,6 +44,7 @@ import {
 } from './services/firebase';
 import { RacingEngine, RaceStartParams } from './three/RacingEngine';
 import {
+  AssistSettings,
   BlacklistRival,
   CareerProfile,
   EnvironmentId,
@@ -37,6 +52,7 @@ import {
   GarageCarConfig,
   LeaderboardEntry,
   MissionDefinition,
+  PhysicsTuningParams,
   RaceMode,
   RaceResult,
   RaceTelemetry,
@@ -98,7 +114,18 @@ function GameRoot() {
   const [musicMuted, setMusicMuted] = useState(false);
   const [currentTrackLabel, setCurrentTrackLabel] = useState(() => musicEngine.getCurrentTrackLabel());
   const [showDebug, setShowDebug] = useState(false);
+  const [aiDebugOpen, setAiDebugOpen] = useState(false);
+  const [tuningOpen, setTuningOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [aeLookEnabled, setAeLookEnabled] = useState<boolean>(() => loadAeLookSetting());
+  const [driverSettings, setDriverSettings] = useState<PersistedDriverSettings>(() =>
+    loadDriverSettings(loadAeLookSetting()),
+  );
+  const [gamepadState, setGamepadState] = useState<{ connected: boolean; id: string | null }>({
+    connected: false,
+    id: null,
+  });
+  const isCapturingKeyRef = useRef(false);
 
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
@@ -114,6 +141,8 @@ function GameRoot() {
   const [activeRaceParams, setActiveRaceParams] = useState<RaceStartParams | null>(null);
   const [telemetry, setTelemetry] = useState<RaceTelemetry | null>(null);
   const [raceResult, setRaceResult] = useState<RaceResult | null>(null);
+  const [isNewGhostRecord, setIsNewGhostRecord] = useState(false);
+  const [ghostCopied, setGhostCopied] = useState(false);
   const [outroRevealReady, setOutroRevealReady] = useState(false);
   const [garagePreset, setGaragePreset] = useState<GarageCameraPreset>('orbit');
 
@@ -228,8 +257,37 @@ function GameRoot() {
     const engine = new RacingEngine(canvasMountRef.current, {
       onTelemetry: (t) => setTelemetry(t),
       onRaceComplete: (res) => handleRaceComplete(res),
+      onToggleTuning: () => setTuningOpen((prev) => !prev),
+      onToggleTelemetry: () => setShowDebug((prev) => !prev),
+      onToggleAiDebug: () => setAiDebugOpen((prev) => !prev),
+      onToggleGhost: (enabled) =>
+        setDriverSettings((prev) => ({
+          ...prev,
+          showGhost: enabled,
+        })),
+      onGhostSaved: (isNewRec) => setIsNewGhostRecord(isNewRec),
+      onPauseRequest: () => {
+        setPaused((prev) => {
+          const next = !prev;
+          engineRef.current?.setPaused(next);
+          return next;
+        });
+      },
+      onAutoPause: () => setPaused(true),
+      onGamepadChange: (connected, id) => setGamepadState({ connected, id }),
     });
     engine.setAeLookEnabled(aeLookEnabled);
+    engine.setHandlingMode(driverSettings.handlingMode);
+    engine.setAssists(driverSettings.assists);
+    engine.setPhysicsTuning(driverSettings.tuning);
+    engine.setGraphicsQuality(driverSettings.graphicsQuality);
+    engine.setControlBindings(driverSettings.controlBindings);
+    engine.setAiSettings(driverSettings.aiSettings);
+    engine.setShowGhost(driverSettings.showGhost);
+    engine.setSkipCountdownOnRestart(driverSettings.skipCountdownOnRestart);
+    engine.setWeatherMode(driverSettings.weatherMode);
+    engine.setDynamicDayNight(driverSettings.dynamicDayNight);
+    engine.setPoliceEnabled(driverSettings.policeEnabled);
     engineRef.current = engine;
 
     const spec = CARS.find((c) => c.id === profileRef.current.selectedCarId) ?? CARS[0];
@@ -242,6 +300,29 @@ function GameRoot() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Persist & sync U1/U2/U3 driver settings to RacingEngine whenever updated
+  useEffect(() => {
+    saveDriverSettings(driverSettings);
+    const engine = engineRef.current;
+    if (!engine) return;
+    engine.setHandlingMode(driverSettings.handlingMode);
+    engine.setAssists(driverSettings.assists);
+    engine.setPhysicsTuning(driverSettings.tuning);
+    engine.setGraphicsQuality(driverSettings.graphicsQuality);
+    engine.setControlBindings(driverSettings.controlBindings);
+    engine.setAiSettings(driverSettings.aiSettings);
+    engine.setShowGhost(driverSettings.showGhost);
+    engine.setSkipCountdownOnRestart(driverSettings.skipCountdownOnRestart);
+    engine.setWeatherMode(driverSettings.weatherMode);
+    engine.setDynamicDayNight(driverSettings.dynamicDayNight);
+    engine.setPoliceEnabled(driverSettings.policeEnabled);
+  }, [driverSettings]);
+
+  // Sync 3D AI debug racing-line ribbons visibility
+  useEffect(() => {
+    engineRef.current?.setAiDebugVisible(aiDebugOpen);
+  }, [aiDebugOpen]);
 
   // Sync garage 3D car whenever selected car or customization changes on menu screen
   useEffect(() => {
@@ -304,23 +385,27 @@ function GameRoot() {
     });
   }, []);
 
-  // Escape key pause toggle and F3 FPS/debug overlay toggle during race
+  // Escape key closes SettingsModal or toggles Pause during race (respects active keybind capture)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && screen === 'race' && !raceResult) {
-        setPaused((prev) => {
-          const next = !prev;
-          engineRef.current?.setPaused(next);
-          return next;
-        });
-      } else if (e.key === 'F3' && screen === 'race') {
-        e.preventDefault();
-        setShowDebug((prev) => !prev);
+      if (isCapturingKeyRef.current) return;
+      if (e.key === 'Escape') {
+        if (settingsOpen) {
+          setSettingsOpen(false);
+          return;
+        }
+        if (screen === 'race' && !raceResult) {
+          setPaused((prev) => {
+            const next = !prev;
+            engineRef.current?.setPaused(next);
+            return next;
+          });
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [screen, raceResult]);
+  }, [screen, raceResult, settingsOpen]);
 
   const handleToggleMute = () => {
     soundEngine.init();
@@ -359,8 +444,148 @@ function GameRoot() {
       } catch {
         // ignore storage errors
       }
+      const presetKeys = getDefaultControlBindings(next);
+      setDriverSettings((s) => ({
+        ...s,
+        controlBindings: {
+          ...s.controlBindings,
+          left: presetKeys.left,
+          right: presetKeys.right,
+          lookLeft: presetKeys.lookLeft,
+        },
+      }));
       return next;
     });
+  };
+
+  const handleSelectHandlingMode = (mode: HandlingMode) => {
+    const preset = HANDLING_PRESETS[mode];
+    setDriverSettings((prev) => ({
+      ...prev,
+      handlingMode: mode,
+      tuning: { ...preset.tuning },
+      assists: { ...preset.defaultAssists },
+    }));
+  };
+
+  const handleResetModePreset = () => {
+    setDriverSettings((prev) => {
+      const preset = HANDLING_PRESETS[prev.handlingMode];
+      return {
+        ...prev,
+        tuning: { ...preset.tuning },
+        assists: { ...preset.defaultAssists },
+      };
+    });
+  };
+
+  const handleToggleAssist = (key: keyof AssistSettings) => {
+    setDriverSettings((prev) => ({
+      ...prev,
+      assists: {
+        ...prev.assists,
+        [key]: !prev.assists[key],
+      },
+    }));
+  };
+
+  const handleChangeTuning = (key: keyof PhysicsTuningParams, value: number) => {
+    setDriverSettings((prev) => ({
+      ...prev,
+      tuning: {
+        ...prev.tuning,
+        [key]: value,
+      },
+    }));
+  };
+
+  const handleChangeGraphicsQuality = (graphicsQuality: GraphicsQuality) => {
+    setDriverSettings((prev) => ({ ...prev, graphicsQuality }));
+  };
+
+  const handleChangeTouchControlsMode = (touchControlsMode: TouchControlsMode) => {
+    setDriverSettings((prev) => ({ ...prev, touchControlsMode }));
+  };
+
+  const handleUpdateBinding = useCallback(
+    (action: ControlAction, slot: 'primary' | 'secondary', code: string | undefined) => {
+      setDriverSettings((prev) => ({
+        ...prev,
+        controlBindings: {
+          ...prev.controlBindings,
+          [action]: {
+            ...prev.controlBindings[action],
+            [slot]: code,
+          },
+        },
+      }));
+    },
+    [],
+  );
+
+  const handleResetBindings = () => {
+    setDriverSettings((prev) => ({
+      ...prev,
+      controlBindings: getDefaultControlBindings(aeLookEnabled),
+    }));
+  };
+
+  const handleChangeAiSettings = (patch: Partial<AiSettings>) => {
+    setDriverSettings((prev) => ({
+      ...prev,
+      aiSettings: {
+        ...prev.aiSettings,
+        ...patch,
+      },
+    }));
+  };
+
+  const handleResetAiSettings = () => {
+    setDriverSettings((prev) => ({
+      ...prev,
+      aiSettings: { ...DEFAULT_AI_SETTINGS },
+    }));
+  };
+
+  const handleToggleShowGhost = () => {
+    setDriverSettings((prev) => ({ ...prev, showGhost: !prev.showGhost }));
+  };
+
+  const handleToggleSkipCountdown = () => {
+    setDriverSettings((prev) => ({ ...prev, skipCountdownOnRestart: !prev.skipCountdownOnRestart }));
+  };
+
+  const handleChangeWeatherMode = (weatherMode: WeatherMode) => {
+    setDriverSettings((prev) => ({ ...prev, weatherMode }));
+  };
+
+  const handleToggleDynamicDayNight = () => {
+    setDriverSettings((prev) => ({ ...prev, dynamicDayNight: !prev.dynamicDayNight }));
+  };
+
+  const handleTogglePoliceEnabled = () => {
+    setDriverSettings((prev) => ({ ...prev, policeEnabled: !prev.policeEnabled }));
+  };
+
+  const handleInstantRestart = () => {
+    setRaceResult(null);
+    setIsNewGhostRecord(false);
+    setGhostCopied(false);
+    setOutroRevealReady(false);
+    setPaused(false);
+    engineRef.current?.instantRestartRace();
+  };
+
+  const handleExportCurrentGhost = async () => {
+    const json = engineRef.current?.exportBestGhostJson();
+    if (!json) return;
+    try {
+      await navigator.clipboard.writeText(json);
+      setGhostCopied(true);
+      window.setTimeout(() => setGhostCopied(false), 2000);
+    } catch {
+      // ignore clipboard errors
+    }
   };
 
   const handleSelectGaragePreset = (preset: GarageCameraPreset) => {
@@ -481,11 +706,16 @@ function GameRoot() {
     soundEngine.init();
     const spec = CARS.find((c) => c.id === profile.selectedCarId) ?? CARS[0];
     const cfg = garageConfigs[spec.id] ?? getDefaultCarConfig(spec.id, profile.uid);
+    const isMandatoryPursuit =
+      mode === 'pursuit' ||
+      mission?.type === 'pursuit_milestone' ||
+      Boolean(mission?.targetTakedowns) ||
+      (mission?.minHeat ?? 0) >= 2;
     const params: RaceStartParams = {
       mode,
       trackId,
       environment,
-      patrolsEnabled,
+      patrolsEnabled: patrolsEnabled && (driverSettings.policeEnabled || isMandatoryPursuit),
       playerSpec: spec,
       playerConfig: cfg,
       rival,
@@ -493,6 +723,8 @@ function GameRoot() {
     };
     setActiveRaceParams(params);
     setRaceResult(null);
+    setIsNewGhostRecord(false);
+    setGhostCopied(false);
     setOutroRevealReady(false);
     setPaused(false);
     setScreen('race');
@@ -535,6 +767,7 @@ function GameRoot() {
           currentTrackLabel={currentTrackLabel}
           garagePreset={garagePreset}
           onSelectGaragePreset={handleSelectGaragePreset}
+          onOpenSettings={() => setSettingsOpen(true)}
           onSignIn={handleSignIn}
           onSignOut={handleSignOut}
           onSelectCar={handleSelectCar}
@@ -553,8 +786,26 @@ function GameRoot() {
           muted={muted}
           musicMuted={musicMuted}
           showDebug={showDebug}
+          aiDebugOpen={aiDebugOpen}
+          tuningOpen={tuningOpen}
           aeLookEnabled={aeLookEnabled}
+          touchControlsMode={driverSettings.touchControlsMode}
+          controlBindings={driverSettings.controlBindings}
           onToggleAeLook={handleToggleAeLook}
+          onToggleTuning={() => setTuningOpen((prev) => !prev)}
+          onToggleDebug={() => setShowDebug((prev) => !prev)}
+          onToggleAiDebug={() => setAiDebugOpen((prev) => !prev)}
+          onToggleGhost={handleToggleShowGhost}
+          onRewind={() => {
+            soundEngine.init();
+            engineRef.current?.triggerRewind();
+          }}
+          onInstantRestart={handleInstantRestart}
+          onOpenSettings={() => {
+            setPaused(true);
+            engineRef.current?.setPaused(true);
+            setSettingsOpen(true);
+          }}
           onToggleMute={handleToggleMute}
           onToggleMusicMute={handleToggleMusicMute}
           onSkipTrack={handleSkipTrack}
@@ -573,22 +824,34 @@ function GameRoot() {
         />
       )}
 
-      {screen === 'race' && paused && !raceResult && (
+      {screen === 'race' && tuningOpen && !raceResult && (
+        <LiveTuningPanel
+          handlingMode={driverSettings.handlingMode}
+          assists={driverSettings.assists}
+          tuning={driverSettings.tuning}
+          onSelectMode={handleSelectHandlingMode}
+          onToggleAssist={handleToggleAssist}
+          onChangeTuning={handleChangeTuning}
+          onResetModePreset={handleResetModePreset}
+          onClose={() => setTuningOpen(false)}
+        />
+      )}
+
+      {screen === 'race' && paused && !settingsOpen && !raceResult && (
         <PauseModal
           aeLookEnabled={aeLookEnabled}
           onToggleAeLook={handleToggleAeLook}
+          onOpenTuning={() => {
+            setPaused(false);
+            engineRef.current?.setPaused(false);
+            setTuningOpen(true);
+          }}
+          onOpenSettings={() => setSettingsOpen(true)}
           onResume={() => {
             setPaused(false);
             engineRef.current?.setPaused(false);
           }}
-          onRestart={() => {
-            if (activeRaceParams) {
-              setRaceResult(null);
-              setOutroRevealReady(false);
-              setPaused(false);
-              engineRef.current?.startRace(activeRaceParams);
-            }
-          }}
+          onRestart={handleInstantRestart}
           onQuit={handleReturnToGarage}
         />
       )}
@@ -597,15 +860,48 @@ function GameRoot() {
         <PostRaceModal
           result={raceResult}
           profile={profile}
-          onRaceAgain={() => {
-            if (activeRaceParams) {
-              setRaceResult(null);
-              setOutroRevealReady(false);
-              setPaused(false);
-              engineRef.current?.startRace(activeRaceParams);
-            }
-          }}
+          isNewGhostRecord={isNewGhostRecord}
+          ghostCopied={ghostCopied}
+          onExportGhost={telemetry?.hasBestGhost ? () => void handleExportCurrentGhost() : undefined}
+          onRaceAgain={handleInstantRestart}
           onReturnGarage={handleReturnToGarage}
+        />
+      )}
+
+      {settingsOpen && (
+        <SettingsModal
+          graphicsQuality={driverSettings.graphicsQuality}
+          touchControlsMode={driverSettings.touchControlsMode}
+          handlingMode={driverSettings.handlingMode}
+          assists={driverSettings.assists}
+          controlBindings={driverSettings.controlBindings}
+          aiSettings={driverSettings.aiSettings}
+          showGhost={driverSettings.showGhost}
+          skipCountdownOnRestart={driverSettings.skipCountdownOnRestart}
+          weatherMode={driverSettings.weatherMode}
+          dynamicDayNight={driverSettings.dynamicDayNight}
+          policeEnabled={driverSettings.policeEnabled}
+          aeLookEnabled={aeLookEnabled}
+          gamepadConnected={gamepadState.connected}
+          gamepadId={gamepadState.id}
+          onChangeGraphicsQuality={handleChangeGraphicsQuality}
+          onChangeTouchControlsMode={handleChangeTouchControlsMode}
+          onSelectHandlingMode={handleSelectHandlingMode}
+          onToggleAssist={handleToggleAssist}
+          onUpdateBinding={handleUpdateBinding}
+          onResetBindings={handleResetBindings}
+          onChangeAiSettings={handleChangeAiSettings}
+          onResetAiSettings={handleResetAiSettings}
+          onToggleShowGhost={handleToggleShowGhost}
+          onToggleSkipCountdown={handleToggleSkipCountdown}
+          onChangeWeatherMode={handleChangeWeatherMode}
+          onToggleDynamicDayNight={handleToggleDynamicDayNight}
+          onTogglePoliceEnabled={handleTogglePoliceEnabled}
+          onToggleAeLook={handleToggleAeLook}
+          onCapturingChange={(capturing) => {
+            isCapturingKeyRef.current = capturing;
+          }}
+          onClose={() => setSettingsOpen(false)}
         />
       )}
     </div>

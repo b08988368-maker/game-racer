@@ -133,6 +133,7 @@ export interface BuiltTrack {
   totalLength: number;
   roadHalfWidth: number;
   barrierHalfWidth: number;
+  roadMat: THREE.MeshStandardMaterial;
   speedTraps: SpeedTrap[];
   pursuitBreakers: PursuitBreaker[];
   cooldownZones: CooldownZone[];
@@ -4777,6 +4778,7 @@ export function buildTrack(
     totalLength,
     roadHalfWidth,
     barrierHalfWidth,
+    roadMat,
     speedTraps,
     pursuitBreakers,
     cooldownZones,
