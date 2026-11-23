@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   Camera,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -14,6 +15,7 @@ import {
   Music,
   Play,
   Settings,
+  Share2,
   Shield,
   ShieldAlert,
   SkipForward,
@@ -134,6 +136,41 @@ export const MainMenuGarage: React.FC<Props> = ({
   const [garageSection, setGarageSection] = useState<'vehicles' | 'performance' | 'visuals'>('vehicles');
   const [focusedMissionId, setFocusedMissionId] = useState<string | null>(null);
   const [traxPickerOpen, setTraxPickerOpen] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+
+  const SHARE_GAME_URL =
+    typeof window !== 'undefined' &&
+    !window.location.origin.includes('ais-dev-') &&
+    !window.location.origin.includes('localhost') &&
+    !window.location.origin.includes('127.0.0.1')
+      ? window.location.origin
+      : 'https://ais-pre-pmxtegnkqumdmtptkzrsso-959572528567.europe-west2.run.app';
+
+  const handleCopyShareLink = () => {
+    soundEngine.triggerUiClick();
+    const markCopied = () => {
+      setShareCopied(true);
+      window.setTimeout(() => setShareCopied(false), 2400);
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(SHARE_GAME_URL).then(markCopied).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = SHARE_GAME_URL;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand('copy');
+          markCopied();
+        } finally {
+          document.body.removeChild(ta);
+        }
+      });
+    } else {
+      markCopied();
+    }
+  };
 
   const activeSpec = CARS.find((c) => c.id === profile.selectedCarId) ?? CARS[0];
   const activeConfig = garageConfigs[activeSpec.id];
@@ -158,18 +195,18 @@ export const MainMenuGarage: React.FC<Props> = ({
 
   return (
     <div className="pointer-events-none fixed inset-0 z-10 flex flex-col justify-between">
-      {/* Top Bar: Strict 3-Zone Tactical Command Header */}
-      <header className="pointer-events-auto flex items-center justify-between gap-6 px-6 py-3 nfs-carbon-bg border-b-2 border-amber-400/70 nfs-anim-slide-down">
+      {/* Top Bar: Compact Command Header */}
+      <header className="pointer-events-auto flex items-center justify-between gap-4 px-5 py-2 nfs-carbon-bg border-b-2 border-amber-400/70 nfs-anim-slide-down">
         {/* Zone 1: Single-line Wordmark */}
-        <div className="font-display italic text-xl font-bold tracking-wider text-white whitespace-nowrap shrink-0 flex items-center gap-2">
+        <div className="font-display italic text-lg font-bold tracking-wider text-white whitespace-nowrap shrink-0 flex items-center gap-2">
           <span>BLACKLIST</span>
-          <span className="px-2 py-0.5 nfs-chamfer-sm bg-amber-400 text-black text-sm font-black not-italic tracking-widest">
+          <span className="px-2 py-0.5 nfs-chamfer-sm bg-amber-400 text-black text-xs font-black not-italic tracking-widest">
             ROCKPORT
           </span>
         </div>
 
         {/* Zone 2: 5 Single-line Nav Links */}
-        <nav className="flex items-center gap-6 text-xs sm:text-sm font-display uppercase tracking-wider font-bold">
+        <nav className="flex items-center gap-5 text-xs font-display uppercase tracking-wider font-bold">
           {(
             [
               { id: 'missions', label: 'Career' },
@@ -202,14 +239,28 @@ export const MainMenuGarage: React.FC<Props> = ({
           ))}
         </nav>
 
-        {/* Zone 3: 1 Primary Account Action */}
-        <div className="flex items-center shrink-0">
+        {/* Zone 3: Share & Account Actions */}
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={handleCopyShareLink}
+            title={`Copy game link: ${SHARE_GAME_URL}`}
+            className={`px-2.5 py-1.5 text-xs font-display uppercase tracking-wider font-bold border nfs-chamfer-sm transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 cursor-pointer ${
+              shareCopied
+                ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+                : 'bg-[#181C26] border-white/20 text-slate-200 hover:border-cyan-400 hover:text-cyan-300'
+            }`}
+          >
+            {shareCopied ? <Check className="w-3.5 h-3.5" /> : <Share2 className="w-3.5 h-3.5" />}
+            <span>{shareCopied ? 'Link Copied!' : 'Share'}</span>
+          </button>
+
           {isSignedIn ? (
             <button
               type="button"
               onClick={onSignOut}
               disabled={authBusy}
-              className="px-4 py-2 text-xs font-display uppercase tracking-wider font-bold text-slate-200 bg-[#181C26] border border-white/20 nfs-chamfer-sm hover:border-amber-400 hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="px-3 py-1.5 text-xs font-display uppercase tracking-wider font-bold text-slate-200 bg-[#181C26] border border-white/20 nfs-chamfer-sm hover:border-amber-400 hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               {profile.driverName} · Sign Out
             </button>
@@ -218,7 +269,7 @@ export const MainMenuGarage: React.FC<Props> = ({
               type="button"
               onClick={onSignIn}
               disabled={authBusy}
-              className="px-4 py-2 text-xs font-display uppercase tracking-wider font-bold text-black bg-amber-400 nfs-chamfer-sm hover:bg-amber-300 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="px-3 py-1.5 text-xs font-display uppercase tracking-wider font-bold text-black bg-amber-400 nfs-chamfer-sm hover:bg-amber-300 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               {authBusy ? 'Connecting...' : 'Save Career'}
             </button>
@@ -227,21 +278,21 @@ export const MainMenuGarage: React.FC<Props> = ({
       </header>
 
       {/* Top-Left Driver Telemetry Block & Top-Right Audio + EA Trax Picker */}
-      <div className="flex items-start justify-between px-6 pt-3">
-        <div className="pointer-events-auto nfs-chamfer nfs-carbon-bg border border-white/15 border-l-4 border-l-amber-400 px-4 py-2.5 space-y-1 max-w-sm nfs-anim-slide-up">
-          <div className="text-xs text-slate-300 flex items-center gap-2 font-display uppercase tracking-wide">
+      <div className="flex items-start justify-between px-5 pt-2">
+        <div className="pointer-events-auto nfs-chamfer nfs-carbon-bg border border-white/15 border-l-4 border-l-amber-400 px-3 py-1.5 space-y-0.5 max-w-xs nfs-anim-slide-up">
+          <div className="text-[11px] text-slate-300 flex items-center gap-2 font-display uppercase tracking-wide">
             <span className="text-white font-bold truncate">{activeSpec.name}</span>
             <span className="text-slate-600" aria-hidden="true">|</span>
             <span className="text-amber-400 font-bold">
-              {currentRank <= 10 ? `Rank #${currentRank}` : 'Challenger'}
+              {currentRank <= 10 ? `#${currentRank}` : 'Challenger'}
             </span>
           </div>
-          <div className="flex items-center gap-3 text-sm font-mono-tabular">
+          <div className="flex items-center gap-2.5 text-xs font-mono-tabular">
             <span className="text-emerald-400 font-bold">{formatCurrency(profile.cash)}</span>
             <span className="text-slate-600" aria-hidden="true">/</span>
-            <span className="text-amber-400 font-bold">{formatCurrency(profile.totalBounty)} Bounty</span>
+            <span className="text-amber-400 font-bold">{formatCurrency(profile.totalBounty)}</span>
             <span className="text-slate-600" aria-hidden="true">/</span>
-            <span className="text-slate-200 text-xs">{completedMissionIds.length}/{NFS_MISSIONS.length} Missions</span>
+            <span className="text-slate-200 text-[11px]">{completedMissionIds.length}/{NFS_MISSIONS.length}M</span>
           </div>
           {nextRival ? (
             <div className="text-[11px] font-mono-tabular pt-0.5 text-slate-300">
@@ -373,8 +424,8 @@ export const MainMenuGarage: React.FC<Props> = ({
       </div>
 
       {/* Collapsible Bottom Command Dock */}
-      <div className="flex flex-col items-center pb-4 px-4">
-        <div className="pointer-events-auto mb-1.5 flex items-center gap-2 flex-wrap justify-center">
+      <div className="flex flex-col items-center pb-3 px-4">
+        <div className="pointer-events-auto mb-1 flex items-center gap-2 flex-wrap justify-center">
           {onSelectGaragePreset && (
             <div className="flex items-center gap-1 p-0.5 nfs-chamfer-sm nfs-carbon-bg border border-white/15 text-[10px] font-display uppercase tracking-wider font-bold">
               <Camera className="w-3.5 h-3.5 text-amber-400 ml-1.5 mr-0.5" />
@@ -404,20 +455,21 @@ export const MainMenuGarage: React.FC<Props> = ({
               soundEngine.triggerUiClick();
               setDockCollapsed((v) => !v);
             }}
+            aria-expanded={!dockCollapsed}
             className="px-4 py-1 nfs-chamfer-sm nfs-carbon-bg border border-white/18 border-t-2 border-t-amber-400/70 text-[11px] font-display uppercase tracking-wider font-bold text-slate-200 hover:text-amber-300 flex items-center gap-1.5 transition-colors cursor-pointer"
           >
             {dockCollapsed ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            <span>{dockCollapsed ? 'Open Command Dock' : 'Minimize Dock'}</span>
+            <span>{dockCollapsed ? 'Open Menu' : 'Show 3D Car'}</span>
           </button>
         </div>
 
         {!dockCollapsed && (
           <section
             aria-label="Garage and Race Dock"
-            className="pointer-events-auto w-full max-w-[1100px] nfs-chamfer nfs-carbon-bg border border-white/15 border-t-2 border-t-amber-400 shadow-2xl overflow-hidden nfs-anim-slide-up"
+            className="pointer-events-auto w-full max-w-[960px] nfs-chamfer nfs-carbon-bg border border-white/15 border-t-2 border-t-amber-400 shadow-2xl overflow-hidden nfs-anim-slide-up"
           >
             <div className="h-1 w-full nfs-hazard-stripe border-b border-white/10" />
-            <div key={activeTab} className="p-4 sm:p-5 nfs-anim-tab-enter">
+            <div key={activeTab} className="p-3 sm:p-3.5 nfs-anim-tab-enter">
               {/* CAREER MISSIONS TAB (50 Creative Missions + HOW TO WIN Briefing Panel) */}
               {activeTab === 'missions' && (() => {
                 const activeMinTier = nextRival ? nextRival.rank : 1;
@@ -542,9 +594,9 @@ export const MainMenuGarage: React.FC<Props> = ({
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-stretch">
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-stretch">
                       {/* Left: 5 Tier Missions Selector List */}
-                      <div className="md:col-span-5 max-h-[252px] overflow-y-auto pr-1 space-y-1.5">
+                      <div className="md:col-span-5 max-h-[188px] overflow-y-auto pr-1 space-y-1">
                         {tierMissions.map((mission) => {
                           const isDone = completedMissionIds.includes(mission.id);
                           const isFocused = mission.id === focusedMission.id;
@@ -592,7 +644,7 @@ export const MainMenuGarage: React.FC<Props> = ({
                         <div className="space-y-2">
                           <div className="flex items-center justify-between gap-2 text-[10px] font-mono-tabular uppercase">
                             <span className="px-1.5 py-0.5 bg-cyan-400/20 text-cyan-300 font-bold">
-                              M{focusedMission.order} BRIEFING · {formatMissionTypeLabel(focusedMission.type)}
+                              M{focusedMission.order} BRIEFING · REC STAGE {Math.min(4, Math.max(1, focusedMission.aiTierBoost + 1))}+
                             </span>
                             <span className="text-emerald-400 font-bold">
                               +{formatCurrency(focusedMission.cashReward)} · +{formatCurrency(focusedMission.bountyReward)}
@@ -629,6 +681,7 @@ export const MainMenuGarage: React.FC<Props> = ({
 
                         <button
                           type="button"
+                          data-start="true"
                           onClick={() =>
                             onStartRace(
                               focusedMode,
@@ -722,21 +775,6 @@ export const MainMenuGarage: React.FC<Props> = ({
                             </>
                           )}
                         </button>
-                      </div>
-                    </div>
-
-                    {/* Clear Controls & Track Wayfinding Guide */}
-                    <div className="pt-1.5 border-t border-white/10 text-[10px] font-mono-tabular uppercase tracking-wide text-slate-400 flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <strong className="text-slate-200">DRIVE:</strong> WASD ·{' '}
-                        <strong className="text-slate-200">DRIFT:</strong> SPACE ·{' '}
-                        <strong className="text-cyan-400">NOS:</strong> SHIFT ·{' '}
-                        <strong className="text-amber-400">BREAKER:</strong> X ·{' '}
-                        <strong className="text-slate-200">CAM:</strong> C
-                      </div>
-                      <div>
-                        <span className="text-emerald-400 font-bold">GREEN ROAD ARROWS</span> = SHORTCUTS ·{' '}
-                        <span className="text-amber-400 font-bold">AMBER WALL BOARDS</span> = SHARP TURN
                       </div>
                     </div>
                   </div>
@@ -861,7 +899,7 @@ export const MainMenuGarage: React.FC<Props> = ({
                           Cleared: {wonTrackIds.length}/10
                         </span>
                       </div>
-                      <div className="max-h-[212px] overflow-y-auto pr-1 space-y-1.5">
+                      <div className="max-h-[178px] overflow-y-auto pr-1 space-y-1.5">
                         {TRACKS.map((trk) => {
                           const active = selectedTrack === trk.id;
                           const disabled = selectedMode === 'blacklist';
@@ -954,6 +992,7 @@ export const MainMenuGarage: React.FC<Props> = ({
                       return (
                         <button
                           type="button"
+                          data-start="true"
                           disabled={isBlacklistLocked}
                           onClick={() =>
                             onStartRace(
@@ -1027,7 +1066,7 @@ export const MainMenuGarage: React.FC<Props> = ({
                     </div>
                   )}
 
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 max-h-[250px] overflow-y-auto pr-1">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 max-h-[188px] overflow-y-auto pr-1">
                     {BLACKLIST_RIVALS.map((rival) => {
                       const defeatedCountNeeded = 10 - rival.rank;
                       const isDefeated = profile.blacklistDefeated > defeatedCountNeeded;
@@ -1113,7 +1152,7 @@ export const MainMenuGarage: React.FC<Props> = ({
                   </div>
 
                   {garageSection === 'vehicles' && (
-                    <div className="max-h-[250px] overflow-y-auto pr-1 space-y-3">
+                    <div className="max-h-[188px] overflow-y-auto pr-1 space-y-2.5">
                       <div>
                         <div className="text-xs font-display uppercase tracking-wider font-bold text-slate-300 mb-1.5">
                           Dealership Cars (10)

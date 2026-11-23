@@ -21,6 +21,7 @@ export interface CarVisualHandles {
   rimMaterials: THREE.MeshStandardMaterial[];
   brakeLightMat: THREE.MeshStandardMaterial;
   reverseLightMat: THREE.MeshStandardMaterial;
+  rotorGlowMats: THREE.MeshStandardMaterial[];
   brakeGlows: THREE.Mesh[];
   nosFlames: THREE.Mesh[];
   nosCores: THREE.Mesh[];
@@ -28,12 +29,34 @@ export interface CarVisualHandles {
   backfireFlames: THREE.Mesh[];
   wheelFrontLeft: THREE.Group;
   wheelFrontRight: THREE.Group;
+  wheelHubs: [THREE.Group, THREE.Group, THREE.Group, THREE.Group];
+  wheelCamberPivots: [THREE.Group, THREE.Group, THREE.Group, THREE.Group];
+  wheelBaseRadius: number;
   wheelSpinners: THREE.Group[];
   lightbarRed?: THREE.MeshStandardMaterial;
   lightbarBlue?: THREE.MeshStandardMaterial;
   lightbarHaloRed?: THREE.Mesh;
   lightbarHaloBlue?: THREE.Mesh;
   dispose: () => void;
+}
+
+let cachedHeadlightPoolTex: THREE.Texture | null = null;
+const cachedLightGlowTextures = new Map<string, THREE.Texture>();
+
+function getSharedHeadlightPoolTexture(): THREE.Texture {
+  if (!cachedHeadlightPoolTex) {
+    cachedHeadlightPoolTex = createHeadlightPoolTexture();
+  }
+  return cachedHeadlightPoolTex;
+}
+
+function getSharedLightGlowTexture(rgba: string): THREE.Texture {
+  let tex = cachedLightGlowTextures.get(rgba);
+  if (!tex) {
+    tex = createLightGlowTexture(rgba);
+    cachedLightGlowTextures.set(rgba, tex);
+  }
+  return tex;
 }
 
 interface BuildCarOptions {
@@ -303,7 +326,7 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
   root.add(contactShadow);
 
   if (isPlayer) {
-    const beamTex = track(createHeadlightPoolTexture());
+    const beamTex = getSharedHeadlightPoolTexture();
     const beamGeo = track(new THREE.PlaneGeometry(width * 3.8, 19));
     beamGeo.rotateX(-Math.PI / 2);
     const beamMat = track(
@@ -397,7 +420,24 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
     }),
   );
 
-  const rotorMat = track(new THREE.MeshStandardMaterial({ color: '#94A3B8', metalness: 0.88, roughness: 0.28 }));
+  const frontRotorMat = track(
+    new THREE.MeshStandardMaterial({
+      color: '#94A3B8',
+      metalness: 0.88,
+      roughness: 0.28,
+      emissive: new THREE.Color('#FF4500'),
+      emissiveIntensity: 0,
+    }),
+  );
+  const rearRotorMat = track(
+    new THREE.MeshStandardMaterial({
+      color: '#94A3B8',
+      metalness: 0.88,
+      roughness: 0.28,
+      emissive: new THREE.Color('#FF4500'),
+      emissiveIntensity: 0,
+    }),
+  );
   const tireMat = track(new THREE.MeshStandardMaterial({ color: '#14161B', metalness: 0.04, roughness: 0.88 }));
   const caliperMat = track(
     new THREE.MeshStandardMaterial({
@@ -1051,8 +1091,8 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
     bodyGroup.add(podL, podR, centerLed);
 
     const haloGeo = track(new THREE.PlaneGeometry(1.75, 1.35));
-    const redGlowTex = track(createLightGlowTexture('rgba(239, 68, 68, 0.92)'));
-    const blueGlowTex = track(createLightGlowTexture('rgba(59, 130, 246, 0.92)'));
+    const redGlowTex = getSharedLightGlowTexture('rgba(239, 68, 68, 0.92)');
+    const blueGlowTex = getSharedLightGlowTexture('rgba(59, 130, 246, 0.92)');
     const redHaloMat = track(
       new THREE.MeshBasicMaterial({
         map: redGlowTex,
@@ -1151,7 +1191,7 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
       }),
     );
 
-    const nosHaloTex = track(createLightGlowTexture('rgba(56, 189, 248, 0.92)'));
+    const nosHaloTex = getSharedLightGlowTexture('rgba(56, 189, 248, 0.92)');
     const nosHaloGeo = track(new THREE.PlaneGeometry(1.15, 0.9));
     const nosHaloMat = track(
       new THREE.MeshBasicMaterial({
@@ -1199,7 +1239,7 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
       backfireFlames.push(bf);
     });
 
-    const glowTex = track(createLightGlowTexture('rgba(239, 68, 68, 0.85)'));
+    const glowTex = getSharedLightGlowTexture('rgba(239, 68, 68, 0.85)');
     const glowGeo = track(new THREE.PlaneGeometry(0.92, 0.6));
     const glowMat = track(
       new THREE.MeshBasicMaterial({
@@ -1220,12 +1260,14 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
     });
   }
 
-  // Four Wheel Hubs
+  // Four Independent Wheel Hubs (Suspension Travel -> Steer Yaw -> Camber Pivot -> Wheel Spinner)
   const wheelWidth = isRhino ? 0.34 : isBossCar ? 0.31 : 0.27;
   const trackHalfX = width * (isBossCar ? 0.48 : 0.45);
   const wheelFrontLeft = new THREE.Group();
   const wheelFrontRight = new THREE.Group();
   const wheelSpinners: THREE.Group[] = [];
+  const wheelHubList: THREE.Group[] = [];
+  const wheelCamberList: THREE.Group[] = [];
 
   const wheelDefs = [
     { x: -trackHalfX, z: frontAxleZ, isFront: true, isLeft: true },
@@ -1240,29 +1282,33 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
       wheelWidth,
       rimMat,
       tireMat,
-      rotorMat,
+      wd.isFront ? frontRotorMat : rearRotorMat,
       caliperMat,
       wd.isLeft,
       lowDetail,
       Boolean(isRhino),
       track,
     );
-    built.pivot.position.set(wd.x, wheelRadius, wd.z);
+    const hub = new THREE.Group();
+    hub.position.set(wd.x, wheelRadius, wd.z);
+    built.pivot.position.set(0, 0, 0);
     if (wd.isFront && wd.isLeft) {
-      wheelFrontLeft.position.copy(built.pivot.position);
-      built.pivot.position.set(0, 0, 0);
       wheelFrontLeft.add(built.pivot);
-      root.add(wheelFrontLeft);
+      hub.add(wheelFrontLeft);
     } else if (wd.isFront && !wd.isLeft) {
-      wheelFrontRight.position.copy(built.pivot.position);
-      built.pivot.position.set(0, 0, 0);
       wheelFrontRight.add(built.pivot);
-      root.add(wheelFrontRight);
+      hub.add(wheelFrontRight);
     } else {
-      root.add(built.pivot);
+      hub.add(built.pivot);
     }
+    root.add(hub);
+    wheelHubList.push(hub);
+    wheelCamberList.push(built.pivot);
     wheelSpinners.push(built.spinner);
   });
+
+  const wheelHubs = wheelHubList as [THREE.Group, THREE.Group, THREE.Group, THREE.Group];
+  const wheelCamberPivots = wheelCamberList as [THREE.Group, THREE.Group, THREE.Group, THREE.Group];
 
   return {
     root,
@@ -1276,6 +1322,7 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
     rimMaterials: [rimMat],
     brakeLightMat,
     reverseLightMat,
+    rotorGlowMats: lowDetail ? [] : [frontRotorMat, rearRotorMat],
     brakeGlows,
     nosFlames,
     nosCores,
@@ -1283,6 +1330,9 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
     backfireFlames,
     wheelFrontLeft,
     wheelFrontRight,
+    wheelHubs,
+    wheelCamberPivots,
+    wheelBaseRadius: wheelRadius,
     wheelSpinners,
     lightbarRed,
     lightbarBlue,
@@ -1305,40 +1355,49 @@ export function applyCarVisualDamage(
   detachedRearBumper: boolean,
   detachedSpoiler: boolean,
 ): void {
-  // Subtle crumpled chassis compression & panel twist on heavy impacts
-  const zComp = 1 - Math.min(0.055, (frontDmg + rearDmg) * 0.025);
-  const ySquash = 1 + Math.min(0.02, (frontDmg + rearDmg) * 0.008);
-  const xComp = 1 - Math.min(0.035, sideDmg * 0.03);
-  visual.bodyGroup.scale.set(xComp, ySquash, zComp);
+  // Preserve crisp chassis silhouette under moderate race contact; only subtle compression after heavy wrecks (>60%)
+  const totalDmg = frontDmg * 0.45 + rearDmg * 0.3 + sideDmg * 0.25;
+  if (totalDmg > 0.62) {
+    const heavy = (totalDmg - 0.62) / 0.38;
+    const zComp = 1 - Math.min(0.028, heavy * 0.025);
+    const xComp = 1 - Math.min(0.02, heavy * 0.018);
+    visual.bodyGroup.scale.set(xComp, 1, zComp);
+  } else {
+    visual.bodyGroup.scale.set(1, 1, 1);
+  }
+
+  const fVis = Math.max(0, frontDmg - 0.18);
+  const rVis = Math.max(0, rearDmg - 0.18);
+  const sVis = Math.max(0, sideDmg - 0.24);
 
   if (visual.hoodGroup) {
     visual.hoodGroup.visible = !detachedHood;
     if (!detachedHood) {
-      visual.hoodGroup.rotation.x = frontDmg * 0.24; // buckles upward at front edge
-      visual.hoodGroup.rotation.z = sideDmg * 0.04;
+      visual.hoodGroup.rotation.x = Math.min(0.11, fVis * 0.12);
+      visual.hoodGroup.rotation.z = sVis * 0.015;
     }
   }
   if (visual.frontBumperGroup) {
     visual.frontBumperGroup.visible = !detachedFrontBumper;
     if (!detachedFrontBumper) {
-      visual.frontBumperGroup.rotation.x = -frontDmg * 0.22; // sags forward/down
-      visual.frontBumperGroup.rotation.z = sideDmg * 0.09;
+      visual.frontBumperGroup.rotation.x = -Math.min(0.10, fVis * 0.11);
+      visual.frontBumperGroup.rotation.z = sVis * 0.032;
       const baseZ = (visual.frontBumperGroup.userData.baseZ as number | undefined) ?? 0;
-      visual.frontBumperGroup.position.z = baseZ + frontDmg * 0.08;
+      visual.frontBumperGroup.position.z = baseZ + fVis * 0.04;
     }
   }
   if (visual.rearBumperGroup) {
     visual.rearBumperGroup.visible = !detachedRearBumper;
     if (!detachedRearBumper) {
-      visual.rearBumperGroup.rotation.x = rearDmg * 0.22;
-      visual.rearBumperGroup.rotation.z = -sideDmg * 0.08;
+      visual.rearBumperGroup.rotation.x = Math.min(0.10, rVis * 0.11);
+      visual.rearBumperGroup.rotation.z = -sVis * 0.03;
     }
   }
   if (visual.spoilerGroup) {
     visual.spoilerGroup.visible = !detachedSpoiler;
     if (!detachedSpoiler) {
-      visual.spoilerGroup.rotation.z = sideDmg * 0.16 + rearDmg * 0.08;
-      visual.spoilerGroup.rotation.x = -rearDmg * 0.14;
+      visual.spoilerGroup.rotation.z = sVis * 0.045 + rVis * 0.025;
+      visual.spoilerGroup.rotation.x = -Math.min(0.07, rVis * 0.07);
     }
   }
 }

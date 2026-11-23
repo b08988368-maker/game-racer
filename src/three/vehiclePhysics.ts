@@ -16,6 +16,8 @@ export interface WheelRuntimeState {
   loadN: number;
   slipRatio: number;
   slipAngleRad: number;
+  angularVelRadSec: number;
+  brakeTemp: number; // 0..1 rotor thermal glow
   surface: SurfaceType;
 }
 
@@ -68,8 +70,12 @@ export interface VehicleStepInput {
   environment: Exclude<EnvironmentId, 'auto'>;
   trackId: TrackId;
   roadWetness?: number;
+  slopePitch?: number;
+  bankAngle?: number;
+  landingVelMps?: number;
   damageDragFactor?: number;
   alignmentPull?: number;
+  wheelRadiusM?: number;
   tuning: PhysicsTuningParams;
   assists: AssistSettings;
 }
@@ -90,10 +96,10 @@ export interface VehicleStepOutput {
 export function createVehicleDynamicsState(): VehicleDynamicsState {
   return {
     wheels: [
-      { id: 'FL', compression: 0.42, compressionVel: 0, loadN: 3500, slipRatio: 0, slipAngleRad: 0, surface: 'asphalt' },
-      { id: 'FR', compression: 0.42, compressionVel: 0, loadN: 3500, slipRatio: 0, slipAngleRad: 0, surface: 'asphalt' },
-      { id: 'RL', compression: 0.42, compressionVel: 0, loadN: 3500, slipRatio: 0, slipAngleRad: 0, surface: 'asphalt' },
-      { id: 'RR', compression: 0.42, compressionVel: 0, loadN: 3500, slipRatio: 0, slipAngleRad: 0, surface: 'asphalt' },
+      { id: 'FL', compression: 0.42, compressionVel: 0, loadN: 3500, slipRatio: 0, slipAngleRad: 0, angularVelRadSec: 0, brakeTemp: 0, surface: 'asphalt' },
+      { id: 'FR', compression: 0.42, compressionVel: 0, loadN: 3500, slipRatio: 0, slipAngleRad: 0, angularVelRadSec: 0, brakeTemp: 0, surface: 'asphalt' },
+      { id: 'RL', compression: 0.42, compressionVel: 0, loadN: 3500, slipRatio: 0, slipAngleRad: 0, angularVelRadSec: 0, brakeTemp: 0, surface: 'asphalt' },
+      { id: 'RR', compression: 0.42, compressionVel: 0, loadN: 3500, slipRatio: 0, slipAngleRad: 0, angularVelRadSec: 0, brakeTemp: 0, surface: 'asphalt' },
     ],
     prevForwardSpeed: 0,
     prevLateralSpeed: 0,
@@ -183,7 +189,10 @@ export function stepVehiclePhysics(
 ): void {
   const { dt, tuning, assists } = inp;
   const massKg = getVehicleMassKg(inp.bodyStyle);
-  const staticWeightN = massKg * STANDARD_GRAVITY_MPS2;
+  const slopePitch = THREE.MathUtils.clamp(inp.slopePitch ?? 0, -0.35, 0.35);
+  const bankAngle = THREE.MathUtils.clamp(inp.bankAngle ?? 0, -0.35, 0.35);
+  const bankNormalScale = inp.airborne ? 1.0 : Math.cos(bankAngle) * Math.cos(slopePitch);
+  const staticWeightN = massKg * STANDARD_GRAVITY_MPS2 * bankNormalScale;
   const wheelbaseM = 2.74;
   const trackWidthM = 1.66;
   const cgHeightM = 0.47;
@@ -237,7 +246,7 @@ export function stepVehiclePhysics(
   // Smooth continuous grip curve between dry asphalt and flooded wet_asphalt
   const wetAsphaltScale =
     effWet > 0 && (rawLeft === 'asphalt' || rawRight === 'asphalt')
-      ? THREE.MathUtils.lerp(1.0, 0.91, effWet)
+      ? THREE.MathUtils.lerp(1.0, 0.94, effWet)
       : 1.0;
   const avgGripMult = (leftSpec.gripMultiplier + rightSpec.gripMultiplier) * 0.5 * wetAsphaltScale;
   const avgRollingRes = (leftSpec.rollingResistance + rightSpec.rollingResistance) * 0.5;
@@ -299,10 +308,13 @@ export function stepVehiclePhysics(
     1.55,
   );
 
+  const slopeGravityDecel = inp.airborne ? 0 : STANDARD_GRAVITY_MPS2 * Math.sin(slopePitch);
+  const wetBrakeScale = effWet > 0.2 ? THREE.MathUtils.lerp(1.0, 0.86, effWet) : 1.0;
+
   if (!inp.airborne) {
     if (effectiveThrottle > 0.01) {
       if (nextFwd < 0) {
-        nextFwd += 29 * effectiveThrottle * dt;
+        nextFwd += (29 * effectiveThrottle - slopeGravityDecel) * dt;
       } else {
         const rawLongSlip =
           nextFwd < 20 && !inp.nosActive
@@ -313,32 +325,32 @@ export function stepVehiclePhysics(
           tcsActive = true;
           wheelspinIntensity = rawLongSlip * 0.32;
           const gripTractionFactor = THREE.MathUtils.clamp(tractionGripScale * 1.06, 0.65, 1.12);
-          nextFwd += (driveAccel * effectiveThrottle * gripTractionFactor - aeroDragDecel - rollingDragDecel) * dt;
+          nextFwd += (driveAccel * effectiveThrottle * gripTractionFactor - aeroDragDecel - rollingDragDecel - slopeGravityDecel) * dt;
         } else {
           wheelspinIntensity = rawLongSlip > 0.2 ? rawLongSlip : 0;
           const spinLoss = rawLongSlip > 0.3 ? 1 - (rawLongSlip - 0.3) * 0.25 : 1.0;
           const gripTractionFactor = THREE.MathUtils.clamp(0.74 + tractionGripScale * 0.28, 0.62, 1.14);
-          nextFwd += (driveAccel * effectiveThrottle * spinLoss * gripTractionFactor - aeroDragDecel - rollingDragDecel) * dt;
+          nextFwd += (driveAccel * effectiveThrottle * spinLoss * gripTractionFactor - aeroDragDecel - rollingDragDecel - slopeGravityDecel) * dt;
         }
       }
     } else if (effectiveBrake > 0.01) {
       if (nextFwd > 1.2) {
         dyn.absPulsePhase += dt * 48;
-        const brakeDecelBase = 32.5 * effectiveBrake;
+        const brakeDecelBase = 33.5 * effectiveBrake * wetBrakeScale;
         if (assists.abs) {
           absActive = effectiveBrake > 0.55;
-          const absGrip = THREE.MathUtils.clamp(avgGripMult * tuning.tireGripMultiplier * 1.03, 0.55, 1.25);
-          nextFwd -= (brakeDecelBase * absGrip + aeroDragDecel + rollingDragDecel) * dt;
+          const absGrip = THREE.MathUtils.clamp(avgGripMult * tuning.tireGripMultiplier * 1.04, 0.55, 1.25);
+          nextFwd -= (brakeDecelBase * absGrip + aeroDragDecel + rollingDragDecel + slopeGravityDecel) * dt;
         } else {
           const lockPulse = 0.84 + Math.sin(dyn.absPulsePhase) * 0.04;
-          nextFwd -= (brakeDecelBase * avgGripMult * lockPulse + aeroDragDecel + rollingDragDecel) * dt;
+          nextFwd -= (brakeDecelBase * avgGripMult * lockPulse + aeroDragDecel + rollingDragDecel + slopeGravityDecel) * dt;
         }
       } else {
-        nextFwd -= 15.0 * effectiveBrake * dt;
+        nextFwd -= (15.0 * effectiveBrake + slopeGravityDecel) * dt;
       }
     } else {
-      nextFwd -= (Math.sign(nextFwd) * 2.1 + aeroDragDecel + rollingDragDecel) * dt;
-      if (Math.abs(nextFwd) < 0.25) nextFwd = 0;
+      nextFwd -= (Math.sign(nextFwd) * 2.1 + aeroDragDecel + rollingDragDecel + slopeGravityDecel) * dt;
+      if (Math.abs(nextFwd) < 0.25 && Math.abs(slopeGravityDecel) < 0.6) nextFwd = 0;
     }
   }
 
@@ -362,16 +374,20 @@ export function stepVehiclePhysics(
   const baseRearWheelN = (staticWeightN * 0.48 + aeroRearN) * 0.5;
 
   const targetLoads = dyn.targetLoads;
-  targetLoads[0] = Math.max(350, baseFrontWheelN - longTransferN * 0.5 + latTransferFrontN); // FL
-  targetLoads[1] = Math.max(350, baseFrontWheelN - longTransferN * 0.5 - latTransferFrontN); // FR
-  targetLoads[2] = Math.max(350, baseRearWheelN + longTransferN * 0.5 + latTransferRearN);  // RL
-  targetLoads[3] = Math.max(350, baseRearWheelN + longTransferN * 0.5 - latTransferRearN);  // RR
+  // Left turn produces positive ayMps2 (+X outward on car frame), loading outside right tires (+latTransfer)
+  targetLoads[0] = Math.max(350, baseFrontWheelN - longTransferN * 0.5 - latTransferFrontN); // FL
+  targetLoads[1] = Math.max(350, baseFrontWheelN - longTransferN * 0.5 + latTransferFrontN); // FR
+  targetLoads[2] = Math.max(350, baseRearWheelN + longTransferN * 0.5 - latTransferRearN);  // RL
+  targetLoads[3] = Math.max(350, baseRearWheelN + longTransferN * 0.5 + latTransferRearN);  // RR
 
   dyn.surfacePhase += absFwd * dt * 2.8;
   const springK = tuning.suspensionStiffness;
   const damperC = tuning.suspensionDamping;
-  const nomWheelN = staticWeightN * 0.25;
-  const landingJounce = dyn.wasAirborne && !inp.airborne ? 6.5 : 0;
+  const nomWheelN = (massKg * STANDARD_GRAVITY_MPS2) * 0.25;
+  const landingJounce =
+    dyn.wasAirborne && !inp.airborne
+      ? THREE.MathUtils.clamp((inp.landingVelMps ?? 6.5) * 0.68, 2.5, 9.5)
+      : 0;
   dyn.wasAirborne = inp.airborne;
 
   let avgComp = 0;
@@ -397,16 +413,16 @@ export function stepVehiclePhysics(
 
   // 5. Load-Sensitive Pacejka Tire Slip Curve + Friction Ellipse + Asymmetric Shoulder Pull + Trail-Braking
   const absSpeed = Math.abs(nextFwd);
-  const speedRatio = Math.min(1, absSpeed / 8.5);
-  const speedTurnScale = THREE.MathUtils.lerp(1.0, 1 - tuning.steerSpeedSensitivity * 0.85, Math.min(1, absSpeed / 95));
+  const speedRatio = Math.min(1, absSpeed / 7.5);
+  const speedTurnScale = THREE.MathUtils.lerp(1.0, 1 - tuning.steerSpeedSensitivity * 0.68, Math.min(1, absSpeed / 100));
   const handlingFactor =
-    (2.26 + (inp.handlingStat / 100) * 1.28) * (inp.spikedTimer > 0 ? 0.78 : 1.0);
-  const breakerBoost = inp.isSpeedbreaker ? 1.64 : 1.0;
-  const trailBraking = !inp.airborne && inp.brakeInput && Math.abs(inp.rawSteerInput) > 0.12 && absSpeed > 22;
+    (2.46 + (inp.handlingStat / 100) * 1.36) * (inp.spikedTimer > 0 ? 0.78 : 1.0);
+  const breakerBoost = inp.isSpeedbreaker ? 1.66 : 1.0;
+  const trailBraking = !inp.airborne && inp.brakeInput && Math.abs(inp.rawSteerInput) > 0.12 && absSpeed > 20;
   const handbrakeTurn = inp.handbrakeInput
-    ? 1.40 * tuning.driftSlipEase
+    ? 1.44 * tuning.driftSlipEase
     : trailBraking
-      ? 1.26 * Math.sqrt(tuning.driftSlipEase)
+      ? 1.29 * Math.sqrt(tuning.driftSlipEase)
       : 1.0;
   const turnDir = nextFwd >= -0.2 ? 1 : -1;
   const gripScale = inp.airborne ? 0.18 : 1.0;
@@ -417,12 +433,17 @@ export function stepVehiclePhysics(
   let yawRate =
     effSteerAngle * speedRatio * speedTurnScale * handlingFactor * breakerBoost * handbrakeTurn * turnDir * gripScale;
 
-  // Asymmetric left-vs-right surface rolling drag creates realistic tug when two tires dip off-road
-  if (!inp.airborne && absSpeed > 12) {
-    const dragDiff = (rightSpec.rollingResistance - leftSpec.rollingResistance);
-    if (Math.abs(dragDiff) > 0.05) {
-      yawRate -= dragDiff * Math.min(1, absSpeed / 45) * 0.28;
+  // Subtle shoulder surface drag feedback without yanking the steering across the road
+  if (!inp.airborne && absSpeed > 14) {
+    const dragDiff = rightSpec.rollingResistance - leftSpec.rollingResistance;
+    if (Math.abs(dragDiff) > 0.08) {
+      yawRate -= dragDiff * Math.min(1, absSpeed / 65) * 0.045;
     }
+  }
+
+  // Straight-line self-centering caster stability when no steering or handbrake is held
+  if (!inp.airborne && Math.abs(inp.rawSteerInput) < 0.04 && !inp.handbrakeInput && absSpeed > 4 && Math.abs(inp.lateralSpeed) > 0) {
+    yawRate += THREE.MathUtils.clamp(-inp.lateralSpeed * 0.036, -0.18, 0.18);
   }
 
   // Front & rear slip angles
@@ -485,33 +506,45 @@ export function stepVehiclePhysics(
     yawRate += counterHint * 0.65;
   }
 
-  // Update lateral speed using Pacejka restoring force & friction-ellipse surface damping
+  // Update lateral speed using progressive Pacejka restoring force, banked-turn support & friction-ellipse damping
   let nextLat = inp.lateralSpeed;
   if (!inp.airborne) {
+    // Track banking raises the +right shoulder for positive bankAngle -> gravity supports left turns (-right)
+    const bankGravityLat = -STANDARD_GRAVITY_MPS2 * Math.sin(bankAngle);
+    const gripDemand = THREE.MathUtils.clamp(
+      Math.abs(yawRate * nextFwd) / Math.max(8, STANDARD_GRAVITY_MPS2 * Dbase),
+      0,
+      1.35,
+    );
+    const progressiveSlipScale = gripDemand > 0.72 ? 1 + (gripDemand - 0.72) * 1.4 : 1.0;
     const lateralInject =
-      (inp.handbrakeInput ? 0.36 : trailBraking ? 0.25 : 0.048) * tuning.driftSlipEase;
-    nextLat += yawRate * nextFwd * lateralInject * dt;
+      (inp.handbrakeInput ? 0.36 : trailBraking ? 0.25 : 0.068 * progressiveSlipScale) *
+      tuning.driftSlipEase;
+    nextLat += (yawRate * nextFwd * lateralInject + bankGravityLat * 0.48) * dt;
 
-    const counterSteering = inp.rawSteerInput * nextLat < -0.15;
+    const counterSteering = inp.rawSteerInput * nextLat < -0.08;
+    const slipSaturationDamp = gripDemand > 0.88 ? Math.max(0.74, 1 - (gripDemand - 0.88) * 0.45) : 1.0;
     const baseDamp = inp.handbrakeInput
-      ? 4.6 / Math.max(0.7, tuning.driftSlipEase)
+      ? 4.9 / Math.max(0.7, tuning.driftSlipEase)
       : trailBraking
-        ? 6.4 / Math.max(0.75, tuning.driftSlipEase)
-        : (21.5 + (inp.handlingStat / 100) * 5.2) * (Math.abs(inp.rawSteerInput) < 0.1 ? 1.38 : 1.0);
-    const escDampBoost = assists.stabilityControl && !inp.handbrakeInput ? 1.18 : 1.0;
-    const wetLatFactor = 1 - effWet * 0.14;
+        ? 6.6 / Math.max(0.75, tuning.driftSlipEase)
+        : (15.4 + (inp.handlingStat / 100) * 4.8) *
+          (Math.abs(inp.rawSteerInput) < 0.08 ? 1.55 : 1.0) *
+          slipSaturationDamp;
+    const escDampBoost = assists.stabilityControl && !inp.handbrakeInput ? 1.2 : 1.0;
+    const wetLatFactor = 1 - effWet * 0.12;
     const pacejkaBite = THREE.MathUtils.clamp(
       avgGripMult * tuning.tireGripMultiplier * ellipseScale * surfaceSpec.lateralDamping * wetLatFactor,
-      0.38,
-      1.42,
+      0.42,
+      1.48,
     );
     const totalLatDamp =
-      baseDamp * pacejkaBite * escDampBoost * (inp.isSpeedbreaker ? 1.9 : 1.0) * (counterSteering ? 1.65 : 1.0);
+      baseDamp * pacejkaBite * escDampBoost * (inp.isSpeedbreaker ? 1.95 : 1.0) * (counterSteering ? 2.15 : 1.0);
     nextLat = THREE.MathUtils.damp(nextLat, 0, totalLatDamp, dt);
 
-    if (Math.abs(nextLat) > 3.4) {
-      const scrubStrength = inp.handbrakeInput ? 0.15 : 0.082;
-      nextFwd *= 1 - Math.min(0.22, scrubStrength * (1 / Math.max(0.6, Math.abs(rearLatForceNorm) + 0.5)) * dt);
+    if (Math.abs(nextLat) > 3.2) {
+      const scrubStrength = inp.handbrakeInput ? 0.12 : 0.068;
+      nextFwd *= 1 - Math.min(0.20, scrubStrength * (1 / Math.max(0.6, Math.abs(rearLatForceNorm) + 0.5)) * dt);
     }
   }
 
@@ -537,6 +570,61 @@ export function stepVehiclePhysics(
   dyn.wheels[1].slipAngleRad = frontSlipAngle;
   dyn.wheels[2].slipAngleRad = rearSlipAngle;
   dyn.wheels[3].slipAngleRad = rearSlipAngle;
+
+  // Realistic individual wheel angular velocity (rad/s) & brake rotor thermal buildup/cooling
+  const wRadius = Math.max(0.24, inp.wheelRadiusM ?? 0.36);
+  const freeOmega = nextFwd / wRadius;
+  const frontOmega = inp.airborne
+    ? dyn.wheels[0].angularVelRadSec * Math.max(0, 1 - 0.85 * dt)
+    : effectiveBrake > 0.12 && nextFwd > 1.2
+      ? assists.abs
+        ? freeOmega * (0.72 + 0.22 * Math.sin(dyn.absPulsePhase))
+        : effectiveBrake > 0.55
+          ? freeOmega * (0.12 + 0.08 * Math.sin(dyn.absPulsePhase))
+          : freeOmega * (1 - effectiveBrake * 0.45)
+      : inp.handbrakeInput
+        ? freeOmega * 0.94
+        : freeOmega * (1 + Math.max(0, baseLongSlip * 0.18));
+
+  const rearOmega = inp.airborne
+    ? (effectiveThrottle > 0.15
+        ? Math.sign(nextFwd || 1) * (Math.abs(freeOmega) + effectiveThrottle * 24)
+        : dyn.wheels[2].angularVelRadSec * Math.max(0, 1 - 0.85 * dt))
+    : inp.handbrakeInput
+      ? 0
+      : effectiveBrake > 0.12 && nextFwd > 1.2
+        ? assists.abs
+          ? freeOmega * (0.68 + 0.24 * Math.sin(dyn.absPulsePhase + 1.1))
+          : effectiveBrake > 0.5
+            ? freeOmega * 0.1
+            : freeOmega * (1 - effectiveBrake * 0.5)
+        : effectiveThrottle > 0.22 && wheelspinIntensity > 0.16 && nextFwd >= -0.5
+          ? freeOmega + wheelspinIntensity * (16 + effectiveThrottle * 18)
+          : freeOmega * (1 + baseLongSlip * 0.65);
+
+  const frontHeatTarget = !inp.airborne && effectiveBrake > 0.1 && absSpeed > 6 ? effectiveBrake * Math.min(1, absSpeed / 58) : 0;
+  const rearHeatTarget = !inp.airborne && (effectiveBrake > 0.1 || inp.handbrakeInput) && absSpeed > 6
+    ? (inp.handbrakeInput ? 0.65 : effectiveBrake * 0.78) * Math.min(1, absSpeed / 58)
+    : 0;
+  const coolRate = 0.22 + (absSpeed / 95) * 0.65;
+
+  for (let wi = 0; wi < 4; wi++) {
+    const wh = dyn.wheels[wi];
+    const isFront = wi < 2;
+    const isLeft = wi % 2 === 0;
+    const trackDiffScale =
+      1 + THREE.MathUtils.clamp((isLeft ? -1 : 1) * yawRate * (trackWidthM * 0.5) / Math.max(6, absSpeed), -0.18, 0.18);
+    const targetOmega = (isFront ? frontOmega : rearOmega) * trackDiffScale;
+    wh.angularVelRadSec = THREE.MathUtils.damp(wh.angularVelRadSec, targetOmega, isFront ? 22 : 24, dt);
+    const heatIn = (isFront ? frontHeatTarget : rearHeatTarget) * (0.85 + 0.3 * (wh.loadN / Math.max(1, nomWheelN)));
+    wh.brakeTemp = THREE.MathUtils.clamp(
+      heatIn > wh.brakeTemp
+        ? THREE.MathUtils.lerp(wh.brakeTemp, heatIn, Math.min(1, dt * 2.4))
+        : wh.brakeTemp - wh.brakeTemp * coolRate * dt,
+      0,
+      1,
+    );
+  }
 
   dyn.prevForwardSpeed = nextFwd;
   dyn.prevLateralSpeed = nextLat;

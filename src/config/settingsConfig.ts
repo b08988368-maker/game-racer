@@ -77,7 +77,7 @@ export const GRAPHICS_QUALITY_PRESETS: Record<GraphicsQuality, GraphicsQualitySp
   },
 };
 
-export function getDefaultControlBindings(aeLookEnabled = true): ControlBindings {
+export function getDefaultControlBindings(aeLookEnabled = false): ControlBindings {
   return {
     throttle: { primary: 'ArrowUp', secondary: 'KeyW' },
     brake: { primary: 'ArrowDown', secondary: 'KeyS' },
@@ -174,7 +174,7 @@ export interface PersistedDriverSettings {
 
 const SETTINGS_STORAGE_KEY = 'blacklist_rockport_u1_settings_v1';
 
-export function getDefaultDriverSettings(aeLookEnabled = true): PersistedDriverSettings {
+export function getDefaultDriverSettings(aeLookEnabled = false): PersistedDriverSettings {
   const preset = HANDLING_PRESETS.balanced;
   return {
     handlingMode: 'balanced',
@@ -192,7 +192,7 @@ export function getDefaultDriverSettings(aeLookEnabled = true): PersistedDriverS
   };
 }
 
-export function loadDriverSettings(aeLookEnabled = true): PersistedDriverSettings {
+export function loadDriverSettings(aeLookEnabled = false): PersistedDriverSettings {
   const defaults = getDefaultDriverSettings(aeLookEnabled);
   try {
     const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
@@ -214,6 +214,20 @@ export function loadDriverSettings(aeLookEnabled = true): PersistedDriverSetting
         ? parsed.weatherMode
         : 'auto';
 
+    const mergedBindings: ControlBindings = { ...defaults.controlBindings, ...(parsed.controlBindings ?? {}) };
+    if (
+      !aeLookEnabled &&
+      mergedBindings.left.primary === 'ArrowLeft' &&
+      !mergedBindings.left.secondary &&
+      mergedBindings.right.primary === 'ArrowRight' &&
+      !mergedBindings.right.secondary &&
+      mergedBindings.lookLeft.primary === 'KeyA'
+    ) {
+      mergedBindings.left = { ...defaults.controlBindings.left };
+      mergedBindings.right = { ...defaults.controlBindings.right };
+      mergedBindings.lookLeft = { ...defaults.controlBindings.lookLeft };
+    }
+
     return {
       handlingMode: mode,
       assists: { ...preset.defaultAssists, ...(parsed.assists ?? {}) },
@@ -226,7 +240,7 @@ export function loadDriverSettings(aeLookEnabled = true): PersistedDriverSetting
       skipCountdownOnRestart: parsed.skipCountdownOnRestart ?? false,
       graphicsQuality: quality,
       touchControlsMode: touchMode,
-      controlBindings: { ...defaults.controlBindings, ...(parsed.controlBindings ?? {}) },
+      controlBindings: mergedBindings,
     };
   } catch {
     return defaults;

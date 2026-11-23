@@ -35,9 +35,13 @@ export interface AiRacerView {
   laneTarget: number;
   aiSkill: number;
   activeShortcutId: number | null;
+  slopePitch?: number;
+  bankRoll?: number;
+  lastLandingVelMps?: number;
   copSlowdownTimer: number;
   finished: boolean;
   knockedOut: boolean;
+  busted: boolean;
 }
 
 export interface AiDebugPoint {
@@ -61,6 +65,8 @@ export interface AiBrainState {
   mistakeTimer: number;
   mistakeSteerBias: number;
   mistakeCooldown: number;
+  stuckTimer: number;
+  reverseRecoveryTimer: number;
   heaveOffset: number;
   wheelspinIntensity: number;
   braking: boolean;
@@ -78,26 +84,17 @@ export interface AiBrainState {
 
 export function buildFairAiConfig(
   spec: CarSpec,
-  playerConfig: GarageCarConfig,
+  _playerConfig: GarageCarConfig,
   difficulty: TrackDifficulty,
   aiTierBoost: number,
   isBoss: boolean,
   slotOffset: number,
 ): GarageCarConfig {
-  const playerAvg =
-    (playerConfig.engineLevel +
-      playerConfig.turboLevel +
-      playerConfig.nitrousLevel +
-      playerConfig.tiresLevel) *
-    0.25;
-  const profile = DIFFICULTY_AI_PROFILES[difficulty];
-  // Match player's upgrade parity closely + mission/difficulty offset so stock vs upgraded races stay competitive
-  const baseLvl = Math.max(
-    playerAvg + profile.upgradeOffset,
-    1 + Math.min(3, aiTierBoost * 0.72 + (isBoss ? 0.6 : 0)),
-  );
-  const clamped = Math.max(1, Math.min(4, Math.round(baseLvl + slotOffset * 0.25)));
-  const tireBoost = Math.max(1, Math.min(4, Math.round(baseLvl + (difficulty === 'Expert' ? 1 : 0))));
+  const diffOffset =
+    difficulty === 'Easy' ? -0.35 : difficulty === 'Medium' ? 0 : difficulty === 'Hard' ? 0.25 : 0.45;
+  const tierBase = 1 + aiTierBoost * 0.68 + (isBoss ? 0.45 : 0) + diffOffset + slotOffset * 0.22;
+  const clamped = Math.max(1, Math.min(4, Math.round(tierBase)));
+  const tireBoost = Math.max(1, Math.min(4, Math.round(tierBase + (difficulty === 'Expert' ? 0.5 : 0))));
   return {
     ownerId: 'ai',
     carId: spec.id,
@@ -163,6 +160,7 @@ export function createAiBrainState(
       shortcutHalfWidth: 7,
       environment,
       trackId,
+      wheelRadiusM: spec.dimensions.wheelRadius,
       tuning,
       assists,
     },
@@ -186,7 +184,9 @@ export function createAiBrainState(
     adaptiveMult: 1.0,
     mistakeTimer: 0,
     mistakeSteerBias: 0,
-    mistakeCooldown: 5 + index * 2.5,
+    mistakeCooldown: 6 + index * 2.5,
+    stuckTimer: 0,
+    reverseRecoveryTimer: 0,
     heaveOffset: 0,
     wheelspinIntensity: 0,
     braking: false,
@@ -213,7 +213,9 @@ export function resetAiBrainState(brain: AiBrainState, initialLane: number): voi
   brain.adaptiveMult = 1.0;
   brain.mistakeTimer = 0;
   brain.mistakeSteerBias = 0;
-  brain.mistakeCooldown = 5;
+  brain.mistakeCooldown = 6;
+  brain.stuckTimer = 0;
+  brain.reverseRecoveryTimer = 0;
   brain.heaveOffset = 0;
   brain.wheelspinIntensity = 0;
   brain.braking = false;
@@ -233,6 +235,44 @@ export interface AiTrafficObstacle {
   isTruck: boolean;
 }
 
+export interface AiSpikeObstacle {
+  pos: THREE.Vector3;
+  hit: boolean;
+}
+
+const CANDIDATE_LANE_FRACS = [-0.84, -0.56, -0.28, 0, 0.28, 0.56, 0.84];
+
+function circumcircleCurvatureXZ(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  cx: number,
+  cz: number,
+): number {
+  const ab = Math.hypot(bx - ax, bz - az);
+  const bc = Math.hypot(cx - bx, cz - bz);
+  const ca = Math.hypot(ax - cx, az - cz);
+  const denom = ab * bc * ca;
+  if (denom < 0.001) return 0;
+  const cross = (bx - ax) * (cz - az) - (bz - az) * (cx - ax);
+  return (2 * Math.abs(cross)) / denom;
+}
+
+export function computeAiCornerSafeSpeedMs(
+  minRadiusM: number,
+  horizonBrakeCapMs: number,
+  gripBudget: number,
+  angleDiffRad: number,
+  brakeBias: number,
+): number {
+  const immediateCornerMs = minRadiusM < 450 ? Math.sqrt(gripBudget * minRadiusM) : 999;
+  const physicsCornerCapMs = Math.min(immediateCornerMs, horizonBrakeCapMs);
+  const absAngle = Math.abs(angleDiffRad);
+  const steeringTrim = absAngle > 0.36 ? 1 - Math.min(0.16, (absAngle - 0.36) * 0.24) : 1.0;
+  return physicsCornerCapMs * brakeBias * steeringTrim;
+}
+
 export function stepAiRacerPhysics(
   ai: AiRacerView,
   brain: AiBrainState,
@@ -249,6 +289,8 @@ export function stepAiRacerPhysics(
   dt: number,
   rawFixedDt: number,
   roadWetness = 0,
+  spikeStrips: AiSpikeObstacle[] = [],
+  _playerConfig?: GarageCarConfig,
 ): void {
   const samples = track.samples;
   const nSamples = samples.length;
@@ -257,6 +299,63 @@ export function stepAiRacerPhysics(
   const stats = computeEffectiveStats(ai.spec, brain.simConfig);
 
   const info = track.getClosestTrackInfo(ai.pos.x, ai.pos.z, ai.trackIdx);
+
+  // If busted by RPD, smoothly brake/coast to a stop along the shoulder
+  if (ai.busted) {
+    brain.actionTag = 'BUSTED';
+    brain.braking = Math.abs(ai.forwardSpeed) > 1.2;
+    brain.nosActive = false;
+    brain.isDrifting = false;
+    brain.targetSpeedMs = 0;
+
+    const sIn = brain.stepIn;
+    sIn.dt = dt;
+    sIn.rawDt = rawFixedDt;
+    sIn.forwardSpeed = ai.forwardSpeed;
+    sIn.lateralSpeed = ai.lateralSpeed;
+    sIn.steerAngle = THREE.MathUtils.damp(ai.steerAngle, 0, 8, rawFixedDt);
+    ai.steerAngle = sIn.steerAngle;
+    sIn.rawSteerInput = 0;
+    sIn.throttleInput = false;
+    sIn.brakeInput = ai.forwardSpeed > 0.6;
+    sIn.handbrakeInput = Math.abs(ai.forwardSpeed) > 3;
+    sIn.throttleAxis = 0;
+    sIn.brakeAxis = 0.88;
+    sIn.nosActive = false;
+    sIn.driftBoostActive = false;
+    sIn.drafting = false;
+    sIn.airborne = ai.airHeight > 0.12;
+    sIn.spikedTimer = 0;
+    sIn.isSpeedbreaker = false;
+    sIn.baseMaxMs = 20;
+    sIn.maxForwardMs = 20;
+    sIn.accelStat = stats.accel;
+    sIn.handlingStat = stats.handling;
+    sIn.bodyStyle = ai.spec.bodyStyle;
+    sIn.upcomingTurnSeverity = 0;
+    sIn.lateralOffset = info.lateralOffset;
+    sIn.roadHalfWidth = track.roadHalfWidth;
+    sIn.inShortcut = false;
+    sIn.shortcutLateral = 0;
+    sIn.shortcutHalfWidth = 7;
+    sIn.environment = environment;
+    sIn.trackId = track.id;
+    sIn.roadWetness = roadWetness;
+    sIn.wheelRadiusM = ai.spec.dimensions.wheelRadius;
+    sIn.tuning = tuning;
+    sIn.assists = assists;
+
+    stepVehiclePhysics(brain.dyn, sIn, brain.stepOut);
+    ai.forwardSpeed = brain.stepOut.forwardSpeed;
+    ai.lateralSpeed = brain.stepOut.lateralSpeed;
+    ai.heading += brain.stepOut.yawRate * dt;
+    brain.heaveOffset = brain.stepOut.heaveOffset;
+    brain.wheelspinIntensity = 0;
+    ai.pitch = THREE.MathUtils.damp(ai.pitch, brain.stepOut.targetPitch, 11, rawFixedDt);
+    ai.roll = THREE.MathUtils.damp(ai.roll, brain.stepOut.targetRoll, 11, rawFixedDt);
+    return;
+  }
+
   const scHit =
     ai.activeShortcutId !== null ? track.queryShortcut(ai.pos.x, ai.pos.z, ai.activeShortcutId) : null;
   const inShortcut = Boolean(scHit && ai.activeShortcutId !== null && scHit.shortcut.id === ai.activeShortcutId);
@@ -269,12 +368,21 @@ export function stepAiRacerPhysics(
   const absSpeed = Math.abs(ai.forwardSpeed);
   const segLen = track.totalLength / nSamples;
 
-  // 1. Multi-point lookahead curvature & outside-apex-outside racing line calculation
+  // 1. Multi-Horizon Circumcircle Curvature & Outside-Apex-Outside Line Planner
   let targetX = 0;
   let targetZ = 0;
-  let curvatureSharp = 0;
+  let curvatureNear = 0;
   let curvatureMid = 0;
+  let minFutureRadius = 999;
   let aimingShortcut = false;
+
+  const baseDryMu = environment === 'overcast_rain' ? 0.97 : 1.14;
+  const surfMu = THREE.MathUtils.lerp(baseDryMu, 0.91, THREE.MathUtils.clamp(roadWetness, 0, 1));
+  const bankGripBonus = 1 + Math.min(0.22, Math.abs(info.bankAngle) * 0.95);
+  const gripBudget = 21.8 * surfMu * bankGripBonus * tuning.tireGripMultiplier * profile.cornerConfidence * traits.cornerAttack;
+  const maxBrakeDecel = 27.5 * surfMu * profile.brakingPrecision;
+
+  let horizonBrakeCapMs = 999;
 
   if (inShortcut && scHit) {
     const pts = scHit.shortcut.points;
@@ -283,7 +391,6 @@ export function stepAiRacerPhysics(
     targetZ = pts[lookIdx].z;
     brain.actionTag = 'SHORTCUT';
 
-    // Populate debug points along shortcut
     brain.debugPoints[0].x = ai.pos.x;
     brain.debugPoints[0].y = ai.pos.y + 0.55;
     brain.debugPoints[0].z = ai.pos.z;
@@ -295,12 +402,12 @@ export function stepAiRacerPhysics(
     }
   } else {
     // Check shortcut entry opportunity
-    if (track.shortcuts.length > 0 && traits.shortcutAffinity * ai.aiSkill > 0.42) {
+    if (track.shortcuts.length > 0 && traits.shortcutAffinity * ai.aiSkill > 0.34) {
       for (let i = 0; i < track.shortcuts.length; i++) {
         const sc = track.shortcuts[i];
         const ahead = (sc.entryCutStartIdx - ai.trackIdx + nSamples) % nSamples;
-        if (ahead <= 22) {
-          ai.laneTarget = sc.side * (track.roadHalfWidth + 1.15);
+        if (ahead <= 26) {
+          ai.laneTarget = sc.side * (track.roadHalfWidth + 1.1);
           aimingShortcut = true;
           brain.actionTag = 'SHORTCUT';
           break;
@@ -313,128 +420,211 @@ export function stepAiRacerPhysics(
     const sMid = samples[(ai.trackIdx + 14) % nSamples];
     const sFar = samples[(ai.trackIdx + 24) % nSamples];
 
-    // Signed cross-product reveals turn direction (+ = right turn, - = left turn)
-    const turnNear = sNow.tangent.x * sNear.tangent.z - sNow.tangent.z * sNear.tangent.x;
-    const turnMid = sNear.tangent.x * sMid.tangent.z - sNear.tangent.z * sMid.tangent.x;
-    const turnFar = sMid.tangent.x * sFar.tangent.z - sMid.tangent.z * sFar.tangent.x;
+    // Smooth 6-sample chord curvature scanning across near, mid, and braking horizons
+    const scanWindows = [5, 10, 16, 23, 31, 40];
+    for (let w = 0; w < scanWindows.length; w++) {
+      const offset = scanWindows[w];
+      const pA = samples[(ai.trackIdx + Math.max(0, offset - 6)) % nSamples].point;
+      const pB = samples[(ai.trackIdx + offset) % nSamples].point;
+      const pC = samples[(ai.trackIdx + offset + 6) % nSamples].point;
+      const kCurv = circumcircleCurvatureXZ(pA.x, pA.z, pB.x, pB.z, pC.x, pC.z);
+      const rCurve = kCurv > 0.0014 ? Math.max(16, 1 / kCurv) : 999;
+      if (offset <= 10) curvatureNear = Math.max(curvatureNear, kCurv * 5.2);
+      if (offset <= 23) curvatureMid = Math.max(curvatureMid, kCurv * 5.2);
+      if (rCurve < minFutureRadius && offset <= 23) minFutureRadius = rCurve;
 
-    curvatureSharp = Math.max(Math.abs(turnNear), Math.abs(turnMid) * 0.92);
-    curvatureMid = Math.max(Math.abs(turnMid), Math.abs(turnFar));
+      if (rCurve < 420) {
+        const cornerSafeV = Math.sqrt(gripBudget * rCurve);
+        const distToApex = Math.max(0, (offset - 2) * segLen);
+        const brakeEntryV = Math.sqrt(cornerSafeV * cornerSafeV + 2 * maxBrakeDecel * distToApex);
+        if (brakeEntryV < horizonBrakeCapMs) {
+          horizonBrakeCapMs = brakeEntryV;
+        }
+      }
+    }
 
     if (!aimingShortcut) {
-      const usableHalf = Math.max(3.8, track.roadHalfWidth - 2.3);
-      // Outside entry on straight before curve, clip inside apex on mid/near turn
+      const usableHalf = Math.max(4.0, track.roadHalfWidth - 2.1);
+      const dirRightNear = sNear.tangent.x * sNow.right.x + sNear.tangent.z * sNow.right.z;
+      const dirRightMid = sMid.tangent.x * sNow.right.x + sMid.tangent.z * sNow.right.z;
+      const dirRightFar = sFar.tangent.x * sMid.right.x + sFar.tangent.z * sMid.right.z;
+
       let idealLane = 0;
-      if (Math.abs(turnNear) > 0.08) {
-        // Clip inside apex! Left turn -> negative right vector if right is +side? Let's verify sign:
-        // tangent x nextTangent = tx*nz - tz*nx. Wait: right = (-tz, tx) or (tz, -tx).
-        // Compute directly using dot(sNear.tangent, sNow.right) so sign is guaranteed coordinate-consistent!
-        const dirRight = sNear.tangent.x * sNow.right.x + sNear.tangent.z * sNow.right.z;
-        idealLane = THREE.MathUtils.clamp(dirRight * usableHalf * 3.1, -usableHalf * 0.78, usableHalf * 0.78);
+      if (Math.abs(dirRightNear) > 0.075 || Math.abs(dirRightMid) > 0.11) {
+        // Clip inside apex!
+        const apexDir = Math.abs(dirRightNear) >= Math.abs(dirRightMid) ? dirRightNear : dirRightMid;
+        idealLane = THREE.MathUtils.clamp(apexDir * usableHalf * 3.2, -usableHalf * 0.80, usableHalf * 0.80);
         brain.actionTag = 'APEX';
-      } else if (Math.abs(turnFar) > 0.1) {
-        // Set up on outside edge approaching a corner
-        const dirRightFar = sFar.tangent.x * sMid.right.x + sFar.tangent.z * sMid.right.z;
-        idealLane = THREE.MathUtils.clamp(-dirRightFar * usableHalf * 2.1, -usableHalf * 0.65, usableHalf * 0.65);
+      } else if (Math.abs(dirRightFar) > 0.085) {
+        // Outside setup before corner entry
+        idealLane = THREE.MathUtils.clamp(-dirRightFar * usableHalf * 2.4, -usableHalf * 0.72, usableHalf * 0.72);
         brain.actionTag = 'SETUP';
       } else {
         idealLane = 0;
         brain.actionTag = 'CRUISE';
       }
 
-      // 2. Slipstream hunting & Defensive Blocking vs Player / Rivals
+      // 2. Slipstream hunting & Smart Gap-Finding Overtake / Defensive Blocking vs Player
       const gapToPlayerProg = player.totalProgress - ai.totalProgress;
       const distMetersToPlayer = gapToPlayerProg * track.totalLength;
-      if (distMetersToPlayer > 6 && distMetersToPlayer < 42 && !player.finished && !player.knockedOut) {
-        // Check player's lateral offset on track to tuck into slipstream or pass cleanly
+      if (distMetersToPlayer > 3.5 && distMetersToPlayer < 45 && !player.finished && !player.knockedOut) {
         const pInfo = track.getClosestTrackInfo(player.pos.x, player.pos.z, player.trackIdx);
-        if (distMetersToPlayer > 14 && Math.abs(turnNear) < 0.12) {
-          idealLane = THREE.MathUtils.clamp(pInfo.lateralOffset, -usableHalf * 0.7, usableHalf * 0.7);
+        const relClosing = ai.forwardSpeed - player.forwardSpeed;
+        if (distMetersToPlayer > 18 && relClosing < 8 && Math.abs(dirRightNear) < 0.10) {
+          idealLane = THREE.MathUtils.clamp(pInfo.lateralOffset, -usableHalf * 0.72, usableHalf * 0.72);
           brain.actionTag = 'DRAFT';
-        } else if (distMetersToPlayer <= 14) {
-          const passSide = pInfo.lateralOffset >= 0 ? -1 : 1;
+        } else if (distMetersToPlayer <= 18 || relClosing >= 8) {
+          // Pick whichever side of the player offers wider asphalt clearance instead of rear-ending
+          const leftRoom = usableHalf + pInfo.lateralOffset;
+          const rightRoom = usableHalf - pInfo.lateralOffset;
+          const passSide = rightRoom >= leftRoom ? 1 : -1;
           idealLane = THREE.MathUtils.clamp(
-            pInfo.lateralOffset + passSide * 4.2,
-            -usableHalf * 0.85,
-            usableHalf * 0.85,
+            pInfo.lateralOffset + passSide * 4.6,
+            -usableHalf * 0.88,
+            usableHalf * 0.88,
           );
           brain.actionTag = 'PASS';
         }
       } else if (
-        distMetersToPlayer < -3 &&
-        distMetersToPlayer > -22 &&
+        distMetersToPlayer < -2.5 &&
+        distMetersToPlayer > -20 &&
         aiSettings.aggression > 0.25 &&
-        Math.abs(turnNear) < 0.12
+        Math.abs(dirRightNear) < 0.10
       ) {
-        // Defensive blocking if player is closing from behind on a straight
         const blockStrength = traits.blockTendency * aiSettings.aggression;
         if (blockStrength > 0.35) {
           const pInfo = track.getClosestTrackInfo(player.pos.x, player.pos.z, player.trackIdx);
           idealLane = THREE.MathUtils.lerp(
             idealLane,
-            THREE.MathUtils.clamp(pInfo.lateralOffset, -usableHalf * 0.62, usableHalf * 0.62),
+            THREE.MathUtils.clamp(pInfo.lateralOffset, -usableHalf * 0.65, usableHalf * 0.65),
             blockStrength * 0.65,
           );
           brain.actionTag = 'DEFEND';
         }
       }
 
-      // 3. Obstacle Avoidance: Civilian Traffic, Police/Roadblocks & Neighboring Racers
-      for (let i = 0; i < traffic.length; i++) {
+      // 3. Multi-Candidate Simultaneous Lane Scoring (Traffic + Cops + Roadblocks + Spike Strips + Rivals)
+      let hasObstacleThreat = false;
+      const horizonDist = Math.max(26, absSpeed * 1.15);
+
+      for (let i = 0; i < traffic.length && !hasObstacleThreat; i++) {
         const tr = traffic[i];
         const dx = tr.pos.x - ai.pos.x;
         const dz = tr.pos.z - ai.pos.z;
         const fwdD = dx * aiFwdX + dz * aiFwdZ;
-        if (fwdD > 2 && fwdD < 40) {
-          const latD = dx * aiRightX + dz * aiRightZ;
-          const avoidRad = tr.isTruck ? 3.9 : 3.4;
-          if (Math.abs(latD) < avoidRad) {
-            const dodgeDir = tr.laneOffset >= 0 ? -1 : 1;
-            idealLane = THREE.MathUtils.clamp(
-              tr.laneOffset + dodgeDir * (avoidRad + 1.4),
-              -usableHalf * 0.88,
-              usableHalf * 0.88,
-            );
-            brain.actionTag = 'DODGE';
-            break;
-          }
+        if (fwdD > 1 && fwdD < horizonDist && Math.abs(dx * aiRightX + dz * aiRightZ) < 6.5) {
+          hasObstacleThreat = true;
         }
       }
-
-      for (let i = 0; i < cops.length; i++) {
+      for (let i = 0; i < cops.length && !hasObstacleThreat; i++) {
         const cp = cops[i];
         if (cp.wrecked) continue;
         const dx = cp.pos.x - ai.pos.x;
         const dz = cp.pos.z - ai.pos.z;
         const fwdD = dx * aiFwdX + dz * aiFwdZ;
-        if (fwdD > 2 && fwdD < (cp.isRoadblock ? 55 : 28)) {
-          const latD = dx * aiRightX + dz * aiRightZ;
-          if (Math.abs(latD) < 3.5) {
-            const shoulderSide = info.lateralOffset >= 0 ? -1 : 1;
-            idealLane = shoulderSide * (usableHalf * 0.88);
-            brain.actionTag = 'DODGE';
-            break;
-          }
+        if (fwdD > 1 && fwdD < (cp.isRoadblock ? 60 : 34) && Math.abs(dx * aiRightX + dz * aiRightZ) < 6.8) {
+          hasObstacleThreat = true;
         }
       }
-
-      for (let i = 0; i < allRacers.length; i++) {
+      for (let i = 0; i < spikeStrips.length && !hasObstacleThreat; i++) {
+        const sp = spikeStrips[i];
+        if (sp.hit) continue;
+        const dx = sp.pos.x - ai.pos.x;
+        const dz = sp.pos.z - ai.pos.z;
+        const fwdD = dx * aiFwdX + dz * aiFwdZ;
+        if (fwdD > 1 && fwdD < 44 && Math.abs(dx * aiRightX + dz * aiRightZ) < 6.0) {
+          hasObstacleThreat = true;
+        }
+      }
+      for (let i = 0; i < allRacers.length && !hasObstacleThreat; i++) {
         const other = allRacers[i];
         if (other.id === ai.id || other.knockedOut || other.finished) continue;
         const dx = other.pos.x - ai.pos.x;
         const dz = other.pos.z - ai.pos.z;
         const fwdD = dx * aiFwdX + dz * aiFwdZ;
-        if (fwdD > -1.5 && fwdD < 10) {
-          const latD = dx * aiRightX + dz * aiRightZ;
-          if (Math.abs(latD) < 2.9) {
-            const push = latD >= 0 ? -3.4 : 3.4;
-            idealLane = THREE.MathUtils.clamp(
-              info.lateralOffset + push,
-              -usableHalf * 0.88,
-              usableHalf * 0.88,
-            );
+        if (fwdD > -1 && fwdD < 14 && Math.abs(dx * aiRightX + dz * aiRightZ) < 4.0) {
+          hasObstacleThreat = true;
+        }
+      }
+
+      if (hasObstacleThreat) {
+        let bestLane = idealLane;
+        let bestCost = Infinity;
+        for (let ci = 0; ci < CANDIDATE_LANE_FRACS.length; ci++) {
+          const candLane = CANDIDATE_LANE_FRACS[ci] * usableHalf;
+          const laneShift = candLane - info.lateralOffset;
+          let cost = Math.abs(candLane - idealLane) * 0.45 + Math.abs(laneShift) * 0.22;
+
+          for (let i = 0; i < traffic.length; i++) {
+            const tr = traffic[i];
+            const dx = tr.pos.x - ai.pos.x;
+            const dz = tr.pos.z - ai.pos.z;
+            const fwdD = dx * aiFwdX + dz * aiFwdZ;
+            if (fwdD > 0 && fwdD < horizonDist) {
+              const latD = dx * aiRightX + dz * aiRightZ;
+              const clearRad = tr.isTruck ? 3.8 : 3.2;
+              const distFromObs = Math.abs(latD - laneShift);
+              if (distFromObs < clearRad) {
+                cost += ((clearRad - distFromObs) / clearRad) * (160 / Math.max(4, fwdD));
+              }
+            }
+          }
+
+          for (let i = 0; i < cops.length; i++) {
+            const cp = cops[i];
+            if (cp.wrecked) continue;
+            const dx = cp.pos.x - ai.pos.x;
+            const dz = cp.pos.z - ai.pos.z;
+            const fwdD = dx * aiFwdX + dz * aiFwdZ;
+            if (fwdD > 0 && fwdD < (cp.isRoadblock ? 60 : 34)) {
+              const latD = dx * aiRightX + dz * aiRightZ;
+              const clearRad = cp.isRoadblock ? 4.4 : 3.5;
+              const distFromObs = Math.abs(latD - laneShift);
+              if (distFromObs < clearRad) {
+                cost += ((clearRad - distFromObs) / clearRad) * (190 / Math.max(4, fwdD));
+              }
+            }
+          }
+
+          for (let i = 0; i < spikeStrips.length; i++) {
+            const sp = spikeStrips[i];
+            if (sp.hit) continue;
+            const dx = sp.pos.x - ai.pos.x;
+            const dz = sp.pos.z - ai.pos.z;
+            const fwdD = dx * aiFwdX + dz * aiFwdZ;
+            if (fwdD > 0 && fwdD < 44) {
+              const latD = dx * aiRightX + dz * aiRightZ;
+              const distFromObs = Math.abs(latD - laneShift);
+              if (distFromObs < 3.6) {
+                cost += ((3.6 - distFromObs) / 3.6) * (220 / Math.max(4, fwdD));
+              }
+            }
+          }
+
+          for (let i = 0; i < allRacers.length; i++) {
+            const other = allRacers[i];
+            if (other.id === ai.id || other.knockedOut || other.finished) continue;
+            const dx = other.pos.x - ai.pos.x;
+            const dz = other.pos.z - ai.pos.z;
+            const fwdD = dx * aiFwdX + dz * aiFwdZ;
+            if (fwdD > -1 && fwdD < 15) {
+              const latD = dx * aiRightX + dz * aiRightZ;
+              const distFromObs = Math.abs(latD - laneShift);
+              if (distFromObs < 2.9) {
+                cost += ((2.9 - distFromObs) / 2.9) * (110 / Math.max(3, fwdD + 3));
+              }
+            }
+          }
+
+          if (cost < bestCost) {
+            bestCost = cost;
+            bestLane = candLane;
           }
         }
+        if (Math.abs(bestLane - idealLane) > 1.2) {
+          brain.actionTag = 'DODGE';
+        }
+        idealLane = bestLane;
       }
 
       ai.laneTarget = idealLane;
@@ -443,16 +633,15 @@ export function stepAiRacerPhysics(
     brain.smoothedLane = THREE.MathUtils.damp(
       brain.smoothedLane,
       ai.laneTarget,
-      aimingShortcut ? 7.5 : 4.6 + aiSettings.aggression * 1.4,
+      aimingShortcut ? 8.2 : 5.4 + aiSettings.aggression * 1.6,
       rawFixedDt,
     );
 
-    const lookOffsetSamples = THREE.MathUtils.clamp(Math.round(6 + absSpeed * 0.14), 6, 15);
+    const lookOffsetSamples = THREE.MathUtils.clamp(Math.round(5 + absSpeed * 0.13), 5, 14);
     const targetSample = samples[(ai.trackIdx + lookOffsetSamples) % nSamples];
     targetX = targetSample.point.x + targetSample.right.x * brain.smoothedLane;
     targetZ = targetSample.point.z + targetSample.right.z * brain.smoothedLane;
 
-    // Update 6 debug points (zero allocation) for F4 visualization
     brain.debugPoints[0].x = ai.pos.x;
     brain.debugPoints[0].y = ai.pos.y + 0.55;
     brain.debugPoints[0].z = ai.pos.z;
@@ -467,91 +656,78 @@ export function stepAiRacerPhysics(
     }
   }
 
-  // 4. Adaptive Intensity & Difficulty Physics Ceiling Calibration
+  // 4. Adaptive Intensity & True Tier-Grounded Speed Calibration (upgrades genuinely beat rivals)
   const gapLaps = player.totalProgress - ai.totalProgress;
   let targetRubber = 1.0;
   if (aiSettings.rubberBanding === 'off') {
-    if (aiSettings.adaptiveIntensity && gapLaps > 0.28) {
-      // Gentle floor ONLY if AI is more than ~28% of a lap behind so races never turn into empty lonely laps
-      targetRubber = THREE.MathUtils.clamp(1 + (gapLaps - 0.28) * 0.55, 1.0, 1.12);
+    if (aiSettings.adaptiveIntensity && gapLaps > 0.22) {
+      targetRubber = THREE.MathUtils.clamp(1 + (gapLaps - 0.22) * 0.45, 1.0, 1.08);
     }
   } else if (aiSettings.rubberBanding === 'classic') {
     targetRubber = THREE.MathUtils.clamp(
       1 + gapLaps * 1.65,
       profile.catchupMin * 0.96,
-      profile.catchupMax + 0.08,
+      profile.catchupMax + 0.04,
     );
   } else {
-    // 'light' (default) — intense close pack racing even on Easy!
-    const adaptiveBoost = aiSettings.adaptiveIntensity && gapLaps > 0.03 ? 1.55 : 0.95;
+    const adaptiveBoost = aiSettings.adaptiveIntensity && gapLaps > 0.02 ? 1.55 : 0.9;
     targetRubber = THREE.MathUtils.clamp(1 + gapLaps * adaptiveBoost, profile.catchupMin, profile.catchupMax);
   }
-  brain.adaptiveMult = THREE.MathUtils.damp(brain.adaptiveMult, targetRubber, 3.2, rawFixedDt);
+  brain.adaptiveMult = THREE.MathUtils.damp(brain.adaptiveMult, targetRubber, 4.2, rawFixedDt);
 
-  // 5. Physics-Derived Corner Speed Budget + Human Mistakes
-  const sinTurn = Math.max(0.015, curvatureSharp);
-  const estRadius = Math.max(16, (segLen * 7.5) / sinTurn);
-  const baseDryMu = environment === 'overcast_rain' ? 0.86 : 1.04;
-  const surfMu = THREE.MathUtils.lerp(baseDryMu, 0.84, THREE.MathUtils.clamp(roadWetness, 0, 1));
-  const gripBudget = 13.8 * surfMu * tuning.tireGripMultiplier * profile.cornerConfidence * traits.cornerAttack;
-  const physicsCornerCapMs = Math.sqrt(gripBudget * estRadius);
-
-  const playerStats = computeEffectiveStats(player.spec, {
-    ...brain.simConfig,
-    engineLevel: 2,
-    turboLevel: 2,
-    nitrousLevel: 2,
-    tiresLevel: 2,
-  });
-  const refTopKmh = Math.max(stats.topSpeedKmh, playerStats.topSpeedKmh * 0.96);
   const baseMaxMs =
-    (refTopKmh / 3.6) *
+    (stats.topSpeedKmh / 3.6) *
     profile.baseSkill *
     aiSettings.pace *
-    (0.95 + (ai.aiSkill - 0.9) * 0.45) *
+    (0.98 + (ai.aiSkill - 0.94) * 0.36) *
     brain.adaptiveMult *
-    (ai.copSlowdownTimer > 0 ? 0.7 : 1.0);
+    (ai.copSlowdownTimer > 0 ? 0.86 : 1.0);
 
-  // Drafting check for AI
+  // 5. Kinematic Corner Speed Budget + Drafting + Tactical Exit NOS
   let drafting = false;
-  if (absSpeed > 28) {
+  if (absSpeed > 26) {
     for (let i = 0; i < allRacers.length && !drafting; i++) {
       const other = allRacers[i];
-      if (other.id === ai.id || other.knockedOut) continue;
+      if (other.id === ai.id || other.knockedOut || other.busted) continue;
       const dx = other.pos.x - ai.pos.x;
       const dz = other.pos.z - ai.pos.z;
       const f = dx * aiFwdX + dz * aiFwdZ;
-      if (f > 5 && f < 36 && Math.abs(dx * aiRightX + dz * aiRightZ) < 3.4) {
+      if (f > 5 && f < 40 && Math.abs(dx * aiRightX + dz * aiRightZ) < 3.4) {
         drafting = true;
       }
     }
   }
 
-  // Smart Nitrous Trigger (straights + overtaking/chasing)
+  const dx = targetX - ai.pos.x;
+  const dz = targetZ - ai.pos.z;
+  const desiredHeading = Math.atan2(-dx, -dz);
+  let angleDiff = desiredHeading - ai.heading;
+  while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+  while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
   if (brain.nosBurstTimer > 0) {
     brain.nosBurstTimer = Math.max(0, brain.nosBurstTimer - rawFixedDt);
   }
-  const straightEnough = curvatureSharp < 0.085 && curvatureMid < 0.11;
+  const straightEnough = curvatureNear < 0.12 && curvatureMid < 0.16 && Math.abs(angleDiff) < 0.22;
   if (
     brain.nosBurstTimer <= 0 &&
-    brain.nitrous > 42 &&
+    brain.nitrous > 32 &&
     straightEnough &&
-    absSpeed > 24 &&
-    (gapLaps > 0.008 || drafting || brain.personality === 'aggressive')
+    absSpeed > 18 &&
+    (gapLaps > -0.008 || drafting || brain.personality === 'aggressive')
   ) {
-    if (Math.random() < profile.nosUsageBias * (0.25 + aiSettings.aggression * 0.75) * rawFixedDt * 2.2) {
-      brain.nosBurstTimer = 1.1 + Math.random() * 1.1;
+    if (Math.random() < profile.nosUsageBias * (0.55 + aiSettings.aggression * 0.65) * rawFixedDt * 3.4) {
+      brain.nosBurstTimer = 1.4 + Math.random() * 0.9;
     }
   }
   const nosActive = brain.nosBurstTimer > 0 && brain.nitrous > 2;
   if (nosActive) {
-    brain.nitrous = Math.max(0, brain.nitrous - rawFixedDt * 18);
+    brain.nitrous = Math.max(0, brain.nitrous - rawFixedDt * 17);
     brain.actionTag = 'NOS';
   } else {
-    brain.nitrous = Math.min(100, brain.nitrous + rawFixedDt * (4.0 + (drafting ? 7.5 : 0)));
+    brain.nitrous = Math.min(100, brain.nitrous + rawFixedDt * (5.0 + (drafting ? 8.5 : 0)));
   }
 
-  // Human-sized mistake injection under heavy corner load or pack pressure
   const effectiveMistake = aiSettings.mistakeRate * profile.mistakeScale;
   if (brain.mistakeTimer > 0) {
     brain.mistakeTimer = Math.max(0, brain.mistakeTimer - rawFixedDt);
@@ -560,38 +736,47 @@ export function stepAiRacerPhysics(
     if (
       brain.mistakeCooldown <= 0 &&
       effectiveMistake > 0.02 &&
-      curvatureSharp > 0.15 &&
-      absSpeed > 32
+      curvatureNear > 0.19 &&
+      absSpeed > 40
     ) {
-      brain.mistakeCooldown = 7 + Math.random() * 8;
-      if (Math.random() < effectiveMistake * 0.55) {
-        brain.mistakeTimer = 0.45 + Math.random() * 0.35;
-        brain.mistakeSteerBias = (Math.random() > 0.5 ? 1 : -1) * (0.18 + effectiveMistake * 0.25);
+      brain.mistakeCooldown = 10 + Math.random() * 10;
+      if (Math.random() < effectiveMistake * 0.35) {
+        brain.mistakeTimer = 0.28 + Math.random() * 0.2;
+        brain.mistakeSteerBias = (Math.random() > 0.5 ? 1 : -1) * (0.11 + effectiveMistake * 0.15);
         brain.actionTag = 'SLIP';
       }
     }
   }
 
-  // 6. Steering, Throttle & Braking Commands -> Real 120 Hz Vehicle Physics!
-  const dx = targetX - ai.pos.x;
-  const dz = targetZ - ai.pos.z;
-  const desiredHeading = Math.atan2(-dx, -dz);
-  let angleDiff = desiredHeading - ai.heading;
-  while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-  while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+  // 6. Stuck / Wall-Pin Recovery
+  if (brain.reverseRecoveryTimer > 0) {
+    brain.reverseRecoveryTimer = Math.max(0, brain.reverseRecoveryTimer - rawFixedDt);
+  } else if (absSpeed < 3.6 && ai.airHeight <= 0.1) {
+    brain.stuckTimer += rawFixedDt;
+    if (brain.stuckTimer > 1.05) {
+      brain.reverseRecoveryTimer = 0.6;
+      brain.stuckTimer = 0;
+    }
+  } else {
+    brain.stuckTimer = Math.max(0, brain.stuckTimer - rawFixedDt * 2);
+  }
 
-  const steerGain = THREE.MathUtils.clamp(angleDiff * 2.25 + (brain.mistakeTimer > 0 ? brain.mistakeSteerBias : 0), -1, 1);
-  ai.steerAngle = THREE.MathUtils.damp(ai.steerAngle, steerGain * 0.48, 16, rawFixedDt);
+  let steerGain = THREE.MathUtils.clamp(angleDiff * 2.55 + (brain.mistakeTimer > 0 ? brain.mistakeSteerBias : 0), -1, 1);
+  ai.steerAngle = THREE.MathUtils.damp(ai.steerAngle, steerGain * 0.48, 19, rawFixedDt);
 
-  const safeCornerMs =
-    physicsCornerCapMs *
-    traits.brakeBias *
-    (brain.mistakeTimer > 0 ? 1.12 : 1.0) *
-    (1 - Math.min(0.32, Math.abs(angleDiff) * 0.35));
+  const safeCornerMs = computeAiCornerSafeSpeedMs(
+    minFutureRadius,
+    horizonBrakeCapMs,
+    gripBudget,
+    angleDiff,
+    traits.brakeBias * (brain.mistakeTimer > 0 ? 1.08 : 1.0),
+  );
+  const shortcutEntryCapMs = aimingShortcut ? 68 : 999;
 
   const targetSpeedMs = Math.min(
-    nosActive ? baseMaxMs * 1.16 : baseMaxMs,
+    nosActive ? baseMaxMs * 1.15 : baseMaxMs,
     safeCornerMs,
+    shortcutEntryCapMs,
   );
   brain.targetSpeedMs = targetSpeedMs;
 
@@ -601,19 +786,26 @@ export function stepAiRacerPhysics(
   let throttleAxis = 1.0;
   let brakeAxis = 0.0;
 
-  if (speedErr < -4.2) {
+  if (brain.reverseRecoveryTimer > 0) {
     throttleInput = false;
     brakeInput = true;
-    brakeAxis = THREE.MathUtils.clamp((-speedErr - 3.5) / 14, 0.28, 1.0);
+    brakeAxis = 0.95;
+    steerGain = -Math.sign(angleDiff || 1);
+    ai.steerAngle = steerGain * 0.48;
+    brain.actionTag = 'RECOVER';
+  } else if (speedErr < -3.8) {
+    throttleInput = false;
+    brakeInput = true;
+    brakeAxis = THREE.MathUtils.clamp((-speedErr - 3.0) / 13, 0.30, 1.0);
     brain.actionTag = 'BRAKE';
-  } else if (speedErr < -1.0) {
+  } else if (speedErr < -0.9) {
     throttleInput = false;
     brakeInput = false;
   } else {
     throttleInput = true;
-    throttleAxis = THREE.MathUtils.clamp(speedErr / 6.0 + 0.65, 0.45, 1.0);
+    throttleAxis = THREE.MathUtils.clamp(speedErr / 5.5 + 0.72, 0.5, 1.0);
   }
-  const handbrakeInput = !inShortcut && Math.abs(angleDiff) > 0.65 && absSpeed > 26 && brain.personality === 'aggressive';
+  const handbrakeInput = !inShortcut && brain.reverseRecoveryTimer <= 0 && Math.abs(angleDiff) > 0.62 && absSpeed > 26 && brain.personality === 'aggressive';
 
   brain.braking = brakeInput || handbrakeInput;
   brain.nosActive = nosActive;
@@ -644,10 +836,10 @@ export function stepAiRacerPhysics(
   sIn.isSpeedbreaker = false;
   sIn.baseMaxMs = baseMaxMs;
   sIn.maxForwardMs = maxForwardMs;
-  sIn.accelStat = Math.min(100, stats.accel * profile.baseSkill * aiSettings.pace * brain.adaptiveMult);
+  sIn.accelStat = Math.min(100, stats.accel * (0.94 + profile.baseSkill * 0.06) * aiSettings.pace);
   sIn.handlingStat = Math.min(100, stats.handling * profile.cornerConfidence);
   sIn.bodyStyle = ai.spec.bodyStyle;
-  sIn.upcomingTurnSeverity = THREE.MathUtils.clamp(curvatureSharp * 2.4, 0, 1);
+  sIn.upcomingTurnSeverity = THREE.MathUtils.clamp(curvatureNear * 2.4, 0, 1);
   sIn.lateralOffset = info.lateralOffset;
   sIn.roadHalfWidth = track.roadHalfWidth;
   sIn.inShortcut = inShortcut;
@@ -656,6 +848,11 @@ export function stepAiRacerPhysics(
   sIn.environment = environment;
   sIn.trackId = track.id;
   sIn.roadWetness = roadWetness;
+  sIn.slopePitch = ai.slopePitch ?? info.slopePitch;
+  sIn.bankAngle = ai.bankRoll ?? info.bankAngle;
+  sIn.landingVelMps = ai.lastLandingVelMps ?? 0;
+  ai.lastLandingVelMps = 0;
+  sIn.wheelRadiusM = ai.spec.dimensions.wheelRadius;
   sIn.tuning = tuning;
   sIn.assists = assists;
 

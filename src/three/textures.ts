@@ -382,53 +382,113 @@ export function createGarageFloorTexture(maxAnisotropy: number): THREE.CanvasTex
 
 export function createBuildingFacadeTexture(
   maxAnisotropy: number,
-  variant: 'glass' | 'concrete' | 'industrial' = 'glass',
+  variant: 'glass' | 'concrete' | 'industrial' | 'villa' = 'glass',
 ): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 512;
   const ctx = canvas.getContext('2d')!;
 
-  if (variant === 'industrial') {
-    ctx.fillStyle = '#26221E';
+  if (variant === 'villa') {
+    // Warm sunlit Mediterranean stucco with recessed arched/shuttered windows
+    const stuccoGrad = ctx.createLinearGradient(0, 0, 0, 512);
+    stuccoGrad.addColorStop(0, '#F5EFE6');
+    stuccoGrad.addColorStop(1, '#E6DCCD');
+    ctx.fillStyle = stuccoGrad;
     ctx.fillRect(0, 0, 512, 512);
-    for (let y = 0; y < 512; y += 64) {
-      ctx.fillStyle = '#161412';
-      ctx.fillRect(0, y, 512, 6);
-      for (let x = 18; x < 494; x += 48) {
-        const lit = Math.random() > 0.56;
-        ctx.fillStyle = lit ? '#F59E0B' : '#0F1521';
-        ctx.fillRect(x, y + 18, 28, 18);
+
+    ctx.fillStyle = '#D5C7B2';
+    ctx.fillRect(0, 246, 512, 14);
+    ctx.fillRect(0, 496, 512, 16);
+
+    for (let row = 0; row < 2; row++) {
+      const yBase = row * 256 + 44;
+      for (let x = 36; x < 480; x += 116) {
+        // Wooden shutters + deep glass reflection
+        ctx.fillStyle = '#785A3C';
+        ctx.fillRect(x - 10, yBase + 16, 12, 132);
+        ctx.fillRect(x + 62, yBase + 16, 12, 132);
+        ctx.fillStyle = '#1E3A5F';
+        ctx.fillRect(x, yBase, 64, 148);
+        ctx.fillStyle = 'rgba(186, 230, 253, 0.34)';
+        ctx.fillRect(x + 6, yBase + 8, 22, 60);
+        ctx.fillRect(x + 36, yBase + 8, 22, 60);
+        ctx.fillStyle = '#E2D8C8';
+        ctx.fillRect(x - 4, yBase + 148, 72, 10);
+      }
+    }
+  } else if (variant === 'industrial') {
+    ctx.fillStyle = '#2B2F36';
+    ctx.fillRect(0, 0, 512, 512);
+    // Ribbed steel warehouse cladding + horizontal clerestory glazing
+    for (let x = 0; x < 512; x += 16) {
+      ctx.fillStyle = x % 32 === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.16)';
+      ctx.fillRect(x, 0, 8, 512);
+    }
+    for (let y = 0; y < 512; y += 128) {
+      ctx.fillStyle = '#141820';
+      ctx.fillRect(0, y, 512, 12);
+      ctx.fillStyle = '#1E293B';
+      ctx.fillRect(24, y + 26, 464, 34);
+      for (let x = 32; x < 472; x += 58) {
+        const lit = ((x + y) / 14) % 5 === 0;
+        ctx.fillStyle = lit ? 'rgba(251, 191, 36, 0.65)' : 'rgba(148, 163, 184, 0.25)';
+        ctx.fillRect(x, y + 30, 46, 26);
       }
     }
   } else if (variant === 'concrete') {
-    ctx.fillStyle = '#232833';
+    // Modern precast architectural concrete tower with recessed panoramic ribbon windows
+    const baseGrad = ctx.createLinearGradient(0, 0, 0, 512);
+    baseGrad.addColorStop(0, '#3D4452');
+    baseGrad.addColorStop(1, '#2B313C');
+    ctx.fillStyle = baseGrad;
     ctx.fillRect(0, 0, 512, 512);
-    for (let y = 0; y < 512; y += 32) {
-      ctx.fillStyle = '#171B24';
-      ctx.fillRect(0, y, 512, 5);
-      for (let x = 14; x < 498; x += 32) {
-        const r = Math.random();
-        ctx.fillStyle = r > 0.72 ? '#FCD34D' : r > 0.45 ? '#2B3648' : '#0D131F';
-        ctx.fillRect(x, y + 8, 19, 16);
+
+    for (let y = 0; y < 512; y += 64) {
+      // Floor spandrel ledge + shadow line
+      ctx.fillStyle = '#222731';
+      ctx.fillRect(0, y, 512, 16);
+      ctx.fillStyle = '#4B5565';
+      ctx.fillRect(0, y + 16, 512, 4);
+
+      // Clean continuous glass strip with subtle mullions and varied office glow
+      for (let x = 12; x < 500; x += 48) {
+        const r = Math.sin(x * 0.13 + y * 0.07);
+        ctx.fillStyle = r > 0.65 ? 'rgba(253, 224, 140, 0.72)' : r > 0.1 ? '#1C3654' : '#101E30';
+        ctx.fillRect(x, y + 24, 40, 32);
+        ctx.fillStyle = 'rgba(186, 230, 253, 0.18)';
+        ctx.fillRect(x + 2, y + 26, 16, 28);
       }
     }
   } else {
-    const grad = ctx.createLinearGradient(0, 0, 0, 512);
-    grad.addColorStop(0, '#0D1627');
-    grad.addColorStop(0.55, '#172740');
-    grad.addColorStop(1, '#262127');
+    // Architectural curtain-wall skyscraper glass with sleek vertical mullions and sky reflection gradient
+    const grad = ctx.createLinearGradient(0, 0, 512, 512);
+    grad.addColorStop(0, '#162A45');
+    grad.addColorStop(0.5, '#224268');
+    grad.addColorStop(1, '#122238');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 512, 512);
 
-    for (let y = 0; y < 512; y += 32) {
-      ctx.fillStyle = '#090E18';
-      ctx.fillRect(0, y, 512, 5);
-      for (let x = 10; x < 502; x += 28) {
-        const r = Math.random();
-        ctx.fillStyle =
-          r > 0.74 ? (r > 0.88 ? '#FBBF24' : '#7DD3FC') : r > 0.36 ? '#1B3455' : '#080C15';
-        ctx.fillRect(x, y + 7, 20, 19);
+    for (let y = 0; y < 512; y += 64) {
+      // Dark aluminum spandrel panel per floor
+      ctx.fillStyle = '#0D1522';
+      ctx.fillRect(0, y, 512, 14);
+      ctx.fillStyle = '#334E6E';
+      ctx.fillRect(0, y + 14, 512, 2);
+
+      for (let x = 0; x < 512; x += 32) {
+        const seed = Math.sin(x * 0.21 + y * 0.37);
+        const paneColor =
+          seed > 0.76
+            ? 'rgba(254, 240, 185, 0.55)'
+            : seed > 0.25
+              ? 'rgba(125, 211, 252, 0.28)'
+              : 'rgba(15, 30, 52, 0.55)';
+        ctx.fillStyle = paneColor;
+        ctx.fillRect(x + 3, y + 18, 26, 42);
+        // Vertical brushed aluminum mullion
+        ctx.fillStyle = '#0B111C';
+        ctx.fillRect(x, y, 3, 64);
       }
     }
   }

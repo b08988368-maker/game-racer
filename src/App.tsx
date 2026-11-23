@@ -66,11 +66,11 @@ const LOCAL_LOOK_KEY = 'blacklist_rockport_aelook_v1';
 function loadAeLookSetting(): boolean {
   try {
     const raw = localStorage.getItem(LOCAL_LOOK_KEY);
-    if (raw === 'false') return false;
+    if (raw === 'true') return true;
   } catch {
     // ignore storage errors
   }
-  return true;
+  return false;
 }
 
 function loadLocalCareer(): CareerProfile {
@@ -107,7 +107,11 @@ function GameRoot() {
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<RacingEngine | null>(null);
 
-  const [screen, setScreen] = useState<'menu' | 'race'>('menu');
+  const [screen, setScreen] = useState<'menu' | 'race'>(() =>
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('autostart') === '1'
+      ? 'race'
+      : 'menu',
+  );
   const [activeTab, setActiveTab] = useState<MenuTab>('missions');
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -292,7 +296,22 @@ function GameRoot() {
 
     const spec = CARS.find((c) => c.id === profileRef.current.selectedCarId) ?? CARS[0];
     const cfg = garageConfigs[spec.id] ?? getDefaultCarConfig(spec.id, profileRef.current.uid);
-    engine.showGarageCar(spec, cfg);
+
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('autostart') === '1') {
+      const autoParams: RaceStartParams = {
+        mode: 'circuit',
+        trackId: 'rockport_loop',
+        environment: 'auto',
+        patrolsEnabled: driverSettings.policeEnabled,
+        playerSpec: spec,
+        playerConfig: cfg,
+      };
+      setActiveRaceParams(autoParams);
+      setScreen('race');
+      engine.startRace(autoParams);
+    } else {
+      engine.showGarageCar(spec, cfg);
+    }
 
     return () => {
       engine.dispose();
@@ -300,6 +319,19 @@ function GameRoot() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Sync body state attribute for clean UI & test state observability
+  useEffect(() => {
+    const state =
+      raceResult && outroRevealReady
+        ? 'gameover'
+        : screen === 'race' && paused && !raceResult
+          ? 'paused'
+          : screen === 'race'
+            ? 'playing'
+            : 'title';
+    document.body.dataset.state = state;
+  }, [screen, paused, raceResult, outroRevealReady]);
 
   // Persist & sync U1/U2/U3 driver settings to RacingEngine whenever updated
   useEffect(() => {

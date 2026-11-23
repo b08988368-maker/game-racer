@@ -1519,7 +1519,7 @@ export function buildTrack(
 
   // --- 1. Environment-Adapted Terrain + Dynamic Harbor Bay ---
   const groundTex = track(createGroundTerrainTexture(maxAnisotropy));
-  const groundGeo = track(new THREE.PlaneGeometry(terrainSpanW, terrainSpanD, 288, 288));
+  const groundGeo = track(new THREE.PlaneGeometry(terrainSpanW, terrainSpanD, 176, 176));
   groundGeo.rotateX(-Math.PI / 2);
 
   const posAttr = groundGeo.attributes.position;
@@ -4026,23 +4026,31 @@ export function buildTrack(
     group.add(gsG);
   });
 
-  // --- 14. Environment-Adapted Foliage ---
-  const treePositions: { x: number; y: number; z: number; scale: number; tint: THREE.Color }[] = [];
+  // --- 14. Environment-Adapted Multi-Part Foliage (Palms, Broadleaf / Olive Groves & Cypress) ---
+  interface TreeSpot {
+    x: number;
+    y: number;
+    z: number;
+    scale: number;
+    tint: THREE.Color;
+    kind: 'palm' | 'broadleaf';
+  }
+  const treePositions: TreeSpot[] = [];
   const foliagePalette =
     isForestTrack || environment === 'noon_clear' || environment === 'dawn_mist'
       ? [
-          new THREE.Color('#166534'),
-          new THREE.Color('#15803D'),
-          new THREE.Color('#3F6212'),
-          new THREE.Color('#4D7C0F'),
-          new THREE.Color('#14532D'),
+          new THREE.Color('#2E6F40'),
+          new THREE.Color('#3E7B44'),
+          new THREE.Color('#4F772D'),
+          new THREE.Color('#5C8D3E'),
+          new THREE.Color('#2D5A37'),
         ]
       : [
           new THREE.Color('#D97706'),
           new THREE.Color('#B45309'),
-          new THREE.Color('#9A3412'),
-          new THREE.Color('#DC2626'),
           new THREE.Color('#4D7C0F'),
+          new THREE.Color('#3F6212'),
+          new THREE.Color('#65A30D'),
           new THREE.Color('#CA8A04'),
         ];
 
@@ -4057,13 +4065,15 @@ export function buildTrack(
     if (isClearOfTrack(tx, tz, barrierHalfWidth + 10)) {
       const ty = sampleTerrainInfo(tx, tz).height;
       if (ty > -3) {
-        const forestBoost = trackId === 'heritage_forest' ? 1.45 : isForestTrack ? 1.15 : 0.9;
+        const forestBoost = trackId === 'heritage_forest' ? 1.38 : isForestTrack ? 1.15 : 0.94;
+        const nearCoast = hasHarborBay && tz < minZ + 560;
         treePositions.push({
           x: tx,
           y: ty - 0.3,
           z: tz,
           scale: forestBoost + ((i * 13) % 7) * 0.11,
           tint: foliagePalette[i % foliagePalette.length],
+          kind: nearCoast || ((trackId === 'rockport_loop' || trackId === 'camden_coast') && i % 3 === 0) ? 'palm' : 'broadleaf',
         });
       }
     }
@@ -4078,51 +4088,116 @@ export function buildTrack(
     if (isClearOfTrack(tx, tz, barrierHalfWidth + 26)) {
       const ty = sampleTerrainInfo(tx, tz).height;
       if (ty > -3) {
+        const nearCoast = hasHarborBay && tz < minZ + 560;
         treePositions.push({
           x: tx,
           y: ty - 0.4,
           z: tz,
-          scale: (trackId === 'heritage_forest' ? 1.35 : 1.0) + (t % 5) * 0.16,
+          scale: (trackId === 'heritage_forest' ? 1.32 : 1.0) + (t % 5) * 0.16,
           tint: foliagePalette[t % foliagePalette.length],
+          kind: nearCoast ? 'palm' : 'broadleaf',
         });
       }
     }
   }
 
-  if (treePositions.length > 0) {
-    const trunkGeo = track(new THREE.CylinderGeometry(0.32, 0.5, 5.2, 6));
-    trunkGeo.translate(0, 2.6, 0);
-    const trunkMat = track(new THREE.MeshStandardMaterial({ color: '#3F2719', roughness: 0.94 }));
-    const foliageGeo1 = track(new THREE.ConeGeometry(3.2, 5.8, 7));
-    foliageGeo1.translate(0, 6.2, 0);
-    const foliageGeo2 = track(new THREE.ConeGeometry(2.3, 4.4, 7));
-    foliageGeo2.translate(0, 9.2, 0);
-    const foliageMat = track(new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: 0.85 }));
+  const palmTrees = treePositions.filter((t) => t.kind === 'palm');
+  const broadTrees = treePositions.filter((t) => t.kind === 'broadleaf');
 
-    const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, treePositions.length);
-    const leaves1 = new THREE.InstancedMesh(foliageGeo1, foliageMat, treePositions.length);
-    const leaves2 = new THREE.InstancedMesh(foliageGeo2, foliageMat, treePositions.length);
+  if (palmTrees.length > 0) {
+    // Multi-part Date Palms: tapered lower trunk + angled upper trunk + 6 arched radiating fronds
+    const palmLowerGeo = track(new THREE.CylinderGeometry(0.28, 0.44, 4.6, 7));
+    palmLowerGeo.translate(0, 2.3, 0);
+    const palmUpperGeo = track(new THREE.CylinderGeometry(0.20, 0.28, 4.2, 7));
+    palmUpperGeo.translate(0, 2.1, 0);
+    const palmTrunkMat = track(new THREE.MeshStandardMaterial({ color: '#6B4F35', roughness: 0.92 }));
+    const palmFrondGeo = track(new THREE.BoxGeometry(0.95, 0.14, 3.6));
+    palmFrondGeo.translate(0, 0, 1.8);
+    const palmFrondMat = track(new THREE.MeshStandardMaterial({ color: '#2F855A', roughness: 0.72 }));
 
-    treePositions.forEach((tp, idx) => {
+    const pLow = new THREE.InstancedMesh(palmLowerGeo, palmTrunkMat, palmTrees.length);
+    const pUp = new THREE.InstancedMesh(palmUpperGeo, palmTrunkMat, palmTrees.length);
+    const pFronds = new THREE.InstancedMesh(palmFrondGeo, palmFrondMat, palmTrees.length * 6);
+    const frondTint = new THREE.Color('#38A169');
+
+    palmTrees.forEach((tp, idx) => {
+      const yaw = idx * 1.15;
+      const lean = 0.08 + (idx % 3) * 0.03;
       dummy.position.set(tp.x, tp.y, tp.z);
-      dummy.rotation.set(0, idx * 0.8, 0);
+      dummy.rotation.set(lean, yaw, 0, 'YXZ');
       dummy.scale.setScalar(tp.scale);
+      dummy.updateMatrix();
+      pLow.setMatrixAt(idx, dummy.matrix);
+
+      const topX = tp.x + Math.sin(yaw) * Math.sin(lean) * 4.4 * tp.scale;
+      const topZ = tp.z + Math.cos(yaw) * Math.sin(lean) * 4.4 * tp.scale;
+      const topY = tp.y + Math.cos(lean) * 4.4 * tp.scale;
+      dummy.position.set(topX, topY, topZ);
+      dummy.rotation.set(lean * 1.4, yaw, 0, 'YXZ');
+      dummy.scale.setScalar(tp.scale);
+      dummy.updateMatrix();
+      pUp.setMatrixAt(idx, dummy.matrix);
+
+      const crownX = topX + Math.sin(yaw) * Math.sin(lean * 1.4) * 4.0 * tp.scale;
+      const crownZ = topZ + Math.cos(yaw) * Math.sin(lean * 1.4) * 4.0 * tp.scale;
+      const crownY = topY + Math.cos(lean * 1.4) * 4.0 * tp.scale;
+      for (let f = 0; f < 6; f++) {
+        const fYaw = yaw + (f / 6) * Math.PI * 2;
+        dummy.position.set(crownX, crownY, crownZ);
+        dummy.rotation.set(0.32 + (f % 2) * 0.14, fYaw, 0, 'YXZ');
+        dummy.scale.set(tp.scale, tp.scale, tp.scale * (0.92 + (f % 3) * 0.1));
+        dummy.updateMatrix();
+        pFronds.setMatrixAt(idx * 6 + f, dummy.matrix);
+        pFronds.setColorAt(idx * 6 + f, f % 2 === 0 ? frondTint : tp.tint);
+      }
+    });
+    [pLow, pUp, pFronds].forEach((m) => {
+      m.instanceMatrix.needsUpdate = true;
+      m.computeBoundingSphere();
+      group.add(m);
+    });
+    if (pFronds.instanceColor) pFronds.instanceColor.needsUpdate = true;
+  }
+
+  if (broadTrees.length > 0) {
+    // Multi-part Mediterranean Broadleaf / Olive Trees (trunk + 3 organic asymmetric foliage clusters)
+    const trunkGeo = track(new THREE.CylinderGeometry(0.28, 0.48, 4.4, 7));
+    trunkGeo.translate(0, 2.2, 0);
+    const trunkMat = track(new THREE.MeshStandardMaterial({ color: '#4A3222', roughness: 0.94 }));
+    const crownMainGeo = track(new THREE.DodecahedronGeometry(2.6, 1));
+    crownMainGeo.translate(0, 5.8, 0);
+    const crownSideGeo = track(new THREE.DodecahedronGeometry(1.85, 1));
+    crownSideGeo.translate(1.25, 4.9, 0.7);
+    const crownTopGeo = track(new THREE.DodecahedronGeometry(1.65, 1));
+    crownTopGeo.translate(-0.85, 6.8, -0.6);
+    const foliageMat = track(new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: 0.84, metalness: 0.02 }));
+
+    const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, broadTrees.length);
+    const leaves1 = new THREE.InstancedMesh(crownMainGeo, foliageMat, broadTrees.length);
+    const leaves2 = new THREE.InstancedMesh(crownSideGeo, foliageMat, broadTrees.length);
+    const leaves3 = new THREE.InstancedMesh(crownTopGeo, foliageMat, broadTrees.length);
+
+    broadTrees.forEach((tp, idx) => {
+      dummy.position.set(tp.x, tp.y, tp.z);
+      dummy.rotation.set(0, idx * 0.85, 0);
+      dummy.scale.set(tp.scale * (0.95 + (idx % 3) * 0.08), tp.scale, tp.scale * (0.95 + ((idx + 1) % 3) * 0.08));
       dummy.updateMatrix();
       trunks.setMatrixAt(idx, dummy.matrix);
       leaves1.setMatrixAt(idx, dummy.matrix);
       leaves2.setMatrixAt(idx, dummy.matrix);
+      leaves3.setMatrixAt(idx, dummy.matrix);
       leaves1.setColorAt(idx, tp.tint);
       leaves2.setColorAt(idx, tp.tint);
+      leaves3.setColorAt(idx, tp.tint);
     });
-    trunks.instanceMatrix.needsUpdate = true;
-    leaves1.instanceMatrix.needsUpdate = true;
-    leaves2.instanceMatrix.needsUpdate = true;
+    [trunks, leaves1, leaves2, leaves3].forEach((m) => {
+      m.instanceMatrix.needsUpdate = true;
+      m.computeBoundingSphere();
+      group.add(m);
+    });
     if (leaves1.instanceColor) leaves1.instanceColor.needsUpdate = true;
     if (leaves2.instanceColor) leaves2.instanceColor.needsUpdate = true;
-    trunks.computeBoundingSphere();
-    leaves1.computeBoundingSphere();
-    leaves2.computeBoundingSphere();
-    group.add(trunks, leaves1, leaves2);
+    if (leaves3.instanceColor) leaves3.instanceColor.needsUpdate = true;
   }
 
   // Trackside Bushes, Shrub Clusters & Rock Outcrops along road verges (eliminates empty terrain)
@@ -4163,8 +4238,8 @@ export function buildTrack(
     }
   }
   if (bushSpots.length > 0) {
-    const bushGeo = track(new THREE.IcosahedronGeometry(1.15, 0));
-    const bushMat = track(new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: 0.9, metalness: 0.02 }));
+    const bushGeo = track(new THREE.IcosahedronGeometry(1.15, 1));
+    const bushMat = track(new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: 0.88, metalness: 0.02 }));
     const bushInst = new THREE.InstancedMesh(bushGeo, bushMat, bushSpots.length);
     bushSpots.forEach((bs, idx) => {
       dummy.position.set(bs.x, bs.y, bs.z);
@@ -4201,12 +4276,233 @@ export function buildTrack(
     group.add(rockInst);
   }
 
-  // Urban / Industrial Close-Track Commercial Storefronts & Neon Facade Signs (Zero clipping margin)
+  // --- 14B. Oceanfront Villas, Turquoise Pool Decks, Marina Piers & Moored Yachts + Countryside "3robyat" Rural Estates ---
+  const villaTex = track(createBuildingFacadeTexture(maxAnisotropy, 'villa'));
+  const villaWallMat = track(
+    new THREE.MeshStandardMaterial({
+      map: villaTex,
+      color: '#FFFFFF',
+      roughness: 0.72,
+      metalness: 0.04,
+    }),
+  );
+  const villaRoofMat = track(new THREE.MeshStandardMaterial({ color: '#B4532A', roughness: 0.78, metalness: 0.05 }));
+  const stoneWallMat = track(new THREE.MeshStandardMaterial({ color: '#C6B79E', roughness: 0.92, metalness: 0.02 }));
+  const poolWaterMat = track(
+    new THREE.MeshStandardMaterial({
+      color: '#06B6D4',
+      emissive: new THREE.Color('#0891B2'),
+      emissiveIntensity: environment === 'midnight_neon' ? 0.9 : 0.25,
+      roughness: 0.14,
+      metalness: 0.4,
+    }),
+  );
+
+  interface VillaSpot {
+    x: number;
+    y: number;
+    z: number;
+    yaw: number;
+    scale: number;
+    hasPool: boolean;
+  }
+  const villaSpots: VillaSpot[] = [];
+
+  for (let i = 6; i < SAMPLE_COUNT; i += 10) {
+    if (isInsideAnyTunnel(i, 2) || isNearShortcutPortal(i, 5)) continue;
+    const s = samples[i];
+    const inRuralZone =
+      isForestTrack ||
+      trackId === 'hwy99_speedway' ||
+      trackId === 'silverton_pass' ||
+      trackId === 'camden_coast' ||
+      trackId === 'gray_point_bay' ||
+      (s.progress >= 0.24 && s.progress <= 0.72);
+    if (!inRuralZone && !(hasHarborBay && s.point.z < minZ + 560)) continue;
+
+    const side = i % 2 === 0 ? 1 : -1;
+    const distOut = barrierHalfWidth + 28 + ((i * 9) % 24);
+    const vx = s.point.x + s.right.x * side * distOut;
+    const vz = s.point.z + s.right.z * side * distOut;
+    if (hasHarborBay && vz < minZ + 380 && vx > minX - 80 && vx < maxX + 120) continue;
+    if (!isClearOfTrack(vx, vz, barrierHalfWidth + 24)) continue;
+    const vy = sampleTerrainInfo(vx, vz).height;
+    if (vy < -1.8) continue;
+
+    const isCoastalVilla = hasHarborBay && vz < minZ + 640;
+    villaSpots.push({
+      x: vx,
+      y: vy - 0.35,
+      z: vz,
+      yaw: Math.atan2(-s.tangent.x, -s.tangent.z) + (side > 0 ? Math.PI * 0.5 : -Math.PI * 0.5),
+      scale: 0.92 + (i % 3) * 0.16,
+      hasPool: isCoastalVilla || i % 2 === 0,
+    });
+  }
+
+  if (villaSpots.length > 0) {
+    const vMainGeo = track(new THREE.BoxGeometry(11.5, 5.4, 8.2));
+    vMainGeo.translate(0, 2.7, 0);
+    const vWingGeo = track(new THREE.BoxGeometry(6.5, 3.6, 6.2));
+    vWingGeo.translate(4.8, 1.8, 2.6);
+    const vRoofGeo = track(new THREE.ConeGeometry(7.2, 2.8, 4));
+    vRoofGeo.rotateY(Math.PI * 0.25);
+    vRoofGeo.scale(1.18, 1, 0.88);
+    vRoofGeo.translate(0, 6.8, 0);
+    const vWingRoofGeo = track(new THREE.ConeGeometry(4.8, 2.0, 4));
+    vWingRoofGeo.rotateY(Math.PI * 0.25);
+    vWingRoofGeo.translate(4.8, 4.6, 2.6);
+    const vCourtyardGeo = track(new THREE.BoxGeometry(18.5, 1.35, 15.5));
+    vCourtyardGeo.translate(1.0, 0.67, 1.8);
+    const vPoolGeo = track(new THREE.BoxGeometry(5.6, 0.28, 3.4));
+    vPoolGeo.translate(-3.4, 0.28, 6.4);
+
+    const vMains = new THREE.InstancedMesh(vMainGeo, villaWallMat, villaSpots.length);
+    const vWings = new THREE.InstancedMesh(vWingGeo, villaWallMat, villaSpots.length);
+    const vRoofs = new THREE.InstancedMesh(vRoofGeo, villaRoofMat, villaSpots.length);
+    const vWRoofs = new THREE.InstancedMesh(vWingRoofGeo, villaRoofMat, villaSpots.length);
+    const vWalls = new THREE.InstancedMesh(vCourtyardGeo, stoneWallMat, villaSpots.length);
+    const poolVillas = villaSpots.filter((v) => v.hasPool);
+    const vPools = poolVillas.length > 0 ? new THREE.InstancedMesh(vPoolGeo, poolWaterMat, poolVillas.length) : null;
+    let pIdx = 0;
+
+    villaSpots.forEach((vs, idx) => {
+      dummy.position.set(vs.x, vs.y, vs.z);
+      dummy.rotation.set(0, vs.yaw, 0);
+      dummy.scale.setScalar(vs.scale);
+      dummy.updateMatrix();
+      vMains.setMatrixAt(idx, dummy.matrix);
+      vWings.setMatrixAt(idx, dummy.matrix);
+      vRoofs.setMatrixAt(idx, dummy.matrix);
+      vWRoofs.setMatrixAt(idx, dummy.matrix);
+      vWalls.setMatrixAt(idx, dummy.matrix);
+      if (vPools && vs.hasPool) {
+        vPools.setMatrixAt(pIdx++, dummy.matrix);
+      }
+    });
+    [vMains, vWings, vRoofs, vWRoofs, vWalls].forEach((m) => {
+      m.instanceMatrix.needsUpdate = true;
+      m.computeBoundingSphere();
+      group.add(m);
+    });
+    if (vPools) {
+      vPools.instanceMatrix.needsUpdate = true;
+      vPools.computeBoundingSphere();
+      group.add(vPools);
+    }
+  }
+
+  // Countryside Windmills / Turbines on rural ridges ("3robyat" open countryside horizons)
+  if (!isCanyonOrSummit && trackId !== 'downtown_labyrinth') {
+    const millSpots: { x: number; y: number; z: number; yaw: number; scale: number }[] = [];
+    for (let m = 0; m < 10; m++) {
+      const s = samples[Math.floor(((0.22 + m * 0.052) % 1) * SAMPLE_COUNT)];
+      const side = m % 2 === 0 ? 1 : -1;
+      const mx = s.point.x + s.right.x * side * (barrierHalfWidth + 68 + (m % 3) * 26);
+      const mz = s.point.z + s.right.z * side * (barrierHalfWidth + 68 + (m % 3) * 26);
+      if (hasHarborBay && mz < minZ + 380 && mx > minX - 80 && mx < maxX + 120) continue;
+      if (!isClearOfTrack(mx, mz, barrierHalfWidth + 52)) continue;
+      const my = sampleTerrainInfo(mx, mz).height;
+      if (my > 0) {
+        millSpots.push({ x: mx, y: my - 0.5, z: mz, yaw: m * 0.7, scale: 1.0 + (m % 3) * 0.18 });
+      }
+    }
+    if (millSpots.length > 0) {
+      const mastGeo = track(new THREE.CylinderGeometry(0.45, 1.05, 24, 8));
+      mastGeo.translate(0, 12, 0);
+      const hubGeo = track(new THREE.BoxGeometry(1.6, 1.4, 3.0));
+      hubGeo.translate(0, 24.2, 0);
+      const bladeGeo = track(new THREE.BoxGeometry(0.65, 9.5, 0.18));
+      bladeGeo.translate(0, 4.75, 0);
+      const turbineMat = track(new THREE.MeshStandardMaterial({ color: '#E2E8F0', roughness: 0.42, metalness: 0.35 }));
+
+      const masts = new THREE.InstancedMesh(mastGeo, turbineMat, millSpots.length);
+      const hubs = new THREE.InstancedMesh(hubGeo, turbineMat, millSpots.length);
+      const blades = new THREE.InstancedMesh(bladeGeo, turbineMat, millSpots.length * 3);
+
+      millSpots.forEach((ms, idx) => {
+        dummy.position.set(ms.x, ms.y, ms.z);
+        dummy.rotation.set(0, ms.yaw, 0);
+        dummy.scale.setScalar(ms.scale);
+        dummy.updateMatrix();
+        masts.setMatrixAt(idx, dummy.matrix);
+        hubs.setMatrixAt(idx, dummy.matrix);
+        for (let b = 0; b < 3; b++) {
+          dummy.position.set(
+            ms.x + Math.sin(ms.yaw) * 1.7 * ms.scale,
+            ms.y + 24.2 * ms.scale,
+            ms.z + Math.cos(ms.yaw) * 1.7 * ms.scale,
+          );
+          dummy.rotation.set(0, ms.yaw, (b / 3) * Math.PI * 2 + idx * 0.4, 'YXZ');
+          dummy.scale.setScalar(ms.scale);
+          dummy.updateMatrix();
+          blades.setMatrixAt(idx * 3 + b, dummy.matrix);
+        }
+      });
+      [masts, hubs, blades].forEach((m) => {
+        m.instanceMatrix.needsUpdate = true;
+        m.computeBoundingSphere();
+        group.add(m);
+      });
+    }
+  }
+
+  // Coastal Marina Timber Piers & Moored Luxury Yachts inside Harbor Bay
+  if (hasHarborBay) {
+    const waterY = -2.8;
+    const marinaBaseZ = minZ + 320;
+    const pierGeo = track(new THREE.BoxGeometry(4.5, 0.55, 42));
+    const pierMat = track(new THREE.MeshStandardMaterial({ color: '#785A3C', roughness: 0.88 }));
+    const yachtHullGeo = track(new THREE.BoxGeometry(4.2, 1.8, 13.5));
+    yachtHullGeo.translate(0, 0.85, 0);
+    const yachtCabinGeo = track(new THREE.BoxGeometry(3.2, 1.5, 7.2));
+    yachtCabinGeo.translate(0, 2.35, -0.4);
+    const yachtFlyGeo = track(new THREE.BoxGeometry(2.4, 0.95, 3.8));
+    yachtFlyGeo.translate(0, 3.55, -0.8);
+    const yachtGlassMat = track(new THREE.MeshStandardMaterial({ color: '#0F172A', roughness: 0.15, metalness: 0.65 }));
+    const yachtWhiteMat = track(new THREE.MeshStandardMaterial({ color: '#F8FAFC', roughness: 0.3, metalness: 0.12 }));
+
+    const piers = new THREE.InstancedMesh(pierGeo, pierMat, 5);
+    const hulls = new THREE.InstancedMesh(yachtHullGeo, yachtWhiteMat, 10);
+    const cabins = new THREE.InstancedMesh(yachtCabinGeo, yachtGlassMat, 10);
+    const flys = new THREE.InstancedMesh(yachtFlyGeo, yachtWhiteMat, 10);
+
+    for (let p = 0; p < 5; p++) {
+      const px = terrainCenterX - 240 + p * 125;
+      const pz = marinaBaseZ - 38;
+      dummy.position.set(px, waterY + 0.75, pz);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      piers.setMatrixAt(p, dummy.matrix);
+
+      for (let side = 0; side < 2; side++) {
+        const yIdx = p * 2 + side;
+        const yx = px + (side === 0 ? -5.8 : 5.8);
+        const yz = pz - 6 - side * 10;
+        dummy.position.set(yx, waterY - 0.15, yz);
+        dummy.rotation.set(0, (side === 0 ? 0.04 : -0.04) + p * 0.02, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        hulls.setMatrixAt(yIdx, dummy.matrix);
+        cabins.setMatrixAt(yIdx, dummy.matrix);
+        flys.setMatrixAt(yIdx, dummy.matrix);
+      }
+    }
+    [piers, hulls, cabins, flys].forEach((m) => {
+      m.instanceMatrix.needsUpdate = true;
+      m.computeBoundingSphere();
+      group.add(m);
+    });
+  }
+
+  // Urban / Industrial Close-Track Architectural Storefronts & Awning Canopies (Zero clipping margin)
   if (!isCanyonOrSummit && !isForestTrack) {
     const shopSpots: { x: number; y: number; z: number; yaw: number; sx: number; sy: number; sz: number }[] = [];
     for (let i = 4; i < SAMPLE_COUNT; i += 9) {
       if (isInsideAnyTunnel(i, 2) || isNearShortcutPortal(i, 5)) continue;
       const s = samples[i];
+      if (s.progress >= 0.24 && s.progress <= 0.72 && trackId !== 'downtown_labyrinth') continue;
       const side = i % 2 === 0 ? 1 : -1;
       const sxOut = barrierHalfWidth + 24.0 + ((i * 5) % 9);
       const px = s.point.x + s.right.x * side * sxOut;
@@ -4228,19 +4524,21 @@ export function buildTrack(
     if (shopSpots.length > 0) {
       const shopBodyGeo = track(new THREE.BoxGeometry(1, 1, 1));
       shopBodyGeo.translate(0, 0.5, 0);
+      const shopTex = track(createBuildingFacadeTexture(maxAnisotropy, 'concrete'));
       const shopBodyMat = track(
         new THREE.MeshStandardMaterial({
-          color: '#1E2430',
-          roughness: 0.72,
-          metalness: 0.25,
+          map: shopTex,
+          color: '#E2E8F0',
+          roughness: 0.65,
+          metalness: 0.16,
         }),
       );
-      const shopSignGeo = track(new THREE.BoxGeometry(1.04, 0.12, 0.96));
+      const shopSignGeo = track(new THREE.BoxGeometry(1.06, 0.1, 1.04));
       const shopSignMat = track(
         new THREE.MeshStandardMaterial({
           color: environment === 'midnight_neon' ? '#38BDF8' : '#F59E0B',
           emissive: new THREE.Color(environment === 'midnight_neon' ? '#0EA5E9' : '#D97706'),
-          emissiveIntensity: environment === 'noon_clear' ? 0.5 : 2.2,
+          emissiveIntensity: environment === 'noon_clear' ? 0.32 : 1.6,
           roughness: 0.3,
         }),
       );
@@ -4253,7 +4551,7 @@ export function buildTrack(
         dummy.updateMatrix();
         shopsInst.setMatrixAt(idx, dummy.matrix);
 
-        dummy.position.set(sh.x, sh.y + sh.sy * 0.65, sh.z);
+        dummy.position.set(sh.x, sh.y + sh.sy * 0.42, sh.z);
         dummy.scale.set(sh.sx, sh.sy, sh.sz);
         dummy.updateMatrix();
         signsInst.setMatrixAt(idx, dummy.matrix);
@@ -4304,19 +4602,20 @@ export function buildTrack(
     for (let i = 0; i < SAMPLE_COUNT; i += bStep) {
       const s = samples[i];
       const yaw = Math.atan2(-s.tangent.x, -s.tangent.z);
+      const isDowntown = trackId === 'downtown_labyrinth' || s.progress < 0.22 || s.progress > 0.74;
+      if (!isDowntown && (trackId === 'hwy99_speedway' || trackId === 'camden_coast')) continue;
       [-1, 1].forEach((side, sIdx) => {
-        const distOut = barrierHalfWidth + 39 + ((i + sIdx * 11) % 28);
+        const distOut = barrierHalfWidth + 41 + ((i + sIdx * 11) % 28);
         const bx = s.point.x + s.right.x * side * distOut;
         const bz = s.point.z + s.right.z * side * distOut;
         if (hasHarborBay && bz < minZ + 380 && bx > minX - 80 && bx < maxX + 120) return;
-        if (isClearOfTrack(bx, bz, barrierHalfWidth + 34)) {
-          const isDowntown = trackId === 'downtown_labyrinth' || s.progress < 0.2 || s.progress > 0.78;
+        if (isClearOfTrack(bx, bz, barrierHalfWidth + 35)) {
           bldgItems.push({
             x: bx,
             y: sampleTerrainInfo(bx, bz).height - 1.5,
             z: bz,
             sx: 18 + ((i + sIdx * 3) % 4) * 4,
-            sy: isDowntown ? 54 + ((i * 7) % 78) : 26 + ((i * 5) % 36),
+            sy: isDowntown ? 54 + ((i * 7) % 78) : 24 + ((i * 5) % 32),
             sz: 18 + ((i + sIdx * 5) % 4) * 4,
             rot: yaw,
             variant: (i + sIdx) % 3,
@@ -4399,14 +4698,14 @@ export function buildTrack(
       spireGeo.translate(0, 5, 0);
       const beaconGeo = track(new THREE.SphereGeometry(0.42, 6, 6));
 
-      const winGlow = environment === 'midnight_neon' ? 0.55 : environment === 'noon_clear' ? 0.02 : 0.22;
-      const podiumMat = track(new THREE.MeshStandardMaterial({ color: '#181E29', roughness: 0.82, metalness: 0.18 }));
-      const crownMat = track(new THREE.MeshStandardMaterial({ color: '#1B2230', metalness: 0.62, roughness: 0.38 }));
+      const winGlow = environment === 'midnight_neon' ? 0.52 : environment === 'noon_clear' ? 0.04 : 0.24;
+      const podiumMat = track(new THREE.MeshStandardMaterial({ color: '#1F2937', roughness: 0.78, metalness: 0.2 }));
+      const crownMat = track(new THREE.MeshStandardMaterial({ color: '#273244', metalness: 0.58, roughness: 0.36 }));
       const roofNeonMat = track(
         new THREE.MeshStandardMaterial({
           color: environment === 'midnight_neon' ? '#38BDF8' : '#F59E0B',
           emissive: new THREE.Color(environment === 'midnight_neon' ? '#0EA5E9' : '#D97706'),
-          emissiveIntensity: environment === 'noon_clear' ? 0.35 : 2.1,
+          emissiveIntensity: environment === 'noon_clear' ? 0.28 : 1.9,
         }),
       );
       const beaconRedMat = track(
@@ -4419,31 +4718,34 @@ export function buildTrack(
       const glassMat = track(
         new THREE.MeshStandardMaterial({
           map: glassTex,
+          color: '#FFFFFF',
           emissiveMap: glassTex,
           emissive: new THREE.Color('#FFFFFF'),
           emissiveIntensity: winGlow,
-          roughness: 0.34,
-          metalness: 0.42,
+          roughness: 0.28,
+          metalness: 0.44,
         }),
       );
       const concreteMat = track(
         new THREE.MeshStandardMaterial({
           map: concreteTex,
+          color: '#FFFFFF',
           emissiveMap: concreteTex,
           emissive: new THREE.Color('#FFFFFF'),
-          emissiveIntensity: winGlow * 0.8,
-          roughness: 0.72,
-          metalness: 0.12,
+          emissiveIntensity: winGlow * 0.72,
+          roughness: 0.68,
+          metalness: 0.14,
         }),
       );
       const indMat = track(
         new THREE.MeshStandardMaterial({
           map: indTex,
+          color: '#FFFFFF',
           emissiveMap: indTex,
           emissive: new THREE.Color('#FFFFFF'),
-          emissiveIntensity: winGlow * 0.8,
-          roughness: 0.78,
-          metalness: 0.18,
+          emissiveIntensity: winGlow * 0.72,
+          roughness: 0.74,
+          metalness: 0.2,
         }),
       );
       const mats = [glassMat, concreteMat, indMat];
@@ -4556,11 +4858,12 @@ export function buildTrack(
       const skyGlassTex = track(createBuildingFacadeTexture(maxAnisotropy, 'glass'));
       const skyTowerMat = track(
         new THREE.MeshStandardMaterial({
-          color: '#111827',
+          map: skyGlassTex,
+          color: '#1E293B',
           emissiveMap: skyGlassTex,
           emissive: new THREE.Color(environment === 'midnight_neon' ? '#38BDF8' : '#F59E0B'),
-          emissiveIntensity: environment === 'noon_clear' ? 0.08 : 0.45,
-          roughness: 0.6,
+          emissiveIntensity: environment === 'noon_clear' ? 0.08 : 0.42,
+          roughness: 0.55,
           metalness: 0.35,
         }),
       );

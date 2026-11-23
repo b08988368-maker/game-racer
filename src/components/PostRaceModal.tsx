@@ -57,7 +57,7 @@ export const PostRaceModal: React.FC<PostRaceProps> = ({
     result.busted || result.knockedOut || result.tollboothExpired || Boolean(result.missionTitle && !result.missionCompleted);
 
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center bg-[#06070A]/62 backdrop-blur-[2px] p-4">
+    <div className="fixed inset-0 z-30 flex items-center justify-center bg-[#06070A]/82 p-4">
       <div
         className={`w-full max-w-lg nfs-chamfer nfs-carbon-bg border border-white/18 border-l-4 overflow-hidden shadow-2xl nfs-anim-slide-up ${
           isDefeat ? 'border-l-red-500' : result.won ? 'border-l-amber-400' : 'border-l-slate-400'
@@ -384,6 +384,16 @@ export const PauseModal: React.FC<{
             >
               Return to Garage
             </button>
+          </div>
+          <div className="pt-2 border-t border-white/10 text-[10px] font-mono-tabular text-slate-400 leading-relaxed">
+            <strong className="text-slate-200">DRIVE</strong> WASD/Arrows ·{' '}
+            <strong className="text-slate-200">DRIFT</strong> Space ·{' '}
+            <strong className="text-cyan-300">NOS</strong> Shift ·{' '}
+            <strong className="text-amber-300">BREAKER</strong> X ·{' '}
+            <strong className="text-slate-200">REWIND</strong> Z ·{' '}
+            <strong className="text-slate-200">RESET</strong> R ·{' '}
+            <strong className="text-slate-200">CAM</strong> C ·{' '}
+            <strong className="text-slate-200">HUD</strong> H
           </div>
         </div>
       </div>

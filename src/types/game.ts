@@ -99,6 +99,7 @@ export interface MissionDefinition {
   targetNearMisses?: number;
   targetAirtimeSec?: number;
   targetSmashables?: number;
+  maxDamagePercent?: number;
   aiTierBoost: number; // 0..4 simulated AI upgrade/pace tier
   cashReward: number;
   bountyReward: number;
@@ -235,6 +236,21 @@ export interface AiDebugEntry {
   gapMeters: number;
 }
 
+export type OpponentHudStatus = 'racing' | 'busted' | 'knocked_out' | 'finished';
+
+export interface OpponentHudEntry {
+  id: string;
+  name: string;
+  carName: string;
+  paintHex: string;
+  position: number;
+  status: OpponentHudStatus;
+  gapMeters: number;
+  speedKmh: number;
+  bustProgress: number;
+  isBoss: boolean;
+}
+
 export interface DevTelemetryData {
   fps: number;
   frameMs: number;
@@ -248,6 +264,7 @@ export interface DevTelemetryData {
 }
 
 export interface RaceTelemetry {
+  opponents?: OpponentHudEntry[];
   speedKmh: number;
   rpm: number; // 0..1
   gear: number; // -1 (R), 0 (N), 1..6

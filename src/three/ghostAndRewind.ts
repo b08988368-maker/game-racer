@@ -33,6 +33,7 @@ export interface RewindRacerSnapshot {
   speedTrapHits: number;
   finished: boolean;
   knockedOut: boolean;
+  busted: boolean;
   frontDamage: number;
   rearDamage: number;
   sideDamage: number;
@@ -94,6 +95,7 @@ function createEmptyRacerSnap(): RewindRacerSnapshot {
     speedTrapHits: 0,
     finished: false,
     knockedOut: false,
+    busted: false,
     frontDamage: 0,
     rearDamage: 0,
     sideDamage: 0,

@@ -62,8 +62,8 @@ export const AIR_GRAVITY_MPS2 = 34.0;
 export const STANDARD_GRAVITY_MPS2 = 9.81;
 
 /** 6-speed gearbox speed upper thresholds (km/h) & per-gear torque punch multipliers */
-export const GEAR_THRESHOLDS_KMH = [0, 56, 108, 162, 218, 276, 395] as const;
-export const GEAR_TORQUE_MULTIPLIERS = [1.0, 1.32, 1.18, 1.05, 0.94, 0.85, 0.78] as const;
+export const GEAR_THRESHOLDS_KMH = [0, 58, 112, 168, 224, 284, 405] as const;
+export const GEAR_TORQUE_MULTIPLIERS = [1.0, 1.38, 1.22, 1.08, 0.96, 0.87, 0.80] as const;
 
 export function computeGearboxDriveState(
   forwardSpeedMs: number,
@@ -112,9 +112,9 @@ export const SURFACE_MODIFIERS: Record<SurfaceType, SurfacePhysicsSpec> = {
   wet_asphalt: {
     id: 'wet_asphalt',
     label: 'WET ASPHALT',
-    gripMultiplier: 0.81,
-    rollingResistance: 0.52,
-    lateralDamping: 0.84,
+    gripMultiplier: 0.87,
+    rollingResistance: 0.49,
+    lateralDamping: 0.90,
     bumpAmplitude: 0.008,
     particleColor: '#BAE6FD',
   },
@@ -192,16 +192,16 @@ export const HANDLING_PRESETS: Record<
     label: 'Balanced',
     tagline: 'Classic Rockport street feel: planted Pacejka bite with expressive power-slides.',
     tuning: {
-      tireGripMultiplier: 1.05,
-      pacejkaStiffness: 9.6,
-      pacejkaShape: 1.38,
-      suspensionStiffness: 42,
-      suspensionDamping: 7.4,
-      aeroDownforce: 1.0,
-      aeroDrag: 1.0,
-      weightTransfer: 1.0,
-      driftSlipEase: 1.0,
-      steerSpeedSensitivity: 0.54,
+      tireGripMultiplier: 1.14,
+      pacejkaStiffness: 10.6,
+      pacejkaShape: 1.30,
+      suspensionStiffness: 45,
+      suspensionDamping: 8.0,
+      aeroDownforce: 1.12,
+      aeroDrag: 0.96,
+      weightTransfer: 0.96,
+      driftSlipEase: 1.08,
+      steerSpeedSensitivity: 0.48,
     },
     defaultAssists: {
       tcs: true,
@@ -213,18 +213,18 @@ export const HANDLING_PRESETS: Record<
   },
   sim_lite: {
     label: 'Sim-Lite',
-    tagline: 'Deep weight transfer, unfiltered Pacejka slip breakaway, and tactile surface dropoff.',
+    tagline: 'Crisp Pacejka slip breakaway, deep weight transfer, and authentic wet-road feedback.',
     tuning: {
-      tireGripMultiplier: 0.92,
-      pacejkaStiffness: 8.1,
-      pacejkaShape: 1.56,
-      suspensionStiffness: 36,
-      suspensionDamping: 6.2,
-      aeroDownforce: 0.85,
-      aeroDrag: 1.04,
-      weightTransfer: 1.32,
-      driftSlipEase: 0.76,
-      steerSpeedSensitivity: 0.62,
+      tireGripMultiplier: 1.03,
+      pacejkaStiffness: 9.4,
+      pacejkaShape: 1.42,
+      suspensionStiffness: 40,
+      suspensionDamping: 7.2,
+      aeroDownforce: 0.98,
+      aeroDrag: 1.0,
+      weightTransfer: 1.18,
+      driftSlipEase: 0.94,
+      steerSpeedSensitivity: 0.52,
     },
     defaultAssists: {
       tcs: false,
