@@ -38,10 +38,12 @@ import {
   getMissionsForTier,
   isTierBossUnlocked,
   LIVERY_OPTIONS,
+  MAX_UPGRADE_LEVEL,
   NFS_MISSIONS,
   PAINT_SWATCHES,
   resolveMissionRaceMode,
   RIM_OPTIONS,
+  TOTAL_BLACKLIST_RANKS,
   TRACKS,
   UPGRADE_COST,
 } from '../data/gameData';
@@ -128,7 +130,7 @@ export const MainMenuGarage: React.FC<Props> = ({
   onStartRace,
   onRefreshLeaderboard,
 }) => {
-  const [dockCollapsed, setDockCollapsed] = useState(false);
+  const [dockExpanded, setDockExpanded] = useState(false);
   const [selectedMode, setSelectedMode] = useState<RaceMode>('circuit');
   const [selectedTrack, setSelectedTrack] = useState<TrackId>('rockport_loop');
   const [selectedEnv, setSelectedEnv] = useState<EnvironmentId>('auto');
@@ -176,9 +178,9 @@ export const MainMenuGarage: React.FC<Props> = ({
   const activeConfig = garageConfigs[activeSpec.id];
   const stats = activeConfig ? computeEffectiveStats(activeSpec, activeConfig) : null;
 
-  // 10 Blacklist Rivals: #10 -> #1. blacklistDefeated = 0..10.
-  const currentRank = Math.max(1, 11 - profile.blacklistDefeated);
-  const nextRival = BLACKLIST_RIVALS.find((r) => r.rank === 10 - profile.blacklistDefeated);
+  // 15 Blacklist Rivals: #15 -> #1. blacklistDefeated = 0..15.
+  const currentRank = Math.max(1, TOTAL_BLACKLIST_RANKS + 1 - profile.blacklistDefeated);
+  const nextRival = BLACKLIST_RIVALS.find((r) => r.rank === TOTAL_BLACKLIST_RANKS - profile.blacklistDefeated);
   const [selectedTier, setSelectedTier] = useState<number>(() => nextRival?.rank ?? 1);
   const wonTrackIds = Array.isArray(profile.wonTrackIds) ? profile.wonTrackIds : [];
   const completedMissionIds = Array.isArray(profile.completedMissionIds) ? profile.completedMissionIds : [];
@@ -211,7 +213,7 @@ export const MainMenuGarage: React.FC<Props> = ({
             [
               { id: 'missions', label: 'Career' },
               { id: 'race', label: 'Quick Race' },
-              { id: 'blacklist', label: 'Blacklist (10)' },
+              { id: 'blacklist', label: `Blacklist (${TOTAL_BLACKLIST_RANKS})` },
               { id: 'garage', label: 'Garage' },
               { id: 'rapsheet', label: 'Rap Sheet' },
             ] as { id: MenuTab; label: string }[]
@@ -221,15 +223,19 @@ export const MainMenuGarage: React.FC<Props> = ({
               type="button"
               onClick={() => {
                 soundEngine.triggerUiClick();
-                setActiveTab(item.id);
-                setDockCollapsed(false);
-                if (item.id === 'missions' && nextRival) {
-                  setSelectedTier((prev) => (prev < nextRival.rank ? nextRival.rank : prev));
+                if (dockExpanded && activeTab === item.id) {
+                  setDockExpanded(false);
+                } else {
+                  setActiveTab(item.id);
+                  setDockExpanded(true);
+                  if (item.id === 'missions' && nextRival) {
+                    setSelectedTier((prev) => (prev < nextRival.rank ? nextRival.rank : prev));
+                  }
+                  if (item.id === 'rapsheet') onRefreshLeaderboard();
                 }
-                if (item.id === 'rapsheet') onRefreshLeaderboard();
               }}
               className={`whitespace-nowrap shrink-0 py-1 border-b-2 transition-colors cursor-pointer ${
-                activeTab === item.id
+                dockExpanded && activeTab === item.id
                   ? 'border-amber-400 text-amber-400'
                   : 'border-transparent text-slate-400 hover:text-white'
               }`}
@@ -284,7 +290,7 @@ export const MainMenuGarage: React.FC<Props> = ({
             <span className="text-white font-bold truncate">{activeSpec.name}</span>
             <span className="text-slate-600" aria-hidden="true">|</span>
             <span className="text-amber-400 font-bold">
-              {currentRank <= 10 ? `#${currentRank}` : 'Challenger'}
+              {currentRank <= TOTAL_BLACKLIST_RANKS ? `#${currentRank}` : 'Challenger'}
             </span>
           </div>
           <div className="flex items-center gap-2.5 text-xs font-mono-tabular">
@@ -313,7 +319,7 @@ export const MainMenuGarage: React.FC<Props> = ({
             </div>
           ) : (
             <div className="text-[11px] text-emerald-400 font-bold uppercase pt-0.5">
-              #1 MOST WANTED CROWN CLAIMED (10/10 DEFEATED)
+              #1 MOST WANTED CROWN CLAIMED ({TOTAL_BLACKLIST_RANKS}/{TOTAL_BLACKLIST_RANKS} DEFEATED)
             </div>
           )}
         </div>
@@ -391,7 +397,7 @@ export const MainMenuGarage: React.FC<Props> = ({
           {traxPickerOpen && (
             <div className="absolute right-0 top-12 w-72 max-h-72 overflow-y-auto nfs-chamfer nfs-carbon-bg border border-amber-400/45 p-2 shadow-2xl z-30 nfs-anim-tab-enter space-y-1">
               <div className="px-2 py-1 text-[10px] font-display uppercase tracking-wider font-bold text-amber-400 border-b border-white/10">
-                EA Trax Rockport Sound System (16)
+                EA Trax Rockport Sound System ({EA_TRAX_PLAYLIST.length})
               </div>
               {EA_TRAX_PLAYLIST.map((trk, idx) => {
                 const trackFullLabel = `${trk.title} · ${trk.artist}`;
@@ -423,47 +429,9 @@ export const MainMenuGarage: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Collapsible Bottom Command Dock */}
-      <div className="flex flex-col items-center pb-3 px-4">
-        <div className="pointer-events-auto mb-1 flex items-center gap-2 flex-wrap justify-center">
-          {onSelectGaragePreset && (
-            <div className="flex items-center gap-1 p-0.5 nfs-chamfer-sm nfs-carbon-bg border border-white/15 text-[10px] font-display uppercase tracking-wider font-bold">
-              <Camera className="w-3.5 h-3.5 text-amber-400 ml-1.5 mr-0.5" />
-              {(['orbit', 'front', 'side', 'rear'] as GarageCameraPreset[]).map((preset) => (
-                <button
-                  key={preset}
-                  type="button"
-                  onClick={() => {
-                    soundEngine.triggerUiClick();
-                    onSelectGaragePreset(preset);
-                  }}
-                  className={`px-2 py-0.5 nfs-chamfer-sm transition-colors cursor-pointer ${
-                    garagePreset === preset
-                      ? 'bg-amber-400 text-black'
-                      : 'text-slate-300 hover:text-white'
-                  }`}
-                >
-                  {preset}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={() => {
-              soundEngine.triggerUiClick();
-              setDockCollapsed((v) => !v);
-            }}
-            aria-expanded={!dockCollapsed}
-            className="px-4 py-1 nfs-chamfer-sm nfs-carbon-bg border border-white/18 border-t-2 border-t-amber-400/70 text-[11px] font-display uppercase tracking-wider font-bold text-slate-200 hover:text-amber-300 flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            {dockCollapsed ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            <span>{dockCollapsed ? 'Open Menu' : 'Show 3D Car'}</span>
-          </button>
-        </div>
-
-        {!dockCollapsed && (
+      {/* Bottom Showcase Launch Bar & Expandable Command Drawer */}
+      <div className="flex flex-col items-center pb-3 px-4 gap-2">
+        {dockExpanded && (
           <section
             aria-label="Garage and Race Dock"
             className="pointer-events-auto w-full max-w-[960px] nfs-chamfer nfs-carbon-bg border border-white/15 border-t-2 border-t-amber-400 shadow-2xl overflow-hidden nfs-anim-slide-up"
@@ -477,7 +445,7 @@ export const MainMenuGarage: React.FC<Props> = ({
                 const tierRival = BLACKLIST_RIVALS.find((r) => r.rank === viewTier) ?? BLACKLIST_RIVALS[0];
                 const tierMissions = getMissionsForTier(viewTier);
                 const tierGate = isTierBossUnlocked(tierRival, profile);
-                const tierDefeated = profile.blacklistDefeated > 10 - tierRival.rank;
+                const tierDefeated = profile.blacklistDefeated > TOTAL_BLACKLIST_RANKS - tierRival.rank;
                 const bossTrackMeta = TRACKS.find((t) => t.id === tierRival.trackId);
                 const nextMissionToPlay =
                   tierMissions.find((m) => !completedMissionIds.includes(m.id)) ?? tierMissions[0];
@@ -529,7 +497,7 @@ export const MainMenuGarage: React.FC<Props> = ({
                         <div className="flex items-center gap-1 flex-wrap">
                           {BLACKLIST_RIVALS.map((r) => {
                             const rLocked = r.rank < activeMinTier;
-                            const rDefeated = profile.blacklistDefeated > 10 - r.rank;
+                            const rDefeated = profile.blacklistDefeated > TOTAL_BLACKLIST_RANKS - r.rank;
                             const rSelected = viewTier === r.rank;
                             return (
                               <button
@@ -644,7 +612,7 @@ export const MainMenuGarage: React.FC<Props> = ({
                         <div className="space-y-2">
                           <div className="flex items-center justify-between gap-2 text-[10px] font-mono-tabular uppercase">
                             <span className="px-1.5 py-0.5 bg-cyan-400/20 text-cyan-300 font-bold">
-                              M{focusedMission.order} BRIEFING · REC STAGE {Math.min(4, Math.max(1, focusedMission.aiTierBoost + 1))}+
+                              M{focusedMission.order} BRIEFING · REC STAGE {Math.min(MAX_UPGRADE_LEVEL, Math.max(1, focusedMission.aiTierBoost + 1))}+
                             </span>
                             <span className="text-emerald-400 font-bold">
                               +{formatCurrency(focusedMission.cashReward)} · +{formatCurrency(focusedMission.bountyReward)}
@@ -681,7 +649,6 @@ export const MainMenuGarage: React.FC<Props> = ({
 
                         <button
                           type="button"
-                          data-start="true"
                           onClick={() =>
                             onStartRace(
                               focusedMode,
@@ -992,7 +959,6 @@ export const MainMenuGarage: React.FC<Props> = ({
                       return (
                         <button
                           type="button"
-                          data-start="true"
                           disabled={isBlacklistLocked}
                           onClick={() =>
                             onStartRace(
@@ -1014,22 +980,22 @@ export const MainMenuGarage: React.FC<Props> = ({
                 </div>
               )}
 
-              {/* BLACKLIST TAB (All 10 Rivals) */}
+              {/* BLACKLIST TAB (All 15 Rivals) */}
               {activeTab === 'blacklist' && (
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <h2 className="font-display italic uppercase tracking-wider text-lg font-bold text-white">
-                        Rockport Blacklist (Top 10)
+                        Rockport Blacklist (Top {TOTAL_BLACKLIST_RANKS})
                       </h2>
                       <p className="text-xs text-slate-400">
                         {nextRival
                           ? `Target #${nextRival.rank} ${nextRival.alias} — Clear all ${nextUnlock?.missionsTotal ?? 5} tier missions to seize ${nextRival.carName}`
-                          : 'All 10 Blacklist rivals defeated. You own Razor’s BMW M3 GTR!'}
+                          : `All ${TOTAL_BLACKLIST_RANKS} Blacklist rivals defeated. You own Razor’s BMW M3 GTR!`}
                       </p>
                     </div>
                     <div className="text-xs text-slate-300 font-mono-tabular">
-                      {profile.blacklistDefeated}/10 Bosses · {completedMissionIds.length}/{NFS_MISSIONS.length} Missions · {wonTrackIds.length}/10 Circuits
+                      {profile.blacklistDefeated}/{TOTAL_BLACKLIST_RANKS} Bosses · {completedMissionIds.length}/{NFS_MISSIONS.length} Missions · {wonTrackIds.length}/10 Circuits
                     </div>
                   </div>
 
@@ -1068,7 +1034,7 @@ export const MainMenuGarage: React.FC<Props> = ({
 
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 max-h-[188px] overflow-y-auto pr-1">
                     {BLACKLIST_RIVALS.map((rival) => {
-                      const defeatedCountNeeded = 10 - rival.rank;
+                      const defeatedCountNeeded = TOTAL_BLACKLIST_RANKS - rival.rank;
                       const isDefeated = profile.blacklistDefeated > defeatedCountNeeded;
                       const isNext = profile.blacklistDefeated === defeatedCountNeeded;
                       const gate = isTierBossUnlocked(rival, profile);
@@ -1155,7 +1121,7 @@ export const MainMenuGarage: React.FC<Props> = ({
                     <div className="max-h-[188px] overflow-y-auto pr-1 space-y-2.5">
                       <div>
                         <div className="text-xs font-display uppercase tracking-wider font-bold text-slate-300 mb-1.5">
-                          Dealership Cars (10)
+                          Dealership Cars ({dealershipCars.length})
                         </div>
                         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                           {dealershipCars.map((car) => {
@@ -1279,7 +1245,7 @@ export const MainMenuGarage: React.FC<Props> = ({
                         ] as const
                       ).map((part) => {
                         const lvl = activeConfig[part.key];
-                        const maxed = lvl >= 4;
+                        const maxed = lvl >= MAX_UPGRADE_LEVEL;
                         const cost = maxed ? 0 : UPGRADE_COST[lvl];
                         const canAfford = profile.cash >= cost;
 
@@ -1298,11 +1264,11 @@ export const MainMenuGarage: React.FC<Props> = ({
                               <div className="flex items-center justify-between text-xs mt-0.5">
                                 <span className="text-slate-400">{part.sub}</span>
                                 <span className="font-mono-tabular text-amber-400 font-bold">
-                                  {maxed ? '4/4' : `S${lvl}→S${lvl + 1}`}
+                                  {maxed ? `${MAX_UPGRADE_LEVEL}/${MAX_UPGRADE_LEVEL}` : `S${lvl}→S${lvl + 1}`}
                                 </span>
                               </div>
                               <div className="flex gap-1 mt-2.5">
-                                {[1, 2, 3, 4].map((pip) => (
+                                {[1, 2, 3, 4, 5].map((pip) => (
                                   <div
                                     key={pip}
                                     className={`h-1.5 flex-1 ${pip <= lvl ? 'bg-amber-400' : 'bg-white/15'}`}
@@ -1409,8 +1375,8 @@ export const MainMenuGarage: React.FC<Props> = ({
                     </h2>
                     <div className="space-y-1.5 text-xs">
                       <RapRow label="Driver" value={profile.driverName} />
-                      <RapRow label="Blacklist Rank" value={currentRank <= 10 ? `#${currentRank}` : 'Unranked'} />
-                      <RapRow label="Bosses Defeated" value={`${profile.blacklistDefeated} / 10`} />
+                      <RapRow label="Blacklist Rank" value={currentRank <= TOTAL_BLACKLIST_RANKS ? `#${currentRank}` : 'Unranked'} />
+                      <RapRow label="Bosses Defeated" value={`${profile.blacklistDefeated} / ${TOTAL_BLACKLIST_RANKS}`} />
                       <RapRow label="Circuits Won" value={`${wonTrackIds.length} / 10`} />
                       <RapRow label="Total Bounty" value={formatCurrency(profile.totalBounty)} />
                       <RapRow label="Race Wins" value={String(profile.racesWon)} />
@@ -1466,6 +1432,117 @@ export const MainMenuGarage: React.FC<Props> = ({
             </div>
           </section>
         )}
+
+        {/* Always-Visible Compact Showcase Bar (Keeps >= 82% of 3D Garage Showroom Open) */}
+        {(() => {
+          const activeMinTier = nextRival ? nextRival.rank : 1;
+          const viewTier = Math.max(activeMinTier, selectedTier);
+          const tierMissions = getMissionsForTier(viewTier);
+          const nextMissionToPlay =
+            tierMissions.find((m) => !completedMissionIds.includes(m.id)) ?? tierMissions[0];
+          const focusedMission =
+            tierMissions.find((m) => m.id === focusedMissionId) ?? nextMissionToPlay;
+          const focusedMode = resolveMissionRaceMode(focusedMission.type);
+          const useQuickRace = activeTab === 'race';
+          const targetRival = nextRival ?? BLACKLIST_RIVALS[BLACKLIST_RIVALS.length - 1];
+          const isBlacklistLocked =
+            useQuickRace && selectedMode === 'blacklist' && Boolean(nextRival && !nextBossUnlocked);
+          const eventTitle = useQuickRace
+            ? `${selectedMode.toUpperCase()} · ${selectedTrackMeta.name}`
+            : `M${focusedMission.order} · ${focusedMission.title}`;
+
+          return (
+            <div className="pointer-events-auto w-full max-w-[960px] nfs-chamfer nfs-carbon-bg border border-white/15 border-t-2 border-t-amber-400/80 px-3.5 py-2 flex flex-wrap items-center justify-between gap-2.5 shadow-2xl">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="min-w-0">
+                  <div className="text-[10px] font-mono-tabular uppercase text-slate-400">
+                    Active Ride {stats ? `· ${stats.topSpeedKmh} km/h · HND ${stats.handling}` : ''}
+                  </div>
+                  <div className="font-display italic uppercase text-sm font-bold text-white truncate">
+                    {activeSpec.name}
+                  </div>
+                </div>
+                <span className="hidden sm:inline text-slate-600">|</span>
+                <div className="hidden sm:block min-w-0">
+                  <div className="text-[10px] font-mono-tabular uppercase text-cyan-300">
+                    {useQuickRace ? 'Quick Race' : `Tier #${viewTier} Objective`}
+                  </div>
+                  <div className="text-xs font-display uppercase font-bold text-amber-300 truncate max-w-[230px]">
+                    {eventTitle}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                {onSelectGaragePreset && (
+                  <div className="flex items-center gap-1 p-0.5 nfs-chamfer-sm bg-[#0D1017] border border-white/15 text-[10px] font-display uppercase tracking-wider font-bold">
+                    <Camera className="w-3.5 h-3.5 text-amber-400 ml-1 mr-0.5" />
+                    {(['orbit', 'front', 'side', 'rear'] as GarageCameraPreset[]).map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => {
+                          soundEngine.triggerUiClick();
+                          onSelectGaragePreset(preset);
+                        }}
+                        className={`px-2 py-0.5 nfs-chamfer-sm transition-colors cursor-pointer ${
+                          garagePreset === preset
+                            ? 'bg-amber-400 text-black'
+                            : 'text-slate-300 hover:text-white'
+                        }`}
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.triggerUiClick();
+                    setDockExpanded((v) => !v);
+                  }}
+                  aria-expanded={dockExpanded}
+                  className="px-3 py-1.5 nfs-chamfer-sm bg-[#161B26] hover:bg-[#1E2535] border border-white/18 text-[11px] font-display uppercase tracking-wider font-bold text-slate-200 hover:text-amber-300 flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  {dockExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
+                  <span>{dockExpanded ? 'Show 3D Car' : 'Open Menu'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  data-start="true"
+                  disabled={isBlacklistLocked}
+                  onClick={() => {
+                    if (useQuickRace) {
+                      onStartRace(
+                        selectedMode,
+                        selectedMode === 'blacklist' ? targetRival.trackId : selectedTrack,
+                        selectedMode === 'blacklist' ? targetRival : undefined,
+                        selectedEnv,
+                        patrolsEnabled,
+                      );
+                    } else {
+                      onStartRace(
+                        focusedMode,
+                        focusedMission.trackId,
+                        undefined,
+                        focusedMission.environment,
+                        true,
+                        focusedMission,
+                      );
+                    }
+                  }}
+                  className="px-5 py-1.5 bg-amber-400 hover:bg-amber-300 disabled:bg-white/10 disabled:text-slate-500 text-black font-display uppercase tracking-wider font-bold text-xs sm:text-sm nfs-chamfer-sm flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>{isBlacklistLocked ? 'Locked' : 'Race Now'}</span>
+                </button>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

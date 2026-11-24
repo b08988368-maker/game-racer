@@ -13,186 +13,129 @@ export interface EaTraxEntry {
   leadPattern?: number[];
 }
 
-const INCOMPETECH_BASE = 'https://incompetech.com/music/royalty-free/mp3-royaltyfree/';
-const SOUNDHELIX_BASE = 'https://www.soundhelix.com/examples/mp3/';
-
-// Curated High-Adrenaline Street Racing Soundtrack:
-// All stream URLs are verified HTTP 200 MP3s paired with a studio-grade Web Audio synth engine.
+// High-Adrenaline Street Racing Soundtrack: Drift Phonk & Underground Synth (Zero NEFFEX)
 export const EA_TRAX_PLAYLIST: EaTraxEntry[] = [
   {
-    id: 'mw_overheat',
-    title: 'Overheat (Turbo Mix)',
-    artist: 'Kevin MacLeod',
-    genre: 'Electronic Rock',
+    id: 'pk_nightdrive',
+    title: 'Nightdrive Phonk Mix',
+    artist: 'LXST CXNTURY Style',
+    genre: 'Drift Phonk',
     kind: 'stream',
-    url: `${INCOMPETECH_BASE}Overheat.mp3`,
-    bpm: 138,
-    bassPattern: [36, 0, 36, 39, 36, 0, 41, 43, 36, 0, 36, 46, 43, 41, 39, 0],
-    leadPattern: [60, 0, 63, 0, 67, 0, 65, 63, 60, 0, 70, 0, 67, 63, 65, 0],
-  },
-  {
-    id: 'mw_metalmania',
-    title: 'Metalmania',
-    artist: 'Kevin MacLeod',
-    genre: 'Heavy Metal',
-    kind: 'stream',
-    url: `${INCOMPETECH_BASE}Metalmania.mp3`,
-    bpm: 146,
-  },
-  {
-    id: 'mw_cut_and_run',
-    title: 'Cut and Run',
-    artist: 'Kevin MacLeod',
-    genre: 'Action Breakbeat',
-    kind: 'stream',
-    url: `${INCOMPETECH_BASE}Cut%20and%20Run.mp3`,
-    bpm: 140,
-  },
-  {
-    id: 'mw_mechanolith',
-    title: 'Mechanolith',
-    artist: 'Kevin MacLeod',
-    genre: 'Industrial Metal',
-    kind: 'stream',
-    url: `${INCOMPETECH_BASE}Mechanolith.mp3`,
-    bpm: 144,
-  },
-  {
-    id: 'mw_furious_freak',
-    title: 'Furious Freak',
-    artist: 'Kevin MacLeod',
-    genre: 'High-Octane Rock',
-    kind: 'stream',
-    url: `${INCOMPETECH_BASE}Furious%20Freak.mp3`,
+    url: 'https://archive.org/download/Sz22_22/NIGHTDRIVE%20PHONK%20MIX%20%28LXST%20CXNTURY%20TYPE%29.mp3',
     bpm: 142,
+    bassPattern: [36, 0, 36, 48, 36, 0, 39, 41, 36, 0, 36, 48, 43, 41, 39, 34],
+    leadPattern: [72, 0, 75, 72, 79, 0, 77, 75, 72, 0, 82, 79, 77, 75, 72, 70],
   },
   {
-    id: 'mw_volatile',
-    title: 'Volatile Reaction',
-    artist: 'Kevin MacLeod',
-    genre: 'Dark Action Electro',
+    id: 'pk_waveloom_1',
+    title: 'Waveloom Drift I',
+    artist: 'Waveloom',
+    genre: 'Memphis Drift Phonk',
     kind: 'stream',
-    url: `${INCOMPETECH_BASE}Volatile%20Reaction.mp3`,
-    bpm: 148,
-  },
-  {
-    id: 'mw_edm_detection',
-    title: 'EDM Detection Mode',
-    artist: 'Kevin MacLeod',
-    genre: 'Phonk / Big Room EDM',
-    kind: 'stream',
-    url: `${INCOMPETECH_BASE}EDM%20Detection%20Mode.mp3`,
-    bpm: 128,
-  },
-  {
-    id: 'mw_ouroboros',
-    title: 'Ouroboros',
-    artist: 'Kevin MacLeod',
-    genre: 'Cyber Breakbeat',
-    kind: 'stream',
-    url: `${INCOMPETECH_BASE}Ouroboros.mp3`,
+    url: 'https://archive.org/download/jamendo-625614/01-2302002-Waveloom-Phonk%20Music%20Free.mp3',
     bpm: 146,
-  },
-  {
-    id: 'mw_motherlode',
-    title: 'Motherlode',
-    artist: 'Kevin MacLeod',
-    genre: 'Hard Arena Rock',
-    kind: 'stream',
-    url: `${INCOMPETECH_BASE}Motherlode.mp3`,
-    bpm: 138,
-  },
-  {
-    id: 'mw_severe_tire_damage',
-    title: 'Severe Tire Damage',
-    artist: 'Kevin MacLeod',
-    genre: 'Street Chase Rock',
-    kind: 'stream',
-    url: `${INCOMPETECH_BASE}Severe%20Tire%20Damage.mp3`,
-    bpm: 145,
-  },
-  {
-    id: 'mw_movement_prop',
-    title: 'Movement Proposition',
-    artist: 'Kevin MacLeod',
-    genre: 'High-Speed Chase',
-    kind: 'stream',
-    url: `${INCOMPETECH_BASE}Movement%20Proposition.mp3`,
-    bpm: 144,
-  },
-  {
-    id: 'mw_soundhelix_pulse',
-    title: 'Midnight Skyline Drive',
-    artist: 'SoundHelix Collective',
-    genre: 'Electro Trance',
-    kind: 'stream',
-    url: `${SOUNDHELIX_BASE}SoundHelix-Song-8.mp3`,
-    bpm: 136,
-  },
-  {
-    id: 'mw_mta',
-    title: 'Metro Alley Hustle',
-    artist: 'Kevin MacLeod',
-    genre: 'Urban Breakbeat',
-    kind: 'stream',
-    url: `${INCOMPETECH_BASE}MTA.mp3`,
-    bpm: 130,
-  },
-  {
-    id: 'mw_cyborg_ninja',
-    title: 'Cyborg Ninja',
-    artist: 'Kevin MacLeod',
-    genre: 'Synth Metal',
-    kind: 'stream',
-    url: `${INCOMPETECH_BASE}Cyborg%20Ninja.mp3`,
-    bpm: 145,
-  },
-  {
-    id: 'mw_future_gladiator',
-    title: 'Future Gladiator',
-    artist: 'Kevin MacLeod',
-    genre: 'Heavy Electronic',
-    kind: 'stream',
-    url: `${INCOMPETECH_BASE}Future%20Gladiator.mp3`,
-    bpm: 150,
-  },
-  {
-    id: 'mw_razor_requiem',
-    title: "Black Vortex (Boss Mix)",
-    artist: 'Kevin MacLeod',
-    genre: 'Boss Industrial Metal',
-    kind: 'stream',
-    url: `${INCOMPETECH_BASE}Black%20Vortex.mp3`,
-    bpm: 148,
     bassPattern: [36, 36, 48, 36, 39, 36, 43, 41, 36, 36, 48, 36, 46, 43, 41, 39],
-    leadPattern: [60, 0, 72, 67, 63, 0, 67, 70, 60, 0, 75, 72, 70, 67, 63, 62],
+    leadPattern: [72, 0, 75, 79, 75, 0, 77, 75, 72, 0, 82, 79, 77, 75, 74, 70],
   },
   {
-    id: 'mw_phonk_overdrive',
-    title: 'Nine Thou Phonk Overdrive',
-    artist: 'Rockport Soundworks',
-    genre: 'Phonk / Trap Metal',
-    kind: 'synth',
-    bpm: 134,
+    id: 'pk_waveloom_2',
+    title: 'Waveloom Drift II',
+    artist: 'Waveloom',
+    genre: 'Aggressive Cowbell Phonk',
+    kind: 'stream',
+    url: 'https://archive.org/download/jamendo-625614/02-2301999-Waveloom-Phonk%20Free.mp3',
+    bpm: 150,
+    bassPattern: [34, 0, 34, 46, 34, 0, 39, 41, 34, 0, 34, 46, 44, 41, 39, 37],
+    leadPattern: [70, 74, 77, 70, 79, 0, 77, 74, 70, 74, 82, 79, 77, 74, 72, 69],
+  },
+  {
+    id: 'pk_waveloom_3',
+    title: 'Waveloom Drift III',
+    artist: 'Waveloom',
+    genre: 'Sub-Tunnel Phonk',
+    kind: 'stream',
+    url: 'https://archive.org/download/jamendo-625614/03-2302000-Waveloom-Phonk%20Free%20Music.mp3',
+    bpm: 154,
+    bassPattern: [36, 0, 36, 39, 41, 0, 43, 46, 36, 0, 36, 39, 43, 41, 39, 34],
+    leadPattern: [72, 0, 79, 75, 72, 0, 82, 79, 75, 0, 84, 82, 79, 77, 75, 72],
+  },
+  {
+    id: 'pk_soundore',
+    title: 'Midnight Cowbell Overdrive',
+    artist: 'Soundore',
+    genre: 'Dark Phonk',
+    kind: 'stream',
+    url: 'https://archive.org/download/jamendo-612712/02-2274145-Soundore-Phonk.mp3',
+    bpm: 148,
     bassPattern: [36, 0, 36, 39, 36, 0, 41, 43, 36, 0, 36, 46, 43, 41, 39, 0],
-    leadPattern: [60, 0, 63, 0, 67, 0, 65, 63, 60, 0, 70, 0, 67, 63, 65, 0],
+    leadPattern: [72, 75, 72, 79, 72, 75, 77, 75, 72, 82, 79, 75, 77, 75, 72, 70],
+  },
+  {
+    id: 'sy_harbor_pulse',
+    title: 'Harbor Run Overdrive',
+    artist: 'Rockport Underground',
+    genre: 'Dark Electro Breakbeat',
+    kind: 'synth',
+    bpm: 144,
+    bassPattern: [38, 38, 0, 45, 38, 0, 41, 43, 38, 38, 0, 50, 45, 43, 41, 0],
+    leadPattern: [62, 0, 65, 69, 74, 0, 72, 69, 62, 0, 77, 74, 72, 69, 67, 65],
+  },
+  {
+    id: 'sy_apex_voltage',
+    title: 'Apex Voltage (Highway 99)',
+    artist: 'Turbo Pulse',
+    genre: 'Industrial Synthwave',
+    kind: 'synth',
+    bpm: 152,
+    bassPattern: [36, 36, 48, 36, 39, 39, 51, 39, 41, 41, 53, 41, 43, 43, 46, 43],
+    leadPattern: [72, 0, 75, 72, 79, 0, 75, 79, 84, 0, 82, 79, 77, 75, 74, 72],
+  },
+  {
+    id: 'sy_canyon_fury',
+    title: 'Canyon Switchback Rush',
+    artist: 'Redline Division',
+    genre: 'Aggressive Bass Phonk',
+    kind: 'synth',
+    bpm: 149,
+    bassPattern: [35, 0, 35, 47, 35, 38, 40, 42, 35, 0, 35, 47, 45, 42, 40, 38],
+    leadPattern: [71, 74, 78, 0, 83, 81, 78, 74, 71, 74, 86, 83, 81, 78, 76, 74],
+  },
+  {
+    id: 'sy_mist_runner',
+    title: 'Dawn Fog Runner',
+    artist: 'Ghostline Audio',
+    genre: 'Liquid Drum & Bass',
+    kind: 'synth',
+    bpm: 162,
+    bassPattern: [36, 0, 0, 43, 0, 39, 0, 41, 36, 0, 0, 48, 0, 46, 43, 41],
+    leadPattern: [72, 0, 75, 0, 79, 75, 72, 0, 84, 0, 82, 79, 75, 77, 75, 72],
+  },
+  {
+    id: 'sy_summit_devil',
+    title: "Devil's Spine Pursuit",
+    artist: 'Apex Syndicate',
+    genre: 'Hard Trap Electro',
+    kind: 'synth',
+    bpm: 156,
+    bassPattern: [33, 33, 45, 33, 36, 36, 48, 36, 38, 38, 50, 38, 40, 43, 45, 40],
+    leadPattern: [69, 0, 72, 76, 81, 0, 79, 76, 69, 0, 84, 81, 79, 76, 74, 72],
   },
 ];
 
 const TRACK_TO_INDEX: Record<TrackId, number> = {
-  rockport_loop: 0,
-  rosewood_park: 4,
-  hwy99_speedway: 1,
-  camden_coast: 2,
-  rosewood_canyon: 8,
-  heritage_forest: 7,
-  gray_point_bay: 5,
-  silverton_pass: 3,
-  downtown_labyrinth: 11,
-  blackridge_summit: 15,
+  rockport_loop: 0,       // Nightdrive Phonk Mix
+  rosewood_park: 5,       // Harbor Run Overdrive
+  hwy99_speedway: 6,      // Apex Voltage
+  camden_coast: 0,        // Nightdrive Phonk Mix
+  rosewood_canyon: 7,     // Canyon Switchback Rush
+  heritage_forest: 8,     // Dawn Fog Runner
+  gray_point_bay: 4,      // Midnight Cowbell Overdrive
+  silverton_pass: 2,      // Waveloom Drift II
+  downtown_labyrinth: 1,  // Waveloom Drift I
+  blackridge_summit: 3,   // Waveloom Drift III
 };
 
-function makeDistortionCurve(amount = 42): Float32Array<ArrayBuffer> {
+function makeDistortionCurve(amount = 48): Float32Array<ArrayBuffer> {
   const n = 512;
   const curve = new Float32Array(new ArrayBuffer(n * 4));
   for (let i = 0; i < n; i++) {
@@ -273,9 +216,9 @@ class MusicEngine {
     this.running = true;
     this.paused = false;
     this.pursuitActive = false;
-    // Play a real energetic track in the Safe House garage too (user can skip any time)
+    // Play a real Drift Phonk track in the Safe House garage (user can skip any time)
     if (this.currentIdx < 0 || this.currentIdx >= EA_TRAX_PLAYLIST.length) {
-      this.currentIdx = 6; // EDM Detection Mode
+      this.currentIdx = 0;
     }
     this.playIndex(this.currentIdx);
   }

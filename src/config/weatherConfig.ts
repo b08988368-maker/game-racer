@@ -21,14 +21,26 @@ export const WEATHER_MODE_OPTIONS: { id: WeatherMode; label: string; desc: strin
 export const WEATHER_CYCLE_PERIOD_SEC = 105;
 export const DAY_NIGHT_CYCLE_PERIOD_SEC = 180;
 
-export function getInitialTimePhaseForEnv(
-  env: 'golden_dusk' | 'midnight_neon' | 'overcast_rain' | 'noon_clear' | 'dawn_mist' | 'crimson_foundry',
-): number {
+export type RaceEnvironmentId =
+  | 'golden_dusk'
+  | 'midnight_neon'
+  | 'overcast_rain'
+  | 'noon_clear'
+  | 'dawn_mist'
+  | 'crimson_foundry'
+  | 'canyon_sun'
+  | 'mediterranean_day';
+
+export function getInitialTimePhaseForEnv(env: RaceEnvironmentId): number {
   switch (env) {
     case 'dawn_mist':
       return 0.08;
     case 'noon_clear':
       return 0.34;
+    case 'mediterranean_day':
+      return 0.29;
+    case 'canyon_sun':
+      return 0.48;
     case 'golden_dusk':
     case 'crimson_foundry':
       return 0.62;
@@ -46,7 +58,7 @@ export function getInitialTimePhaseForEnv(
  */
 export function evaluateWeatherAndTime(
   mode: WeatherMode,
-  env: 'golden_dusk' | 'midnight_neon' | 'overcast_rain' | 'noon_clear' | 'dawn_mist' | 'crimson_foundry',
+  env: RaceEnvironmentId,
   raceElapsedSec: number,
   dynamicDayNight: boolean,
   prevWetness: number,

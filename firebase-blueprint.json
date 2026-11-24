@@ -2,7 +2,7 @@
   "entities": {
     "CareerProfile": {
       "title": "CareerProfile",
-      "description": "Player career progression, cash, bounty, won circuits, and 10-rank Blacklist status.",
+      "description": "Player career progression, cash, bounty, won circuits, and 15-rank Blacklist status.",
       "type": "object",
       "properties": {
         "uid": {

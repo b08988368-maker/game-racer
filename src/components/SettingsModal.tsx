@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Bot,
   Check,
   CloudRain,
   Copy,
@@ -18,12 +17,6 @@ import {
   X,
 } from 'lucide-react';
 import { soundEngine } from '../audio/soundEngine';
-import {
-  AiSettings,
-  DEFAULT_AI_SETTINGS,
-  RUBBER_BANDING_LABELS,
-  RubberBandingMode,
-} from '../config/aiConfig';
 import {
   ASSIST_LABELS,
   HANDLING_PRESETS,
@@ -56,7 +49,6 @@ interface Props {
   handlingMode: HandlingMode;
   assists: AssistSettings;
   controlBindings: ControlBindings;
-  aiSettings: AiSettings;
   showGhost: boolean;
   skipCountdownOnRestart: boolean;
   weatherMode: WeatherMode;
@@ -71,8 +63,6 @@ interface Props {
   onToggleAssist: (k: keyof AssistSettings) => void;
   onUpdateBinding: (action: ControlAction, slot: 'primary' | 'secondary', code: string | undefined) => void;
   onResetBindings: () => void;
-  onChangeAiSettings: (patch: Partial<AiSettings>) => void;
-  onResetAiSettings: () => void;
   onToggleShowGhost: () => void;
   onToggleSkipCountdown: () => void;
   onChangeWeatherMode: (w: WeatherMode) => void;
@@ -83,7 +73,7 @@ interface Props {
   onClose: () => void;
 }
 
-type SettingsTab = 'display' | 'ai' | 'controls';
+type SettingsTab = 'display' | 'records' | 'controls';
 
 export const SettingsModal: React.FC<Props> = ({
   graphicsQuality,
@@ -91,7 +81,6 @@ export const SettingsModal: React.FC<Props> = ({
   handlingMode,
   assists,
   controlBindings,
-  aiSettings,
   showGhost,
   skipCountdownOnRestart,
   weatherMode,
@@ -106,8 +95,6 @@ export const SettingsModal: React.FC<Props> = ({
   onToggleAssist,
   onUpdateBinding,
   onResetBindings,
-  onChangeAiSettings,
-  onResetAiSettings,
   onToggleShowGhost,
   onToggleSkipCountdown,
   onChangeWeatherMode,
@@ -196,7 +183,7 @@ export const SettingsModal: React.FC<Props> = ({
                 Driver &amp; System Settings
               </h2>
               <p className="text-[11px] font-mono-tabular text-slate-400 mt-0.5">
-                Saved offline automatically · Physics AI, Rewind, Ghosts &amp; Controls
+                Saved offline automatically · Handling, Rewind, Ghosts &amp; Controls
               </p>
             </div>
           </div>
@@ -234,16 +221,16 @@ export const SettingsModal: React.FC<Props> = ({
             type="button"
             onClick={() => {
               soundEngine.triggerUiClick();
-              setTab('ai');
+              setTab('records');
             }}
             className={`px-3.5 py-1.5 nfs-chamfer-sm font-display uppercase tracking-wider font-bold text-xs flex items-center gap-1.5 border cursor-pointer transition-colors ${
-              tab === 'ai'
+              tab === 'records'
                 ? 'bg-amber-400 text-black border-amber-300'
                 : 'bg-[#141822] text-slate-300 border-white/15 hover:text-white'
             }`}
           >
-            <Bot className="w-3.5 h-3.5" />
-            <span>AI, Rewind &amp; Ghosts</span>
+            <Ghost className="w-3.5 h-3.5" />
+            <span>Ghosts, Rewind &amp; Records</span>
           </button>
           <button
             type="button"
@@ -492,140 +479,14 @@ export const SettingsModal: React.FC<Props> = ({
                 </div>
               </section>
             </>
-          ) : tab === 'ai' ? (
+          ) : tab === 'records' ? (
             <>
-              {/* Physics AI Controls */}
+              {/* Ghost & Fast Restart Toggles */}
               <section className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-xs font-display uppercase tracking-wider font-bold text-amber-400">
-                      Physics AI Rivals &amp; Adaptive Intensity
-                    </div>
-                    <p className="text-[11px] text-slate-400">
-                      AI obeys the exact same 120 Hz tire, gearbox, and barrier physics — no teleporting or wall clipping.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      soundEngine.triggerUiClick();
-                      onResetAiSettings();
-                    }}
-                    className="px-2.5 py-1 nfs-chamfer-sm bg-[#161B26] hover:bg-[#1F2636] border border-white/15 text-[10px] font-mono-tabular uppercase text-slate-200 flex items-center gap-1 cursor-pointer"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    <span>Default ({Math.round(DEFAULT_AI_SETTINGS.pace * 100)}%)</span>
-                  </button>
+                <div className="text-xs font-display uppercase tracking-wider font-bold text-amber-400">
+                  Race Flow, Rewind &amp; Personal Best Ghost
                 </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  <div className="p-3 nfs-chamfer-sm bg-[#0C0F16] border border-white/12 space-y-1.5">
-                    <div className="flex items-center justify-between text-xs font-mono-tabular">
-                      <span className="font-semibold text-white">AI Pace</span>
-                      <span className="text-amber-300 font-bold">{Math.round(aiSettings.pace * 100)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0.75}
-                      max={1.25}
-                      step={0.02}
-                      value={aiSettings.pace}
-                      onChange={(e) => onChangeAiSettings({ pace: parseFloat(e.target.value) })}
-                      className="w-full accent-amber-400 cursor-pointer"
-                    />
-                    <div className="text-[10px] text-slate-400">Corner entry speed &amp; throttle exit push</div>
-                  </div>
-
-                  <div className="p-3 nfs-chamfer-sm bg-[#0C0F16] border border-white/12 space-y-1.5">
-                    <div className="flex items-center justify-between text-xs font-mono-tabular">
-                      <span className="font-semibold text-white">Aggression</span>
-                      <span className="text-amber-300 font-bold">{Math.round(aiSettings.aggression * 100)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      value={aiSettings.aggression}
-                      onChange={(e) => onChangeAiSettings({ aggression: parseFloat(e.target.value) })}
-                      className="w-full accent-amber-400 cursor-pointer"
-                    />
-                    <div className="text-[10px] text-slate-400">Slipstream lunges, defensive blocks &amp; NOS usage</div>
-                  </div>
-
-                  <div className="p-3 nfs-chamfer-sm bg-[#0C0F16] border border-white/12 space-y-1.5">
-                    <div className="flex items-center justify-between text-xs font-mono-tabular">
-                      <span className="font-semibold text-white">Mistake Rate</span>
-                      <span className="text-cyan-300 font-bold">{Math.round(aiSettings.mistakeRate * 100)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.05}
-                      value={aiSettings.mistakeRate}
-                      onChange={(e) => onChangeAiSettings({ mistakeRate: parseFloat(e.target.value) })}
-                      className="w-full accent-cyan-400 cursor-pointer"
-                    />
-                    <div className="text-[10px] text-slate-400">Human late-braking &amp; corner exit bobbles</div>
-                  </div>
-                </div>
-
-                {/* Rubber-Banding */}
-                <div className="space-y-1.5">
-                  <div className="text-[11px] font-display uppercase tracking-wider font-bold text-slate-300">
-                    Rubber-Banding Mode
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    {(['off', 'light', 'classic'] as RubberBandingMode[]).map((rb) => {
-                      const info = RUBBER_BANDING_LABELS[rb];
-                      const active = aiSettings.rubberBanding === rb;
-                      return (
-                        <button
-                          key={rb}
-                          type="button"
-                          onClick={() => {
-                            soundEngine.triggerUiClick();
-                            onChangeAiSettings({ rubberBanding: rb });
-                          }}
-                          className={`text-left p-2.5 nfs-chamfer-sm border transition-colors cursor-pointer ${
-                            active
-                              ? 'bg-amber-400/15 border-amber-400 text-white'
-                              : 'bg-[#0C0F16] border-white/12 text-slate-300 hover:border-white/30'
-                          }`}
-                        >
-                          <div className="font-display uppercase font-bold text-xs">{info.label}</div>
-                          <div className="text-[10px] text-slate-400 mt-0.5 leading-snug">{info.desc}</div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Toggles */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      soundEngine.triggerUiClick();
-                      onChangeAiSettings({ adaptiveIntensity: !aiSettings.adaptiveIntensity });
-                    }}
-                    className="text-left px-3 py-2 nfs-chamfer-sm bg-[#0C0F16] hover:bg-[#131823] border border-white/12 flex items-center justify-between gap-2 cursor-pointer"
-                  >
-                    <div>
-                      <div className="text-xs font-semibold text-white">Adaptive Intensity</div>
-                      <div className="text-[10px] text-slate-400 leading-tight">Pack stays fierce even on Easy</div>
-                    </div>
-                    <span
-                      className={`px-2 py-0.5 text-[10px] font-mono-tabular font-bold uppercase nfs-chamfer-sm border ${
-                        aiSettings.adaptiveIntensity
-                          ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-300'
-                          : 'bg-white/6 border-white/15 text-slate-400'
-                      }`}
-                    >
-                      {aiSettings.adaptiveIntensity ? 'ON' : 'OFF'}
-                    </span>
-                  </button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
 
                   <button
                     type="button"

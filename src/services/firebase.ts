@@ -21,7 +21,12 @@ import {
   setDoc,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { getDefaultCarConfig, getDefaultCareerProfile } from '../data/gameData';
+import {
+  getDefaultCarConfig,
+  getDefaultCareerProfile,
+  MAX_UPGRADE_LEVEL,
+  TOTAL_BLACKLIST_RANKS,
+} from '../data/gameData';
 import { CareerProfile, GarageCarConfig, LeaderboardEntry } from '../types/game';
 
 const app = initializeApp(firebaseConfig);
@@ -118,7 +123,7 @@ function clampInt(val: number, min: number, max: number): number {
 function sanitizeMissionIds(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   const out: string[] = [];
-  for (let i = 0; i < raw.length && out.length < 60; i++) {
+  for (let i = 0; i < raw.length && out.length < 100; i++) {
     const id = String(raw[i]).trim().slice(0, 32);
     if (/^[a-zA-Z0-9_-]+$/.test(id) && !out.includes(id)) {
       out.push(id);
@@ -142,7 +147,7 @@ export async function loadCloudCareer(
         driverName: sanitizeDriverName(String(d.driverName || user.displayName || 'Street Racer')),
         cash: clampInt(Number(d.cash ?? 18000), 0, 1000000000),
         totalBounty: clampInt(Number(d.totalBounty ?? 0), 0, 1000000000),
-        blacklistDefeated: clampInt(Number(d.blacklistDefeated ?? 0), 0, 10),
+        blacklistDefeated: clampInt(Number(d.blacklistDefeated ?? 0), 0, TOTAL_BLACKLIST_RANKS),
         racesWon: clampInt(Number(d.racesWon ?? 0), 0, 100000),
         copsTakedowns: clampInt(Number(d.copsTakedowns ?? 0), 0, 100000),
         bestLapMs: 0,
@@ -150,7 +155,7 @@ export async function loadCloudCareer(
         selectedCarId: String(d.selectedCarId || 'cobalt_gt'),
         ownedCarIds:
           Array.isArray(d.ownedCarIds) && d.ownedCarIds.length > 0
-            ? d.ownedCarIds.slice(0, 20).map(String)
+            ? d.ownedCarIds.slice(0, 40).map(String)
             : ['cobalt_gt'],
         wonTrackIds: Array.isArray(d.wonTrackIds)
           ? d.wonTrackIds.slice(0, 10).map((t) => String(t).slice(0, 32))
@@ -175,10 +180,10 @@ export async function loadCloudCareer(
       garage[carId] = {
         ownerId: uid,
         carId,
-        engineLevel: clampInt(Number(g.engineLevel ?? 1), 1, 4),
-        turboLevel: clampInt(Number(g.turboLevel ?? 1), 1, 4),
-        nitrousLevel: clampInt(Number(g.nitrousLevel ?? 1), 1, 4),
-        tiresLevel: clampInt(Number(g.tiresLevel ?? 1), 1, 4),
+        engineLevel: clampInt(Number(g.engineLevel ?? 1), 1, MAX_UPGRADE_LEVEL),
+        turboLevel: clampInt(Number(g.turboLevel ?? 1), 1, MAX_UPGRADE_LEVEL),
+        nitrousLevel: clampInt(Number(g.nitrousLevel ?? 1), 1, MAX_UPGRADE_LEVEL),
+        tiresLevel: clampInt(Number(g.tiresLevel ?? 1), 1, MAX_UPGRADE_LEVEL),
         paintHex: /^#[0-9a-fA-F]{6}$/.test(String(g.paintHex)) ? String(g.paintHex) : '#E11D48',
         livery: ['clean', 'stripes', 'most_wanted', 'boss_carbon'].includes(String(g.livery))
           ? (String(g.livery) as GarageCarConfig['livery'])
@@ -222,11 +227,11 @@ export async function saveCloudCareer(profile: CareerProfile): Promise<void> {
     driverName: sanitizeDriverName(profile.driverName),
     cash: clampInt(profile.cash, 0, 1000000000),
     totalBounty: clampInt(profile.totalBounty, 0, 1000000000),
-    blacklistDefeated: clampInt(profile.blacklistDefeated, 0, 10),
+    blacklistDefeated: clampInt(profile.blacklistDefeated, 0, TOTAL_BLACKLIST_RANKS),
     racesWon: clampInt(profile.racesWon, 0, 100000),
     copsTakedowns: clampInt(profile.copsTakedowns, 0, 100000),
     selectedCarId: profile.selectedCarId.slice(0, 32),
-    ownedCarIds: profile.ownedCarIds.slice(0, 20),
+    ownedCarIds: profile.ownedCarIds.slice(0, 40),
     wonTrackIds: (profile.wonTrackIds ?? []).slice(0, 10).map((t) => String(t).slice(0, 32)),
     completedMissionIds: sanitizeMissionIds(profile.completedMissionIds),
     updatedAt: serverTimestamp(),
@@ -244,10 +249,10 @@ export async function saveCloudCarConfig(uid: string, config: GarageCarConfig): 
   const payload = {
     ownerId: uid,
     carId: config.carId.slice(0, 32),
-    engineLevel: clampInt(config.engineLevel, 1, 4),
-    turboLevel: clampInt(config.turboLevel, 1, 4),
-    nitrousLevel: clampInt(config.nitrousLevel, 1, 4),
-    tiresLevel: clampInt(config.tiresLevel, 1, 4),
+    engineLevel: clampInt(config.engineLevel, 1, MAX_UPGRADE_LEVEL),
+    turboLevel: clampInt(config.turboLevel, 1, MAX_UPGRADE_LEVEL),
+    nitrousLevel: clampInt(config.nitrousLevel, 1, MAX_UPGRADE_LEVEL),
+    tiresLevel: clampInt(config.tiresLevel, 1, MAX_UPGRADE_LEVEL),
     paintHex: /^#[0-9a-fA-F]{6}$/.test(config.paintHex) ? config.paintHex : '#E11D48',
     livery: config.livery,
     rimStyle: config.rimStyle,
@@ -268,7 +273,7 @@ export async function publishRapSheetEntry(
   if (!user) return;
   const uid = user.uid;
   const path = `leaderboard/${uid}`;
-  const blacklistRank = clampInt(11 - profile.blacklistDefeated, 1, 11);
+  const blacklistRank = clampInt(TOTAL_BLACKLIST_RANKS + 1 - profile.blacklistDefeated, 1, TOTAL_BLACKLIST_RANKS + 1);
   const payload = {
     uid,
     driverName: sanitizeDriverName(profile.driverName),
@@ -304,7 +309,7 @@ export async function fetchRapSheetLeaderboard(): Promise<LeaderboardEntry[]> {
         totalBounty: Number(d.totalBounty ?? 0),
         bestLapMs: Number(d.bestLapMs ?? 0),
         highestHeat: Number(d.highestHeat ?? 1),
-        blacklistRank: Number(d.blacklistRank ?? 11),
+        blacklistRank: Number(d.blacklistRank ?? (TOTAL_BLACKLIST_RANKS + 1)),
         carName: String(d.carName ?? 'Street Spec'),
       });
     });

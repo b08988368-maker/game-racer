@@ -61,7 +61,7 @@ service cloud.firestore {
         && data.totalBounty <= 1000000000
         && data.blacklistDefeated is int
         && data.blacklistDefeated >= 0
-        && data.blacklistDefeated <= 10
+        && data.blacklistDefeated <= 15
         && data.racesWon is int
         && data.racesWon >= 0
         && data.racesWon <= 100000
@@ -74,7 +74,7 @@ service cloud.firestore {
         && data.selectedCarId.matches('^[a-zA-Z0-9_\\-]+$')
         && data.ownedCarIds is list
         && data.ownedCarIds.size() >= 1
-        && data.ownedCarIds.size() <= 20
+        && data.ownedCarIds.size() <= 40
         && data.ownedCarIds[0] is string
         && data.ownedCarIds[0].size() >= 1
         && data.ownedCarIds[0].size() <= 32
@@ -89,7 +89,7 @@ service cloud.firestore {
         ))
         && (!('completedMissionIds' in data) || (
           data.completedMissionIds is list
-          && data.completedMissionIds.size() <= 60
+          && data.completedMissionIds.size() <= 100
           && (data.completedMissionIds.size() == 0 || (
             data.completedMissionIds[0] is string
             && data.completedMissionIds[0].size() >= 1
@@ -122,13 +122,13 @@ service cloud.firestore {
         && data.carId.size() <= 32
         && data.carId.matches('^[a-zA-Z0-9_\\-]+$')
         && data.engineLevel is int
-        && data.engineLevel >= 1 && data.engineLevel <= 4
+        && data.engineLevel >= 1 && data.engineLevel <= 5
         && data.turboLevel is int
-        && data.turboLevel >= 1 && data.turboLevel <= 4
+        && data.turboLevel >= 1 && data.turboLevel <= 5
         && data.nitrousLevel is int
-        && data.nitrousLevel >= 1 && data.nitrousLevel <= 4
+        && data.nitrousLevel >= 1 && data.nitrousLevel <= 5
         && data.tiresLevel is int
-        && data.tiresLevel >= 1 && data.tiresLevel <= 4
+        && data.tiresLevel >= 1 && data.tiresLevel <= 5
         && data.paintHex is string
         && data.paintHex.size() == 7
         && data.paintHex.matches('^#[0-9a-fA-F]{6}$')
@@ -165,7 +165,7 @@ service cloud.firestore {
         && data.highestHeat is int
         && data.highestHeat >= 1 && data.highestHeat <= 5
         && data.blacklistRank is int
-        && data.blacklistRank >= 1 && data.blacklistRank <= 11
+        && data.blacklistRank >= 1 && data.blacklistRank <= 16
         && data.carName is string
         && data.carName.size() >= 1
         && data.carName.size() <= 48

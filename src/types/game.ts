@@ -48,7 +48,9 @@ export type EnvironmentId =
   | 'overcast_rain'
   | 'noon_clear'
   | 'dawn_mist'
-  | 'crimson_foundry';
+  | 'crimson_foundry'
+  | 'canyon_sun'
+  | 'mediterranean_day';
 
 export type TrackDifficulty = 'Easy' | 'Medium' | 'Hard' | 'Expert';
 
@@ -81,8 +83,8 @@ export interface MissionChecklistItem {
 
 export interface MissionDefinition {
   id: string;
-  tierRank: number; // 10 down to 1
-  order: number; // 1..5 within tier
+  tierRank: number; // 15 down to 1
+  order: number; // 1..6 within tier
   title: string;
   type: MissionType;
   modeTag: string;
@@ -115,9 +117,9 @@ export interface CarSpec {
   brand: string;
   tier: number;
   price: number;
-  unlockRank: number; // 11 = starter/open, 10..1 = unlocked after defeating Blacklist #10..#1
+  unlockRank: number; // 16 = starter/open, 15..1 = unlocked after defeating Blacklist #15..#1
   bossOnly?: boolean; // Exclusive Pink-Slip vehicle — cannot be purchased in dealership
-  bossRank?: number; // 10..1 Blacklist rival rank that awards this car
+  bossRank?: number; // 15..1 Blacklist rival rank that awards this car
   aeroKit?: 'stock' | 'widebody' | 'boss_gt';
   baseTopSpeedKmh: number;
   baseAccel: number;
@@ -138,17 +140,17 @@ export interface CarSpec {
 export interface GarageCarConfig {
   ownerId: string;
   carId: string;
-  engineLevel: number; // 1..4
-  turboLevel: number; // 1..4
-  nitrousLevel: number; // 1..4
-  tiresLevel: number; // 1..4
+  engineLevel: number; // 1..5
+  turboLevel: number; // 1..5
+  nitrousLevel: number; // 1..5
+  tiresLevel: number; // 1..5
   paintHex: string;
   livery: LiveryStyle;
   rimStyle: RimStyle;
 }
 
 export interface BlacklistRival {
-  rank: number; // 10 down to 1
+  rank: number; // 15 down to 1
   name: string;
   alias: string;
   carId: string; // Visual / performance car spec used by the rival
@@ -187,7 +189,7 @@ export interface CareerProfile {
   driverName: string;
   cash: number;
   totalBounty: number;
-  blacklistDefeated: number; // 0..10
+  blacklistDefeated: number; // 0..15
   racesWon: number;
   copsTakedowns: number;
   bestLapMs: number;
@@ -298,6 +300,10 @@ export interface RaceTelemetry {
   activeMissionModeTag: string | null;
   activeMissionObjective: string | null;
   missionChecklist: MissionChecklistItem[];
+  objectiveBadge: string;
+  objectiveHeadline: string;
+  objectiveSteps: string[];
+  objectiveFailRule: string | null;
   musicTrackName: string;
   progress: number; // 0..1
   wrongWay: boolean;

@@ -86,25 +86,25 @@ export function createAsphaltTexture(
     ctx.fillRect(laneCenter - 36, 0, 72, 512);
   });
 
-  // Outer edge lines & shoulder rumble strips
-  ctx.fillStyle = variant === 'canyon' ? '#FDE68A' : '#F1F5F9';
-  ctx.fillRect(14, 0, 7, 512);
-  ctx.fillRect(491, 0, 7, 512);
-  ctx.fillStyle = variant === 'canyon' ? 'rgba(217, 119, 6, 0.55)' : 'rgba(10, 14, 22, 0.8)';
+  // High-contrast outer edge lines & shoulder rumble strips
+  ctx.fillStyle = variant === 'canyon' ? '#FDE047' : '#FFFFFF';
+  ctx.fillRect(14, 0, 8, 512);
+  ctx.fillRect(490, 0, 8, 512);
+  ctx.fillStyle = variant === 'canyon' ? 'rgba(234, 88, 12, 0.72)' : 'rgba(15, 23, 42, 0.85)';
   for (let y = 0; y < 512; y += 24) {
     ctx.fillRect(3, y, 9, 10);
     ctx.fillRect(500, y, 9, 10);
   }
 
   // Crisp dashed lane dividers
-  ctx.fillStyle = variant === 'city_wet' ? 'rgba(56, 189, 248, 0.85)' : 'rgba(241, 245, 249, 0.92)';
+  ctx.fillStyle = variant === 'city_wet' ? 'rgba(56, 189, 248, 0.94)' : 'rgba(248, 250, 252, 0.96)';
   for (let y = 0; y < 512; y += 64) {
-    ctx.fillRect(126, y + 10, 5, 36);
-    ctx.fillRect(381, y + 10, 5, 36);
+    ctx.fillRect(126, y + 10, 6, 36);
+    ctx.fillRect(380, y + 10, 6, 36);
   }
 
-  // Center double highway median lines
-  ctx.fillStyle = variant === 'industrial' ? '#FB923C' : '#F59E0B';
+  // Sharp double highway median lines
+  ctx.fillStyle = variant === 'industrial' ? '#F97316' : '#FBBF24';
   ctx.fillRect(247, 0, 5, 512);
   ctx.fillRect(260, 0, 5, 512);
 
@@ -263,34 +263,34 @@ export function createBarrierTexture(maxAnisotropy: number): THREE.CanvasTexture
   canvas.height = 128;
   const ctx = canvas.getContext('2d')!;
 
-  // Industrial concrete Jersey wall + top steel rail band + safety chevron hazard strip
-  ctx.fillStyle = '#4B5563';
+  // Industrial concrete Jersey wall + top steel rail band + sharp chevron hazard strip
+  ctx.fillStyle = '#566171';
   ctx.fillRect(0, 0, 256, 128);
 
   // Lower sloped base foot shadow
-  ctx.fillStyle = '#27303F';
+  ctx.fillStyle = '#293242';
   ctx.fillRect(0, 82, 256, 46);
 
-  // Top dark steel guardrail cap band
-  ctx.fillStyle = '#1F2937';
+  // Top crisp brushed steel guardrail cap band
+  ctx.fillStyle = '#1E293B';
   ctx.fillRect(0, 0, 256, 22);
 
-  // Bold amber/black hazard stripe under top rail for sharp border legibility
-  ctx.fillStyle = '#F59E0B';
-  ctx.fillRect(0, 22, 256, 10);
-  ctx.fillStyle = '#111827';
+  // Vivid amber/black hazard stripe under top rail for razor-sharp corner legibility
+  ctx.fillStyle = '#FBBF24';
+  ctx.fillRect(0, 22, 256, 11);
+  ctx.fillStyle = '#0F172A';
   for (let x = 0; x < 256; x += 32) {
-    ctx.fillRect(x, 22, 14, 10);
+    ctx.fillRect(x, 22, 14, 11);
   }
 
   // Concrete segment expansion seams
-  ctx.fillStyle = '#18202C';
+  ctx.fillStyle = '#151C28';
   for (let x = 0; x < 256; x += 64) {
     ctx.fillRect(x, 0, 4, 128);
   }
 
   // Scuff & tire rub marks along mid wall
-  ctx.fillStyle = 'rgba(15, 20, 28, 0.45)';
+  ctx.fillStyle = 'rgba(15, 20, 28, 0.42)';
   ctx.fillRect(0, 56, 256, 12);
 
   const tex = new THREE.CanvasTexture(canvas);
@@ -382,39 +382,95 @@ export function createGarageFloorTexture(maxAnisotropy: number): THREE.CanvasTex
 
 export function createBuildingFacadeTexture(
   maxAnisotropy: number,
-  variant: 'glass' | 'concrete' | 'industrial' | 'villa' = 'glass',
+  variant: 'glass' | 'concrete' | 'industrial' | 'villa' | 'rock' = 'glass',
 ): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 512;
   const ctx = canvas.getContext('2d')!;
 
-  if (variant === 'villa') {
-    // Warm sunlit Mediterranean stucco with recessed arched/shuttered windows
+  if (variant === 'rock') {
+    const cliffGrad = ctx.createLinearGradient(0, 0, 0, 512);
+    cliffGrad.addColorStop(0, '#5C4B3B');
+    cliffGrad.addColorStop(0.5, '#463A2E');
+    cliffGrad.addColorStop(1, '#312921');
+    ctx.fillStyle = cliffGrad;
+    ctx.fillRect(0, 0, 512, 512);
+    for (let y = 0; y < 512; y += 18) {
+      ctx.fillStyle = y % 36 === 0 ? 'rgba(255,235,205,0.08)' : 'rgba(15,10,5,0.22)';
+      ctx.fillRect(0, y, 512, 7 + ((y * 7) % 9));
+    }
+    for (let x = 0; x < 512; x += 28) {
+      ctx.fillStyle = 'rgba(20, 15, 10, 0.16)';
+      ctx.fillRect(x, 0, 3, 512);
+    }
+  } else if (variant === 'villa') {
+    // Vivid sunlit "3robyat" whitewashed limestone & warm terracotta stucco villa facade
     const stuccoGrad = ctx.createLinearGradient(0, 0, 0, 512);
-    stuccoGrad.addColorStop(0, '#F5EFE6');
-    stuccoGrad.addColorStop(1, '#E6DCCD');
+    stuccoGrad.addColorStop(0, '#FFFDF9');
+    stuccoGrad.addColorStop(0.55, '#F6EFE2');
+    stuccoGrad.addColorStop(1, '#E7D8BE');
     ctx.fillStyle = stuccoGrad;
     ctx.fillRect(0, 0, 512, 512);
 
-    ctx.fillStyle = '#D5C7B2';
-    ctx.fillRect(0, 246, 512, 14);
-    ctx.fillRect(0, 496, 512, 16);
+    // Subtle limestone block ashlar courses
+    ctx.strokeStyle = 'rgba(162, 136, 104, 0.28)';
+    ctx.lineWidth = 2;
+    for (let y = 32; y < 512; y += 32) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(512, y);
+      ctx.stroke();
+    }
+
+    // Carved cornice & floor balustrade trim
+    ctx.fillStyle = '#C9B597';
+    ctx.fillRect(0, 236, 512, 20);
+    ctx.fillRect(0, 492, 512, 20);
+    ctx.fillStyle = '#8C6239';
+    ctx.fillRect(0, 232, 512, 5);
 
     for (let row = 0; row < 2; row++) {
       const yBase = row * 256 + 44;
-      for (let x = 36; x < 480; x += 116) {
-        // Wooden shutters + deep glass reflection
-        ctx.fillStyle = '#785A3C';
-        ctx.fillRect(x - 10, yBase + 16, 12, 132);
-        ctx.fillRect(x + 62, yBase + 16, 12, 132);
-        ctx.fillStyle = '#1E3A5F';
-        ctx.fillRect(x, yBase, 64, 148);
-        ctx.fillStyle = 'rgba(186, 230, 253, 0.34)';
-        ctx.fillRect(x + 6, yBase + 8, 22, 60);
-        ctx.fillRect(x + 36, yBase + 8, 22, 60);
-        ctx.fillStyle = '#E2D8C8';
-        ctx.fillRect(x - 4, yBase + 148, 72, 10);
+      for (let x = 42; x < 476; x += 116) {
+        // Arched stone lintel + carved mashrabiya shutters + warm golden interior glow
+        ctx.fillStyle = '#B89F7D';
+        ctx.beginPath();
+        ctx.arc(x + 32, yBase + 30, 36, Math.PI, 0);
+        ctx.lineTo(x + 68, yBase + 150);
+        ctx.lineTo(x - 4, yBase + 150);
+        ctx.closePath();
+        ctx.fill();
+
+        // Warm wood mashrabiya side shutters
+        ctx.fillStyle = '#6E4726';
+        ctx.fillRect(x - 14, yBase + 28, 14, 122);
+        ctx.fillRect(x + 64, yBase + 28, 14, 122);
+        ctx.fillStyle = '#9C6B3F';
+        for (let sl = 0; sl < 6; sl++) {
+          ctx.fillRect(x - 12, yBase + 36 + sl * 18, 10, 6);
+          ctx.fillRect(x + 66, yBase + 36 + sl * 18, 10, 6);
+        }
+
+        // Glazed arch bay with warm interior glow
+        const glGrad = ctx.createLinearGradient(0, yBase, 0, yBase + 146);
+        glGrad.addColorStop(0, '#1B344D');
+        glGrad.addColorStop(0.5, '#254C6E');
+        glGrad.addColorStop(1, row === 1 ? 'rgba(251, 191, 36, 0.72)' : '#1D3B56');
+        ctx.fillStyle = glGrad;
+        ctx.beginPath();
+        ctx.arc(x + 32, yBase + 30, 29, Math.PI, 0);
+        ctx.lineTo(x + 61, yBase + 146);
+        ctx.lineTo(x + 3, yBase + 146);
+        ctx.closePath();
+        ctx.fill();
+
+        // Mullion cross & travertine sill
+        ctx.fillStyle = '#E8DAC4';
+        ctx.fillRect(x + 30, yBase + 4, 4, 142);
+        ctx.fillRect(x + 3, yBase + 68, 58, 4);
+        ctx.fillStyle = '#D7C3A5';
+        ctx.fillRect(x - 8, yBase + 146, 80, 10);
       }
     }
   } else if (variant === 'industrial') {

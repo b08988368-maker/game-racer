@@ -414,18 +414,18 @@ export function stepVehiclePhysics(
   // 5. Load-Sensitive Pacejka Tire Slip Curve + Friction Ellipse + Asymmetric Shoulder Pull + Trail-Braking
   const absSpeed = Math.abs(nextFwd);
   const speedRatio = Math.min(1, absSpeed / 7.5);
-  const speedTurnScale = THREE.MathUtils.lerp(1.0, 1 - tuning.steerSpeedSensitivity * 0.68, Math.min(1, absSpeed / 100));
+  const speedTurnScale = THREE.MathUtils.lerp(1.0, 1 - tuning.steerSpeedSensitivity * 0.74, Math.min(1, absSpeed / 96));
   const handlingFactor =
-    (2.46 + (inp.handlingStat / 100) * 1.36) * (inp.spikedTimer > 0 ? 0.78 : 1.0);
+    (2.34 + (inp.handlingStat / 100) * 1.24) * (inp.spikedTimer > 0 ? 0.78 : 1.0);
   const breakerBoost = inp.isSpeedbreaker ? 1.66 : 1.0;
-  const trailBraking = !inp.airborne && inp.brakeInput && Math.abs(inp.rawSteerInput) > 0.12 && absSpeed > 20;
+  const trailBraking = !inp.airborne && inp.brakeInput && Math.abs(inp.rawSteerInput) > 0.12 && absSpeed > 18;
   const handbrakeTurn = inp.handbrakeInput
     ? 1.44 * tuning.driftSlipEase
     : trailBraking
-      ? 1.29 * Math.sqrt(tuning.driftSlipEase)
+      ? 1.32 * Math.sqrt(tuning.driftSlipEase)
       : 1.0;
   const turnDir = nextFwd >= -0.2 ? 1 : -1;
-  const gripScale = inp.airborne ? 0.18 : 1.0;
+  const gripScale = inp.airborne ? 0.12 : 1.0;
 
   const alignPull = (inp.alignmentPull ?? 0) * Math.min(1, absSpeed / 26);
   const effSteerAngle = inp.steerAngle + alignPull;
@@ -461,15 +461,15 @@ export function stepVehiclePhysics(
 
   const B = tuning.pacejkaStiffness;
   const C = tuning.pacejkaShape;
-  const Dbase = tuning.tireGripMultiplier * avgGripMult * (0.85 + (inp.handlingStat / 100) * 0.36);
+  const Dbase = tuning.tireGripMultiplier * avgGripMult * (0.80 + (inp.handlingStat / 100) * 0.34);
   const E = 0.65;
 
   const frontLatForceNorm = pacejkaFormula(frontSlipAngle, B, C, Dbase * (0.65 + 0.35 * frontLoadEff), E);
-  // Trail-braking unloads the rear axle gently while handbrake sharply drops rear lateral capacity
+  // Trail-braking loads front bite & unloads rear axle smoothly; handbrake snaps rear capacity
   const rearGripPenalty = inp.handbrakeInput
-    ? 0.54 / Math.max(0.65, tuning.driftSlipEase)
+    ? 0.50 / Math.max(0.65, tuning.driftSlipEase)
     : trailBraking
-      ? 0.72 / Math.max(0.75, tuning.driftSlipEase)
+      ? 0.69 / Math.max(0.75, tuning.driftSlipEase)
       : 1.0;
   const rearLatForceNorm = pacejkaFormula(
     rearSlipAngle,
@@ -483,13 +483,30 @@ export function stepVehiclePhysics(
   const longDemandNorm = effectiveBrake > 0.25 && !assists.abs
     ? effectiveBrake * 0.92
     : effectiveBrake > 0.1
-      ? effectiveBrake * 0.56
-      : effectiveThrottle * 0.32;
+      ? effectiveBrake * 0.54
+      : effectiveThrottle * 0.38;
   const latDemandFront = Math.min(1.2, Math.abs(frontLatForceNorm));
   const combinedFront = Math.hypot(longDemandNorm, latDemandFront);
   const ellipseScale = combinedFront > 1.0 ? 1 / combinedFront : 1.0;
 
-  yawRate *= THREE.MathUtils.clamp(0.68 + 0.34 * ellipseScale * avgGripMult * tuning.tireGripMultiplier, 0.52, 1.26);
+  // Real-world high-speed cornering limit: attempting sharp steering flat-out without trail-braking
+  // saturates front tire grip (understeer push), forcing genuine corner-entry braking or lift-off!
+  const aeroGripSupport = 1 + (downforceTotalN / Math.max(1, staticWeightN)) * 0.32;
+  const bankTurnSupport = 1 + Math.abs(Math.sin(bankAngle)) * 0.28;
+  const cornerGripCeiling = Math.max(8.5, STANDARD_GRAVITY_MPS2 * 1.24 * Dbase * aeroGripSupport * bankTurnSupport);
+  const ayDemand = Math.abs(yawRate * absSpeed);
+  const lateralLoadRatio = ayDemand / cornerGripCeiling;
+  if (!inp.airborne && !inp.isSpeedbreaker && !trailBraking && lateralLoadRatio > 0.92) {
+    const excessRatio = lateralLoadRatio - 0.92;
+    const throttlePushPenalty = effectiveThrottle > 0.45 ? 1.15 : 0.72;
+    const understeerScale = Math.max(0.46, 1 / (1 + excessRatio * 0.85 * throttlePushPenalty));
+    yawRate *= understeerScale;
+  } else if (trailBraking) {
+    // Trail braking shifts weight onto front tires, rewarding brave late brakers with extra nose rotation
+    yawRate *= 1.08;
+  }
+
+  yawRate *= THREE.MathUtils.clamp(0.65 + 0.35 * ellipseScale * avgGripMult * tuning.tireGripMultiplier, 0.48, 1.22);
 
   // Stability Control (ESC): damps excess oversteer yaw when not deliberately handbraking
   if (!inp.airborne && assists.stabilityControl && !inp.handbrakeInput) {
@@ -512,39 +529,39 @@ export function stepVehiclePhysics(
     // Track banking raises the +right shoulder for positive bankAngle -> gravity supports left turns (-right)
     const bankGravityLat = -STANDARD_GRAVITY_MPS2 * Math.sin(bankAngle);
     const gripDemand = THREE.MathUtils.clamp(
-      Math.abs(yawRate * nextFwd) / Math.max(8, STANDARD_GRAVITY_MPS2 * Dbase),
+      Math.abs(yawRate * nextFwd) / Math.max(8, STANDARD_GRAVITY_MPS2 * Dbase * 1.12),
       0,
-      1.35,
+      1.5,
     );
-    const progressiveSlipScale = gripDemand > 0.72 ? 1 + (gripDemand - 0.72) * 1.4 : 1.0;
+    const progressiveSlipScale = gripDemand > 0.68 ? 1 + (gripDemand - 0.68) * 1.65 : 1.0;
     const lateralInject =
-      (inp.handbrakeInput ? 0.36 : trailBraking ? 0.25 : 0.068 * progressiveSlipScale) *
+      (inp.handbrakeInput ? 0.38 : trailBraking ? 0.27 : 0.088 * progressiveSlipScale) *
       tuning.driftSlipEase;
     nextLat += (yawRate * nextFwd * lateralInject + bankGravityLat * 0.48) * dt;
 
     const counterSteering = inp.rawSteerInput * nextLat < -0.08;
-    const slipSaturationDamp = gripDemand > 0.88 ? Math.max(0.74, 1 - (gripDemand - 0.88) * 0.45) : 1.0;
+    const slipSaturationDamp = gripDemand > 0.84 ? Math.max(0.66, 1 - (gripDemand - 0.84) * 0.52) : 1.0;
     const baseDamp = inp.handbrakeInput
-      ? 4.9 / Math.max(0.7, tuning.driftSlipEase)
+      ? 4.4 / Math.max(0.7, tuning.driftSlipEase)
       : trailBraking
-        ? 6.6 / Math.max(0.75, tuning.driftSlipEase)
-        : (15.4 + (inp.handlingStat / 100) * 4.8) *
+        ? 5.9 / Math.max(0.75, tuning.driftSlipEase)
+        : (11.8 + (inp.handlingStat / 100) * 3.6) *
           (Math.abs(inp.rawSteerInput) < 0.08 ? 1.55 : 1.0) *
           slipSaturationDamp;
-    const escDampBoost = assists.stabilityControl && !inp.handbrakeInput ? 1.2 : 1.0;
-    const wetLatFactor = 1 - effWet * 0.12;
+    const escDampBoost = assists.stabilityControl && !inp.handbrakeInput ? 1.15 : 1.0;
+    const wetLatFactor = 1 - effWet * 0.14;
     const pacejkaBite = THREE.MathUtils.clamp(
       avgGripMult * tuning.tireGripMultiplier * ellipseScale * surfaceSpec.lateralDamping * wetLatFactor,
-      0.42,
-      1.48,
+      0.40,
+      1.36,
     );
     const totalLatDamp =
-      baseDamp * pacejkaBite * escDampBoost * (inp.isSpeedbreaker ? 1.95 : 1.0) * (counterSteering ? 2.15 : 1.0);
+      baseDamp * pacejkaBite * escDampBoost * (inp.isSpeedbreaker ? 1.95 : 1.0) * (counterSteering ? 2.25 : 1.0);
     nextLat = THREE.MathUtils.damp(nextLat, 0, totalLatDamp, dt);
 
-    if (Math.abs(nextLat) > 3.2) {
-      const scrubStrength = inp.handbrakeInput ? 0.12 : 0.068;
-      nextFwd *= 1 - Math.min(0.20, scrubStrength * (1 / Math.max(0.6, Math.abs(rearLatForceNorm) + 0.5)) * dt);
+    if (Math.abs(nextLat) > 2.8) {
+      const scrubStrength = inp.handbrakeInput ? 0.15 : 0.092;
+      nextFwd *= 1 - Math.min(0.24, scrubStrength * (1 / Math.max(0.55, Math.abs(rearLatForceNorm) + 0.45)) * dt);
     }
   }
 

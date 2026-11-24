@@ -6,7 +6,7 @@ import {
   DIFFICULTY_AI_PROFILES,
 } from '../config/aiConfig';
 import { AssistSettings, PhysicsTuningParams } from '../config/physicsConfig';
-import { computeEffectiveStats } from '../data/gameData';
+import { computeEffectiveStats, MAX_UPGRADE_LEVEL } from '../data/gameData';
 import { CarSpec, EnvironmentId, GarageCarConfig, TrackDifficulty, TrackId } from '../types/game';
 import { BuiltTrack } from './trackBuilder';
 import {
@@ -84,17 +84,28 @@ export interface AiBrainState {
 
 export function buildFairAiConfig(
   spec: CarSpec,
-  _playerConfig: GarageCarConfig,
+  playerConfig: GarageCarConfig,
   difficulty: TrackDifficulty,
   aiTierBoost: number,
   isBoss: boolean,
   slotOffset: number,
 ): GarageCarConfig {
+  const playerAvg =
+    (playerConfig.engineLevel +
+      playerConfig.turboLevel +
+      playerConfig.nitrousLevel +
+      playerConfig.tiresLevel) *
+    0.25;
   const diffOffset =
-    difficulty === 'Easy' ? -0.35 : difficulty === 'Medium' ? 0 : difficulty === 'Hard' ? 0.25 : 0.45;
-  const tierBase = 1 + aiTierBoost * 0.68 + (isBoss ? 0.45 : 0) + diffOffset + slotOffset * 0.22;
-  const clamped = Math.max(1, Math.min(4, Math.round(tierBase)));
-  const tireBoost = Math.max(1, Math.min(4, Math.round(tierBase + (difficulty === 'Expert' ? 0.5 : 0))));
+    difficulty === 'Easy' ? 0.0 : difficulty === 'Medium' ? 0.25 : difficulty === 'Hard' ? 0.55 : 0.90;
+  const tierBase =
+    Math.max(1.5, playerAvg * 0.92 + 0.30) +
+    aiTierBoost * 0.45 +
+    (isBoss ? 0.55 : 0) +
+    diffOffset +
+    slotOffset * 0.25;
+  const clamped = Math.max(1, Math.min(MAX_UPGRADE_LEVEL, Math.round(tierBase)));
+  const tireBoost = Math.max(1, Math.min(MAX_UPGRADE_LEVEL, Math.round(tierBase + 0.5)));
   return {
     ownerId: 'ai',
     carId: spec.id,
@@ -298,7 +309,7 @@ export function stepAiRacerPhysics(
   const traits = AI_PERSONALITY_TRAITS[brain.personality];
   const stats = computeEffectiveStats(ai.spec, brain.simConfig);
 
-  const info = track.getClosestTrackInfo(ai.pos.x, ai.pos.z, ai.trackIdx);
+  const info = track.getClosestTrackInfo(ai.pos.x, ai.pos.z, ai.trackIdx, ai.pos.y);
 
   // If busted by RPD, smoothly brake/coast to a stop along the shoulder
   if (ai.busted) {
@@ -376,11 +387,23 @@ export function stepAiRacerPhysics(
   let minFutureRadius = 999;
   let aimingShortcut = false;
 
-  const baseDryMu = environment === 'overcast_rain' ? 0.97 : 1.14;
-  const surfMu = THREE.MathUtils.lerp(baseDryMu, 0.91, THREE.MathUtils.clamp(roadWetness, 0, 1));
+  const gapLaps = player.totalProgress - ai.totalProgress;
+  const gapMeters = gapLaps * track.totalLength;
+  const trailCornerBoost =
+    gapMeters > 60 ? 1 + Math.min(0.18, (gapMeters - 60) / 850) : 1.0;
+
+  const baseDryMu = environment === 'overcast_rain' ? 0.98 : 1.15;
+  const surfMu = THREE.MathUtils.lerp(baseDryMu, 0.92, THREE.MathUtils.clamp(roadWetness, 0, 1));
   const bankGripBonus = 1 + Math.min(0.22, Math.abs(info.bankAngle) * 0.95);
-  const gripBudget = 21.8 * surfMu * bankGripBonus * tuning.tireGripMultiplier * profile.cornerConfidence * traits.cornerAttack;
-  const maxBrakeDecel = 27.5 * surfMu * profile.brakingPrecision;
+  const gripBudget =
+    22.0 *
+    surfMu *
+    bankGripBonus *
+    tuning.tireGripMultiplier *
+    profile.cornerConfidence *
+    trailCornerBoost *
+    traits.cornerAttack;
+  const maxBrakeDecel = 28.0 * surfMu * profile.brakingPrecision;
 
   let horizonBrakeCapMs = 999;
 
@@ -420,18 +443,25 @@ export function stepAiRacerPhysics(
     const sMid = samples[(ai.trackIdx + 14) % nSamples];
     const sFar = samples[(ai.trackIdx + 24) % nSamples];
 
-    // Smooth 6-sample chord curvature scanning across near, mid, and braking horizons
-    const scanWindows = [5, 10, 16, 23, 31, 40];
+    // Smooth 6-sample AND tight 3-sample chord curvature scanning so double hairpins & switchbacks
+    // ("make another turn") trigger crisp early apex entry instead of cutting straight across bends
+    const scanWindows = [3, 5, 9, 14, 20, 28, 38];
     for (let w = 0; w < scanWindows.length; w++) {
       const offset = scanWindows[w];
       const pA = samples[(ai.trackIdx + Math.max(0, offset - 6)) % nSamples].point;
       const pB = samples[(ai.trackIdx + offset) % nSamples].point;
       const pC = samples[(ai.trackIdx + offset + 6) % nSamples].point;
       const kCurv = circumcircleCurvatureXZ(pA.x, pA.z, pB.x, pB.z, pC.x, pC.z);
-      const rCurve = kCurv > 0.0014 ? Math.max(16, 1 / kCurv) : 999;
-      if (offset <= 10) curvatureNear = Math.max(curvatureNear, kCurv * 5.2);
-      if (offset <= 23) curvatureMid = Math.max(curvatureMid, kCurv * 5.2);
-      if (rCurve < minFutureRadius && offset <= 23) minFutureRadius = rCurve;
+
+      const tA = samples[(ai.trackIdx + Math.max(0, offset - 3)) % nSamples].point;
+      const tC = samples[(ai.trackIdx + offset + 3) % nSamples].point;
+      const kTight = circumcircleCurvatureXZ(tA.x, tA.z, pB.x, pB.z, tC.x, tC.z);
+      const effCurv = Math.max(kCurv, kTight * 0.92);
+
+      const rCurve = effCurv > 0.0014 ? Math.max(14, 1 / effCurv) : 999;
+      if (offset <= 10) curvatureNear = Math.max(curvatureNear, effCurv * 5.2);
+      if (offset <= 21) curvatureMid = Math.max(curvatureMid, effCurv * 5.2);
+      if (rCurve < minFutureRadius && offset <= 21) minFutureRadius = rCurve;
 
       if (rCurve < 420) {
         const cornerSafeV = Math.sqrt(gripBudget * rCurve);
@@ -444,20 +474,20 @@ export function stepAiRacerPhysics(
     }
 
     if (!aimingShortcut) {
-      const usableHalf = Math.max(4.0, track.roadHalfWidth - 2.1);
+      const usableHalf = Math.max(3.6, track.roadHalfWidth - 1.9);
       const dirRightNear = sNear.tangent.x * sNow.right.x + sNear.tangent.z * sNow.right.z;
       const dirRightMid = sMid.tangent.x * sNow.right.x + sMid.tangent.z * sNow.right.z;
       const dirRightFar = sFar.tangent.x * sMid.right.x + sFar.tangent.z * sMid.right.z;
 
       let idealLane = 0;
       if (Math.abs(dirRightNear) > 0.075 || Math.abs(dirRightMid) > 0.11) {
-        // Clip inside apex!
+        // Clip inside apex aggressively!
         const apexDir = Math.abs(dirRightNear) >= Math.abs(dirRightMid) ? dirRightNear : dirRightMid;
-        idealLane = THREE.MathUtils.clamp(apexDir * usableHalf * 3.2, -usableHalf * 0.80, usableHalf * 0.80);
+        idealLane = THREE.MathUtils.clamp(apexDir * usableHalf * 3.4, -usableHalf * 0.82, usableHalf * 0.82);
         brain.actionTag = 'APEX';
       } else if (Math.abs(dirRightFar) > 0.085) {
         // Outside setup before corner entry
-        idealLane = THREE.MathUtils.clamp(-dirRightFar * usableHalf * 2.4, -usableHalf * 0.72, usableHalf * 0.72);
+        idealLane = THREE.MathUtils.clamp(-dirRightFar * usableHalf * 2.5, -usableHalf * 0.75, usableHalf * 0.75);
         brain.actionTag = 'SETUP';
       } else {
         idealLane = 0;
@@ -468,7 +498,7 @@ export function stepAiRacerPhysics(
       const gapToPlayerProg = player.totalProgress - ai.totalProgress;
       const distMetersToPlayer = gapToPlayerProg * track.totalLength;
       if (distMetersToPlayer > 3.5 && distMetersToPlayer < 45 && !player.finished && !player.knockedOut) {
-        const pInfo = track.getClosestTrackInfo(player.pos.x, player.pos.z, player.trackIdx);
+        const pInfo = track.getClosestTrackInfo(player.pos.x, player.pos.z, player.trackIdx, player.pos.y);
         const relClosing = ai.forwardSpeed - player.forwardSpeed;
         if (distMetersToPlayer > 18 && relClosing < 8 && Math.abs(dirRightNear) < 0.10) {
           idealLane = THREE.MathUtils.clamp(pInfo.lateralOffset, -usableHalf * 0.72, usableHalf * 0.72);
@@ -479,7 +509,7 @@ export function stepAiRacerPhysics(
           const rightRoom = usableHalf - pInfo.lateralOffset;
           const passSide = rightRoom >= leftRoom ? 1 : -1;
           idealLane = THREE.MathUtils.clamp(
-            pInfo.lateralOffset + passSide * 4.6,
+            pInfo.lateralOffset + passSide * 4.2,
             -usableHalf * 0.88,
             usableHalf * 0.88,
           );
@@ -493,7 +523,7 @@ export function stepAiRacerPhysics(
       ) {
         const blockStrength = traits.blockTendency * aiSettings.aggression;
         if (blockStrength > 0.35) {
-          const pInfo = track.getClosestTrackInfo(player.pos.x, player.pos.z, player.trackIdx);
+          const pInfo = track.getClosestTrackInfo(player.pos.x, player.pos.z, player.trackIdx, player.pos.y);
           idealLane = THREE.MathUtils.lerp(
             idealLane,
             THREE.MathUtils.clamp(pInfo.lateralOffset, -usableHalf * 0.65, usableHalf * 0.65),
@@ -637,7 +667,11 @@ export function stepAiRacerPhysics(
       rawFixedDt,
     );
 
-    const lookOffsetSamples = THREE.MathUtils.clamp(Math.round(5 + absSpeed * 0.13), 5, 14);
+    // Shorten lookahead dynamically in consecutive hairpins/switchbacks so bots slice apex 1 -> apex 2 cleanly
+    const isTightSwitchback = minFutureRadius < 55 || curvatureNear > 0.18;
+    const lookOffsetSamples = isTightSwitchback
+      ? THREE.MathUtils.clamp(Math.round(3.5 + absSpeed * 0.085), 3, 10)
+      : THREE.MathUtils.clamp(Math.round(5 + absSpeed * 0.13), 5, 14);
     const targetSample = samples[(ai.trackIdx + lookOffsetSamples) % nSamples];
     targetX = targetSample.point.x + targetSample.right.x * brain.smoothedLane;
     targetZ = targetSample.point.z + targetSample.right.z * brain.smoothedLane;
@@ -656,32 +690,37 @@ export function stepAiRacerPhysics(
     }
   }
 
-  // 4. Adaptive Intensity & True Tier-Grounded Speed Calibration (upgrades genuinely beat rivals)
-  const gapLaps = player.totalProgress - ai.totalProgress;
+  // 4. Adaptive Intensity & True Tier-Grounded Speed Calibration (eliminates multi-km blowout gaps)
   let targetRubber = 1.0;
   if (aiSettings.rubberBanding === 'off') {
-    if (aiSettings.adaptiveIntensity && gapLaps > 0.22) {
-      targetRubber = THREE.MathUtils.clamp(1 + (gapLaps - 0.22) * 0.45, 1.0, 1.08);
+    if (aiSettings.adaptiveIntensity && gapLaps > 0.08) {
+      targetRubber = THREE.MathUtils.clamp(1 + (gapLaps - 0.08) * 1.15, 1.0, 1.16);
     }
   } else if (aiSettings.rubberBanding === 'classic') {
     targetRubber = THREE.MathUtils.clamp(
-      1 + gapLaps * 1.65,
-      profile.catchupMin * 0.96,
-      profile.catchupMax + 0.04,
+      1 + gapLaps * 2.8,
+      profile.catchupMin * 0.98,
+      profile.catchupMax + 0.06,
     );
   } else {
-    const adaptiveBoost = aiSettings.adaptiveIntensity && gapLaps > 0.02 ? 1.55 : 0.9;
+    const adaptiveBoost = aiSettings.adaptiveIntensity && gapLaps > 0.005 ? 4.2 : 1.15;
     targetRubber = THREE.MathUtils.clamp(1 + gapLaps * adaptiveBoost, profile.catchupMin, profile.catchupMax);
   }
-  brain.adaptiveMult = THREE.MathUtils.damp(brain.adaptiveMult, targetRubber, 4.2, rawFixedDt);
+  brain.adaptiveMult = THREE.MathUtils.damp(brain.adaptiveMult, targetRubber, 6.2, rawFixedDt);
 
-  const baseMaxMs =
+  let baseMaxMs =
     (stats.topSpeedKmh / 3.6) *
     profile.baseSkill *
     aiSettings.pace *
-    (0.98 + (ai.aiSkill - 0.94) * 0.36) *
+    (0.99 + (ai.aiSkill - 0.94) * 0.36) *
     brain.adaptiveMult *
     (ai.copSlowdownTimer > 0 ? 0.86 : 1.0);
+
+  if (gapMeters > 150 && aiSettings.rubberBanding !== 'off') {
+    const playerSpeedRef = Math.abs(player.forwardSpeed);
+    const packTarget = playerSpeedRef * (gapMeters > 360 ? 1.14 : 1.07);
+    baseMaxMs = Math.max(baseMaxMs, Math.min(baseMaxMs * 1.18, packTarget));
+  }
 
   // 5. Kinematic Corner Speed Budget + Drafting + Tactical Exit NOS
   let drafting = false;
@@ -708,16 +747,16 @@ export function stepAiRacerPhysics(
   if (brain.nosBurstTimer > 0) {
     brain.nosBurstTimer = Math.max(0, brain.nosBurstTimer - rawFixedDt);
   }
-  const straightEnough = curvatureNear < 0.12 && curvatureMid < 0.16 && Math.abs(angleDiff) < 0.22;
+  const straightEnough = curvatureNear < 0.13 && curvatureMid < 0.17 && Math.abs(angleDiff) < 0.24;
   if (
     brain.nosBurstTimer <= 0 &&
-    brain.nitrous > 32 &&
+    brain.nitrous > 24 &&
     straightEnough &&
-    absSpeed > 18 &&
-    (gapLaps > -0.008 || drafting || brain.personality === 'aggressive')
+    absSpeed > 16 &&
+    (gapLaps > 0.004 || drafting || brain.personality === 'aggressive')
   ) {
-    if (Math.random() < profile.nosUsageBias * (0.55 + aiSettings.aggression * 0.65) * rawFixedDt * 3.4) {
-      brain.nosBurstTimer = 1.4 + Math.random() * 0.9;
+    if (Math.random() < profile.nosUsageBias * (0.72 + aiSettings.aggression * 0.65) * rawFixedDt * 4.2) {
+      brain.nosBurstTimer = 1.5 + Math.random() * 1.0;
     }
   }
   const nosActive = brain.nosBurstTimer > 0 && brain.nitrous > 2;
@@ -761,8 +800,8 @@ export function stepAiRacerPhysics(
     brain.stuckTimer = Math.max(0, brain.stuckTimer - rawFixedDt * 2);
   }
 
-  let steerGain = THREE.MathUtils.clamp(angleDiff * 2.55 + (brain.mistakeTimer > 0 ? brain.mistakeSteerBias : 0), -1, 1);
-  ai.steerAngle = THREE.MathUtils.damp(ai.steerAngle, steerGain * 0.48, 19, rawFixedDt);
+  let steerGain = THREE.MathUtils.clamp(angleDiff * 2.85 + (brain.mistakeTimer > 0 ? brain.mistakeSteerBias : 0), -1, 1);
+  ai.steerAngle = THREE.MathUtils.damp(ai.steerAngle, steerGain * 0.50, 24, rawFixedDt);
 
   const safeCornerMs = computeAiCornerSafeSpeedMs(
     minFutureRadius,
@@ -786,26 +825,35 @@ export function stepAiRacerPhysics(
   let throttleAxis = 1.0;
   let brakeAxis = 0.0;
 
+  const needTurnRotationBrake = Math.abs(angleDiff) > 0.45 && absSpeed > 22;
   if (brain.reverseRecoveryTimer > 0) {
     throttleInput = false;
     brakeInput = true;
     brakeAxis = 0.95;
     steerGain = -Math.sign(angleDiff || 1);
-    ai.steerAngle = steerGain * 0.48;
+    ai.steerAngle = steerGain * 0.50;
     brain.actionTag = 'RECOVER';
-  } else if (speedErr < -3.8) {
+  } else if (speedErr < -3.2 || (needTurnRotationBrake && speedErr < 1.5)) {
     throttleInput = false;
     brakeInput = true;
-    brakeAxis = THREE.MathUtils.clamp((-speedErr - 3.0) / 13, 0.30, 1.0);
+    brakeAxis = THREE.MathUtils.clamp(
+      Math.max((-speedErr - 2.4) / 12, needTurnRotationBrake ? 0.58 : 0.34),
+      0.34,
+      1.0,
+    );
     brain.actionTag = 'BRAKE';
-  } else if (speedErr < -0.9) {
+  } else if (speedErr < -0.7) {
     throttleInput = false;
     brakeInput = false;
   } else {
     throttleInput = true;
-    throttleAxis = THREE.MathUtils.clamp(speedErr / 5.5 + 0.72, 0.5, 1.0);
+    throttleAxis = THREE.MathUtils.clamp(speedErr / 4.2 + 0.85, 0.62, 1.0);
   }
-  const handbrakeInput = !inShortcut && brain.reverseRecoveryTimer <= 0 && Math.abs(angleDiff) > 0.62 && absSpeed > 26 && brain.personality === 'aggressive';
+  const handbrakeInput =
+    !inShortcut &&
+    brain.reverseRecoveryTimer <= 0 &&
+    Math.abs(angleDiff) > 0.56 &&
+    absSpeed > 24;
 
   brain.braking = brakeInput || handbrakeInput;
   brain.nosActive = nosActive;

@@ -23,6 +23,7 @@ import {
   ShieldAlert,
   SkipForward,
   Sliders,
+  Target,
   Volume2,
   VolumeX,
   Wrench,
@@ -181,16 +182,21 @@ export const RaceHUD: React.FC<Props> = ({
 
   return (
     <div className="pointer-events-none fixed inset-0 z-10 select-none overflow-hidden">
-      {/* NFS Most Wanted Speedbreaker Amber Slow-Motion Screen Tint */}
+      {/* NFS Most Wanted Speedbreaker Precision Slow-Motion Vignette (Lightened Reflex) */}
       {telemetry.isSpeedbreakerActive && (
-        <div
-          className="fixed inset-0 pointer-events-none transition-opacity duration-150"
-          style={{
-            background:
-              'radial-gradient(circle at center, rgba(245, 158, 11, 0.08) 40%, rgba(180, 83, 9, 0.42) 100%)',
-            boxShadow: 'inset 0 0 90px rgba(245, 158, 11, 0.45)',
-          }}
-        />
+        <>
+          <div
+            className="fixed inset-0 pointer-events-none transition-opacity duration-150"
+            style={{
+              background:
+                'radial-gradient(circle at center, rgba(245, 158, 11, 0.02) 55%, rgba(180, 83, 9, 0.14) 100%)',
+              boxShadow: 'inset 0 0 42px rgba(245, 158, 11, 0.16)',
+            }}
+          />
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-20 px-3 py-0.5 nfs-chamfer-sm nfs-carbon-bg border border-amber-400/50 border-l-4 border-l-amber-400 font-mono-tabular text-[10px] font-bold uppercase tracking-widest text-amber-300 pointer-events-none">
+            SPEEDBREAKER · PRECISION GRIP
+          </div>
+        </>
       )}
 
       {/* High-Speed / Nitrous Peripheral Speed Streaks */}
@@ -241,7 +247,7 @@ export const RaceHUD: React.FC<Props> = ({
             }}
           />
           <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-20 px-4 py-1 nfs-chamfer-sm nfs-carbon-bg border border-amber-400/60 border-l-4 border-l-amber-400 font-display italic font-bold uppercase tracking-widest text-xs text-amber-300 pointer-events-none">
-            IMPACT CAM · 0.28x SLOW-MO
+            IMPACT CAM · 0.44x SLOW-MO
           </div>
         </>
       )}
@@ -253,17 +259,64 @@ export const RaceHUD: React.FC<Props> = ({
           <div className="fixed bottom-0 left-0 right-0 h-16 sm:h-20 bg-black/95 border-t border-amber-400/35 nfs-letterbox-bottom z-20 pointer-events-none" />
 
           {telemetry.cinematicPhase === 'intro' && (
-            <div className="fixed inset-x-0 bottom-24 z-20 flex flex-col items-center px-4 gap-3 pointer-events-none">
-              <div className="max-w-xl w-full nfs-chamfer nfs-carbon-bg border border-white/18 border-l-4 border-l-amber-400 px-5 py-3.5 text-center shadow-2xl nfs-anim-stamp">
-                <div className="text-[11px] font-mono-tabular uppercase tracking-widest text-amber-400 font-bold">
-                  STARTING GRID FLYOVER
+            <div className="fixed inset-x-0 bottom-20 sm:bottom-24 z-20 flex flex-col items-center px-4 gap-2.5 pointer-events-none">
+              <div className="max-w-2xl w-full nfs-chamfer nfs-carbon-bg border border-amber-400/50 border-l-4 border-l-amber-400 px-5 py-4 shadow-2xl nfs-anim-stamp">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-white/10">
+                  <div className="flex items-center gap-2 text-[11px] font-mono-tabular uppercase tracking-widest text-amber-400 font-bold">
+                    <span className="inline-block w-2 h-2 bg-amber-400 animate-pulse" />
+                    <Target className="w-3.5 h-3.5 text-amber-400" />
+                    <span>{telemetry.objectiveBadge}</span>
+                  </div>
+                  <div className="text-[10px] font-mono-tabular uppercase tracking-widest text-slate-300">
+                    {telemetry.introLabel}
+                  </div>
                 </div>
-                <div className="font-display italic uppercase text-2xl sm:text-3xl font-bold text-white tracking-wide mt-0.5">
-                  {telemetry.introLabel}
+
+                <div className="mt-2.5 flex items-start gap-2.5 nfs-anim-slide-up">
+                  <Flag className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-[10px] font-mono-tabular uppercase tracking-widest text-amber-300/90 font-bold">
+                      HOW TO WIN THIS RUN
+                    </div>
+                    <div className="font-display italic uppercase text-xl sm:text-2xl font-bold text-white tracking-wide leading-tight">
+                      {telemetry.objectiveHeadline}
+                    </div>
+                  </div>
                 </div>
-                {telemetry.introSubLabel && (
-                  <p className="text-xs sm:text-sm text-slate-200 mt-1">{telemetry.introSubLabel}</p>
+
+                {telemetry.objectiveSteps.length > 0 && (
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {telemetry.objectiveSteps.map((step, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-start gap-2 bg-white/5 border border-white/10 px-2.5 py-2 nfs-chamfer-sm nfs-anim-slide-up"
+                        style={{ animationDelay: `${110 + idx * 110}ms`, animationFillMode: 'both' }}
+                      >
+                        <span className="w-5 h-5 shrink-0 bg-amber-400 text-black font-mono-tabular font-bold text-xs flex items-center justify-center">
+                          {idx + 1}
+                        </span>
+                        <span className="text-xs text-slate-100 leading-snug">{step}</span>
+                      </div>
+                    ))}
+                  </div>
                 )}
+
+                {telemetry.objectiveFailRule && (
+                  <div
+                    className="mt-2.5 flex items-center gap-2 bg-red-500/12 border border-red-500/35 border-l-2 border-l-red-400 px-3 py-1.5 text-[11px] font-mono-tabular text-red-200 nfs-anim-slide-up"
+                    style={{ animationDelay: '340ms', animationFillMode: 'both' }}
+                  >
+                    <ShieldAlert className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                    <span>{telemetry.objectiveFailRule}</span>
+                  </div>
+                )}
+
+                <div className="mt-3 pt-2 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono-tabular uppercase tracking-wider text-slate-300">
+                  <span>
+                    [{keys.throttle.secondary ? `${formatKeyCode(keys.throttle.secondary)}/${formatKeyCode(keys.throttle.primary)}` : formatKeyCode(keys.throttle.primary)}] DRIVE · [{formatKeyCode(keys.nitrous.primary)}] NITROUS · [{formatKeyCode(keys.speedbreaker.primary)}] SPEEDBREAKER
+                  </span>
+                  <span className="text-amber-300 font-bold">HOLD GAS FOR LAUNCH BOOST</span>
+                </div>
               </div>
               {onSkipIntro && (
                 <button
@@ -281,7 +334,7 @@ export const RaceHUD: React.FC<Props> = ({
           {telemetry.cinematicPhase === 'outro' && (
             <div className="fixed top-20 inset-x-0 z-20 flex justify-center px-4 pointer-events-none">
               <div
-                className={`px-7 py-3 nfs-chamfer nfs-carbon-bg border border-white/20 border-l-4 shadow-2xl nfs-anim-stamp text-center ${
+                className={`px-8 py-3.5 nfs-chamfer nfs-carbon-bg border border-white/25 border-l-4 shadow-2xl nfs-anim-stamp text-center ${
                   telemetry.outroOutcome === 'win'
                     ? 'border-l-amber-400'
                     : telemetry.outroOutcome === 'busted'
@@ -290,7 +343,7 @@ export const RaceHUD: React.FC<Props> = ({
                 }`}
               >
                 <div
-                  className={`font-display italic uppercase text-3xl sm:text-4xl font-black tracking-wider ${
+                  className={`font-display italic uppercase text-3xl sm:text-5xl font-black tracking-wider ${
                     telemetry.outroOutcome === 'win'
                       ? 'text-amber-400'
                       : telemetry.outroOutcome === 'busted'
@@ -303,6 +356,13 @@ export const RaceHUD: React.FC<Props> = ({
                     : telemetry.outroOutcome === 'busted'
                       ? 'BUSTED BY RPD'
                       : 'EVENT COMPLETE'}
+                </div>
+                <div className="text-[11px] font-mono-tabular uppercase tracking-widest text-slate-300 mt-1 font-bold">
+                  {telemetry.outroOutcome === 'win'
+                    ? 'STREETS OWNED // VICTORY BURNOUT'
+                    : telemetry.outroOutcome === 'busted'
+                      ? 'CONTAINED BY ROCKPORT PD'
+                      : 'PHOTO FINISH // CHECK RESULTS'}
                 </div>
               </div>
             </div>
@@ -381,7 +441,7 @@ export const RaceHUD: React.FC<Props> = ({
 
           <div className="flex flex-col gap-1.5 max-w-[238px]">
           <div className="nfs-chamfer nfs-carbon-bg border border-white/15 border-l-4 border-l-amber-400 px-3 py-2 space-y-1">
-            {telemetry.activeMissionTitle && (
+            {telemetry.activeMissionTitle ? (
               <div className="border-b border-white/10 pb-1 space-y-0.5">
                 <div className="flex items-center justify-between gap-1.5">
                   <div className="text-[10px] font-display font-bold uppercase tracking-wider text-amber-400 truncate">
@@ -418,6 +478,16 @@ export const RaceHUD: React.FC<Props> = ({
                     </div>
                   )
                 )}
+              </div>
+            ) : (
+              <div className="border-b border-white/10 pb-1 space-y-0.5">
+                <div className="flex items-center gap-1 text-[9px] font-mono-tabular font-bold uppercase tracking-wider text-amber-400">
+                  <Target className="w-2.5 h-2.5 shrink-0" />
+                  <span className="truncate">{telemetry.objectiveBadge}</span>
+                </div>
+                <div className="text-[10px] text-slate-100 leading-tight line-clamp-2">
+                  {telemetry.objectiveHeadline}
+                </div>
               </div>
             )}
             {mode === 'tollbooth' ? (
@@ -1133,6 +1203,7 @@ export const RaceHUD: React.FC<Props> = ({
 
       {/* Center-Top Countdown & Callouts */}
       {telemetry.cinematicPhase !== 'intro' && telemetry.cinematicPhase !== 'outro' && (
+      <>
       <div className="fixed top-20 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none">
         {telemetry.countdown > 0 && (
           <div
@@ -1183,6 +1254,32 @@ export const RaceHUD: React.FC<Props> = ({
           </div>
         )}
       </div>
+      {telemetry.countdown > 0 && (
+        <div className="fixed top-44 left-1/2 -translate-x-1/2 z-20 max-w-lg w-[92%] px-4 py-2.5 nfs-chamfer nfs-carbon-bg border border-amber-400/45 border-l-4 border-l-amber-400 shadow-2xl pointer-events-none nfs-anim-slide-up">
+          <div className="flex items-center justify-between gap-2 text-[10px] font-mono-tabular uppercase tracking-widest text-amber-400 font-bold">
+            <span className="flex items-center gap-1.5">
+              <Target className="w-3 h-3" />
+              <span>{telemetry.objectiveBadge}</span>
+            </span>
+            <span className="text-slate-300">READY AT LIGHTS</span>
+          </div>
+          <div className="font-display italic uppercase text-base sm:text-lg font-bold text-white leading-tight mt-0.5">
+            {telemetry.objectiveHeadline}
+          </div>
+          {telemetry.objectiveSteps[0] && (
+            <div className="text-[11px] text-slate-200 mt-1 leading-snug">
+              1. {telemetry.objectiveSteps[0]}
+            </div>
+          )}
+          {telemetry.objectiveFailRule && (
+            <div className="text-[10px] font-mono-tabular text-red-300 mt-1 flex items-center gap-1.5">
+              <ShieldAlert className="w-3 h-3 text-red-400 shrink-0" />
+              <span>{telemetry.objectiveFailRule}</span>
+            </div>
+          )}
+        </div>
+      )}
+      </>
       )}
 
       {/* Bottom Row */}

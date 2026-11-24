@@ -232,7 +232,7 @@ export function loadDriverSettings(aeLookEnabled = false): PersistedDriverSettin
       handlingMode: mode,
       assists: { ...preset.defaultAssists, ...(parsed.assists ?? {}) },
       tuning: { ...preset.tuning, ...(parsed.tuning ?? {}) },
-      aiSettings: { ...DEFAULT_AI_SETTINGS, ...(parsed.aiSettings ?? {}) },
+      aiSettings: { ...DEFAULT_AI_SETTINGS },
       weatherMode,
       dynamicDayNight: parsed.dynamicDayNight ?? true,
       policeEnabled: parsed.policeEnabled ?? true,

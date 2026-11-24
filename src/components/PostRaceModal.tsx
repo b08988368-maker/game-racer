@@ -19,6 +19,7 @@ import {
   formatCurrency,
   formatTimeMs,
   isTierBossUnlocked,
+  TOTAL_BLACKLIST_RANKS,
   TRACKS,
 } from '../data/gameData';
 import { CareerProfile, RaceResult } from '../types/game';
@@ -44,7 +45,7 @@ export const PostRaceModal: React.FC<PostRaceProps> = ({
 }) => {
   const trackMeta = TRACKS.find((t) => t.id === result.trackId);
   const envLabel = ENVIRONMENTS.find((e) => e.id === result.environment)?.label ?? result.environment;
-  const nextRival = BLACKLIST_RIVALS.find((r) => r.rank === 10 - profile.blacklistDefeated);
+  const nextRival = BLACKLIST_RIVALS.find((r) => r.rank === TOTAL_BLACKLIST_RANKS - profile.blacklistDefeated);
   const wonCount = Array.isArray(profile.wonTrackIds) ? profile.wonTrackIds.length : 0;
 
   const unlock = nextRival ? isTierBossUnlocked(nextRival, profile) : null;
@@ -183,7 +184,7 @@ export const PostRaceModal: React.FC<PostRaceProps> = ({
                   Target: <strong className="text-amber-400">#{nextRival.rank} {nextRival.alias}</strong>
                 </span>
                 <span className="font-mono-tabular text-slate-300">
-                  Blacklist {profile.blacklistDefeated}/10
+                  Blacklist {profile.blacklistDefeated}/{TOTAL_BLACKLIST_RANKS}
                 </span>
               </div>
               {readyForBoss ? (
@@ -207,7 +208,7 @@ export const PostRaceModal: React.FC<PostRaceProps> = ({
             </div>
           ) : (
             <div className="bg-amber-500/12 border border-amber-400/40 nfs-chamfer-sm px-3.5 py-2 text-xs text-amber-200 font-semibold">
-              10/10 Blacklist Rivals Defeated — You are Rockport’s #1 Most Wanted!
+              {TOTAL_BLACKLIST_RANKS}/{TOTAL_BLACKLIST_RANKS} Blacklist Rivals Defeated — You are Rockport’s #1 Most Wanted!
             </div>
           )}
 

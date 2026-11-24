@@ -13,7 +13,7 @@ import { MainMenuGarage, MenuTab } from './components/MainMenuGarage';
 import { PauseModal, PostRaceModal } from './components/PostRaceModal';
 import { RaceHUD } from './components/RaceHUD';
 import { SettingsModal } from './components/SettingsModal';
-import { AiSettings, DEFAULT_AI_SETTINGS } from './config/aiConfig';
+import { DEFAULT_AI_SETTINGS } from './config/aiConfig';
 import { HANDLING_PRESETS, HandlingMode } from './config/physicsConfig';
 import {
   ControlAction,
@@ -30,6 +30,8 @@ import {
   getDefaultCarConfig,
   getDefaultCareerProfile,
   isTierBossUnlocked,
+  MAX_UPGRADE_LEVEL,
+  TOTAL_BLACKLIST_RANKS,
   UPGRADE_COST,
 } from './data/gameData';
 import {
@@ -190,7 +192,7 @@ function GameRoot() {
       const cur = profileRef.current;
       let nextDefeated = cur.blacklistDefeated;
       if (result.rivalDefeated) {
-        const rankCleared = 11 - result.rivalDefeated.rank; // #10 => 1, #1 => 10
+        const rankCleared = TOTAL_BLACKLIST_RANKS + 1 - result.rivalDefeated.rank; // #15 => 1, #1 => 15
         if (rankCleared > nextDefeated) {
           nextDefeated = rankCleared;
         }
@@ -286,7 +288,7 @@ function GameRoot() {
     engine.setPhysicsTuning(driverSettings.tuning);
     engine.setGraphicsQuality(driverSettings.graphicsQuality);
     engine.setControlBindings(driverSettings.controlBindings);
-    engine.setAiSettings(driverSettings.aiSettings);
+    engine.setAiSettings(DEFAULT_AI_SETTINGS);
     engine.setShowGhost(driverSettings.showGhost);
     engine.setSkipCountdownOnRestart(driverSettings.skipCountdownOnRestart);
     engine.setWeatherMode(driverSettings.weatherMode);
@@ -343,7 +345,7 @@ function GameRoot() {
     engine.setPhysicsTuning(driverSettings.tuning);
     engine.setGraphicsQuality(driverSettings.graphicsQuality);
     engine.setControlBindings(driverSettings.controlBindings);
-    engine.setAiSettings(driverSettings.aiSettings);
+    engine.setAiSettings(DEFAULT_AI_SETTINGS);
     engine.setShowGhost(driverSettings.showGhost);
     engine.setSkipCountdownOnRestart(driverSettings.skipCountdownOnRestart);
     engine.setWeatherMode(driverSettings.weatherMode);
@@ -379,13 +381,13 @@ function GameRoot() {
     };
   }, [screen]);
 
-  // Stage PostRaceModal after ~1.05s of live slow-motion 3D outro orbit camera
+  // Stage PostRaceModal after ~2.4s of live slow-motion celebratory / busted 3D outro camera
   useEffect(() => {
     if (!raceResult) {
       setOutroRevealReady(false);
       return;
     }
-    const timer = window.setTimeout(() => setOutroRevealReady(true), 1050);
+    const timer = window.setTimeout(() => setOutroRevealReady(true), 2400);
     return () => window.clearTimeout(timer);
   }, [raceResult]);
 
@@ -562,23 +564,6 @@ function GameRoot() {
     }));
   };
 
-  const handleChangeAiSettings = (patch: Partial<AiSettings>) => {
-    setDriverSettings((prev) => ({
-      ...prev,
-      aiSettings: {
-        ...prev.aiSettings,
-        ...patch,
-      },
-    }));
-  };
-
-  const handleResetAiSettings = () => {
-    setDriverSettings((prev) => ({
-      ...prev,
-      aiSettings: { ...DEFAULT_AI_SETTINGS },
-    }));
-  };
-
   const handleToggleShowGhost = () => {
     setDriverSettings((prev) => ({ ...prev, showGhost: !prev.showGhost }));
   };
@@ -661,7 +646,7 @@ function GameRoot() {
 
   const handleBuyCar = (carId: string) => {
     const spec = CARS.find((c) => c.id === carId);
-    const currentRank = Math.max(1, 11 - profile.blacklistDefeated);
+    const currentRank = Math.max(1, TOTAL_BLACKLIST_RANKS + 1 - profile.blacklistDefeated);
     if (!spec || spec.bossOnly || currentRank > spec.unlockRank || profile.ownedCarIds.includes(carId) || profile.cash < spec.price) {
       return;
     }
@@ -685,7 +670,7 @@ function GameRoot() {
     const carId = profile.selectedCarId;
     const curCfg = garageConfigs[carId] ?? getDefaultCarConfig(carId, profile.uid);
     const curLvl = curCfg[part];
-    if (curLvl >= 4) return;
+    if (curLvl >= MAX_UPGRADE_LEVEL) return;
     const cost = UPGRADE_COST[curLvl];
     if (profile.cash < cost) return;
 
@@ -726,7 +711,7 @@ function GameRoot() {
   ) => {
     if (!engineRef.current) return;
     if (mode === 'blacklist' && rival) {
-      const alreadyDefeated = profile.blacklistDefeated > 10 - rival.rank;
+      const alreadyDefeated = profile.blacklistDefeated > TOTAL_BLACKLIST_RANKS - rival.rank;
       const gate = isTierBossUnlocked(rival, profile);
       if (!alreadyDefeated && !gate.unlocked) {
         return;
@@ -907,7 +892,6 @@ function GameRoot() {
           handlingMode={driverSettings.handlingMode}
           assists={driverSettings.assists}
           controlBindings={driverSettings.controlBindings}
-          aiSettings={driverSettings.aiSettings}
           showGhost={driverSettings.showGhost}
           skipCountdownOnRestart={driverSettings.skipCountdownOnRestart}
           weatherMode={driverSettings.weatherMode}
@@ -922,8 +906,6 @@ function GameRoot() {
           onToggleAssist={handleToggleAssist}
           onUpdateBinding={handleUpdateBinding}
           onResetBindings={handleResetBindings}
-          onChangeAiSettings={handleChangeAiSettings}
-          onResetAiSettings={handleResetAiSettings}
           onToggleShowGhost={handleToggleShowGhost}
           onToggleSkipCountdown={handleToggleSkipCountdown}
           onChangeWeatherMode={handleChangeWeatherMode}

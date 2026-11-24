@@ -971,21 +971,42 @@ class SoundEngine {
   public triggerBeep(high = false) {
     if (!this.ctx || !this.masterGain || this.muted) return;
     const now = this.ctx.currentTime;
-    const osc = this.ctx.createOscillator();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(high ? 820 : 440, now);
-    if (high) osc.frequency.exponentialRampToValueAtTime(1120, now + 0.09);
-    const filter = this.ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.value = 1950;
-    const gain = this.ctx.createGain();
-    gain.gain.setValueAtTime(0.15, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + (high ? 0.3 : 0.15));
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(this.masterGain);
-    osc.start(now);
-    osc.stop(now + 0.32);
+
+    // Punchy industrial synth thump + detuned fifth stab (never a thin bare beep)
+    const sub = this.ctx.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(high ? 148 : 96, now);
+    sub.frequency.exponentialRampToValueAtTime(38, now + 0.14);
+    const subGain = this.ctx.createGain();
+    subGain.gain.setValueAtTime(0.24, now);
+    subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    sub.connect(subGain);
+    subGain.connect(this.masterGain);
+    sub.start(now);
+    sub.stop(now + 0.16);
+
+    const baseF = high ? 587.33 : 392.0;
+    const ratios = high ? [1.0, 1.008, 1.5] : [1.0, 1.009];
+    ratios.forEach((r) => {
+      const osc = this.ctx!.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(baseF * r, now);
+      if (high) osc.frequency.exponentialRampToValueAtTime(baseF * r * 1.18, now + 0.09);
+      const filter = this.ctx!.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(high ? 2600 : 1550, now);
+      filter.frequency.exponentialRampToValueAtTime(620, now + 0.22);
+      filter.Q.value = 1.8;
+      const gain = this.ctx!.createGain();
+      gain.gain.setValueAtTime(0.085, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + (high ? 0.26 : 0.16));
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain!);
+      if (this.garageHallSend) gain.connect(this.garageHallSend);
+      osc.start(now);
+      osc.stop(now + 0.28);
+    });
   }
 
   public triggerGarageRev(style: EngineCharacter) {
@@ -1146,34 +1167,98 @@ class SoundEngine {
     if (!this.ctx || !this.masterGain || this.muted) return;
     const now = this.ctx.currentTime;
     if (!isGo) {
-      const osc = this.ctx.createOscillator();
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(360, now);
-      const filt = this.ctx.createBiquadFilter();
-      filt.type = 'lowpass';
-      filt.frequency.value = 1150;
-      const g = this.ctx.createGain();
-      g.gain.setValueAtTime(0.2, now);
-      g.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-      osc.connect(filt);
-      filt.connect(g);
-      g.connect(this.masterGain);
-      osc.start(now);
-      osc.stop(now + 0.2);
-    } else {
-      [523.25, 783.99, 1046.5].forEach((freq, idx) => {
+      // Heavy sub-bass drop + aggressive detuned brass/saw grid pulse
+      const sub = this.ctx.createOscillator();
+      sub.type = 'sine';
+      sub.frequency.setValueAtTime(128, now);
+      sub.frequency.exponentialRampToValueAtTime(40, now + 0.22);
+      const subG = this.ctx.createGain();
+      subG.gain.setValueAtTime(0.38, now);
+      subG.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+      sub.connect(subG);
+      subG.connect(this.masterGain);
+      sub.start(now);
+      sub.stop(now + 0.25);
+
+      [220.0, 222.4, 329.63].forEach((freq) => {
         const osc = this.ctx!.createOscillator();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(freq, now + idx * 0.02);
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(freq, now);
+        const filt = this.ctx!.createBiquadFilter();
+        filt.type = 'lowpass';
+        filt.frequency.setValueAtTime(1950, now);
+        filt.frequency.exponentialRampToValueAtTime(480, now + 0.2);
+        filt.Q.value = 2.4;
         const g = this.ctx!.createGain();
-        g.gain.setValueAtTime(0.18, now + idx * 0.02);
-        g.gain.exponentialRampToValueAtTime(0.001, now + 0.48);
-        osc.connect(g);
+        g.gain.setValueAtTime(0.11, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+        osc.connect(filt);
+        filt.connect(g);
         g.connect(this.masterGain!);
-        osc.start(now + idx * 0.02);
-        osc.stop(now + 0.5);
+        if (this.garageHallSend) g.connect(this.garageHallSend);
+        osc.start(now);
+        osc.stop(now + 0.24);
       });
-      this.triggerExhaustPop(0.22);
+    } else {
+      // Massive launch-green impact boom + stadium brass power chord + turbo bark
+      const boom = this.ctx.createOscillator();
+      boom.type = 'sine';
+      boom.frequency.setValueAtTime(112, now);
+      boom.frequency.exponentialRampToValueAtTime(30, now + 0.42);
+      const boomG = this.ctx.createGain();
+      boomG.gain.setValueAtTime(0.55, now);
+      boomG.gain.exponentialRampToValueAtTime(0.001, now + 0.46);
+      boom.connect(boomG);
+      boomG.connect(this.masterGain);
+      boom.start(now);
+      boom.stop(now + 0.48);
+
+      [261.63, 392.0, 523.25, 783.99].forEach((freq, idx) => {
+        [-0.007, 0.007].forEach((det) => {
+          const osc = this.ctx!.createOscillator();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(freq * (1 + det), now + idx * 0.014);
+          const filt = this.ctx!.createBiquadFilter();
+          filt.type = 'lowpass';
+          filt.frequency.setValueAtTime(900, now + idx * 0.014);
+          filt.frequency.exponentialRampToValueAtTime(3600, now + 0.14);
+          filt.frequency.exponentialRampToValueAtTime(1100, now + 0.62);
+          filt.Q.value = 2.2;
+          const g = this.ctx!.createGain();
+          g.gain.setValueAtTime(0.095, now + idx * 0.014);
+          g.gain.exponentialRampToValueAtTime(0.001, now + 0.64);
+          osc.connect(filt);
+          filt.connect(g);
+          g.connect(this.masterGain!);
+          if (this.garageHallSend) g.connect(this.garageHallSend);
+          osc.start(now + idx * 0.014);
+          osc.stop(now + 0.66);
+        });
+      });
+
+      if (this.noiseBuffer) {
+        const whoosh = this.ctx.createBufferSource();
+        whoosh.buffer = this.noiseBuffer;
+        const bp = this.ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.setValueAtTime(420, now);
+        bp.frequency.exponentialRampToValueAtTime(2600, now + 0.25);
+        bp.Q.value = 1.4;
+        const wg = this.ctx.createGain();
+        wg.gain.setValueAtTime(0.24, now);
+        wg.gain.exponentialRampToValueAtTime(0.001, now + 0.34);
+        whoosh.connect(bp);
+        bp.connect(wg);
+        wg.connect(this.masterGain);
+        whoosh.start(now);
+        whoosh.stop(now + 0.36);
+      }
+
+      this.triggerExhaustPop(0.32);
+      if (this.carStyle !== 'muscle') {
+        window.setTimeout(() => this.triggerTurboBlowoff(0.95), 95);
+      }
+      window.setTimeout(() => this.triggerExhaustPop(0.22), 160);
     }
   }
 
@@ -1248,44 +1333,171 @@ class SoundEngine {
   public triggerLapComplete(isFinalLap: boolean) {
     if (!this.ctx || !this.masterGain || this.muted) return;
     const now = this.ctx.currentTime;
-    const notes = isFinalLap ? [523.25, 659.25, 1046.5] : [440, 659.25];
-    notes.forEach((freq, idx) => {
-      const t = now + idx * 0.075;
-      const osc = this.ctx!.createOscillator();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(freq, t);
-      const g = this.ctx!.createGain();
-      g.gain.setValueAtTime(0.18, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
-      osc.connect(g);
-      g.connect(this.masterGain!);
-      osc.start(t);
-      osc.stop(t + 0.3);
+
+    // Heavy pit-wall punch + aerodynamic whoosh
+    const punch = this.ctx.createOscillator();
+    punch.type = 'sine';
+    punch.frequency.setValueAtTime(isFinalLap ? 135 : 110, now);
+    punch.frequency.exponentialRampToValueAtTime(34, now + 0.24);
+    const punchG = this.ctx.createGain();
+    punchG.gain.setValueAtTime(isFinalLap ? 0.45 : 0.34, now);
+    punchG.gain.exponentialRampToValueAtTime(0.001, now + 0.26);
+    punch.connect(punchG);
+    punchG.connect(this.masterGain);
+    punch.start(now);
+    punch.stop(now + 0.28);
+
+    if (this.noiseBuffer) {
+      const sweep = this.ctx.createBufferSource();
+      sweep.buffer = this.noiseBuffer;
+      const bp = this.ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(360, now);
+      bp.frequency.exponentialRampToValueAtTime(2800, now + 0.2);
+      bp.Q.value = 1.3;
+      const sg = this.ctx.createGain();
+      sg.gain.setValueAtTime(0.2, now);
+      sg.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+      sweep.connect(bp);
+      bp.connect(sg);
+      sg.connect(this.masterGain);
+      sweep.start(now);
+      sweep.stop(now + 0.26);
+    }
+
+    const chord = isFinalLap ? [293.66, 440.0, 587.33, 880.0] : [261.63, 392.0, 523.25];
+    chord.forEach((freq, idx) => {
+      const t = now + idx * 0.045;
+      [-0.006, 0.006].forEach((det) => {
+        const osc = this.ctx!.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(freq * (1 + det), t);
+        const filt = this.ctx!.createBiquadFilter();
+        filt.type = 'lowpass';
+        filt.frequency.setValueAtTime(1600, t);
+        filt.frequency.exponentialRampToValueAtTime(3100, t + 0.11);
+        filt.frequency.exponentialRampToValueAtTime(850, t + 0.42);
+        filt.Q.value = 1.9;
+        const g = this.ctx!.createGain();
+        g.gain.setValueAtTime(0.085, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.44);
+        osc.connect(filt);
+        filt.connect(g);
+        g.connect(this.masterGain!);
+        if (this.garageHallSend) g.connect(this.garageHallSend);
+        osc.start(t);
+        osc.stop(t + 0.46);
+      });
     });
+
+    if (isFinalLap && this.carStyle !== 'muscle') {
+      window.setTimeout(() => this.triggerTurboBlowoff(0.85), 110);
+    }
   }
 
   public triggerFinishFanfare(won: boolean) {
     if (!this.ctx || !this.masterGain || this.muted) return;
     const now = this.ctx.currentTime;
-    const notes = won ? [392.0, 493.88, 587.33, 783.99] : [261.63, 220.0, 164.81];
-    notes.forEach((freq, idx) => {
-      const t = now + idx * (won ? 0.085 : 0.14);
-      const osc = this.ctx!.createOscillator();
-      osc.type = won ? 'sawtooth' : 'triangle';
-      osc.frequency.setValueAtTime(freq, t);
-      const filt = this.ctx!.createBiquadFilter();
-      filt.type = 'lowpass';
-      filt.frequency.value = won ? 2250 : 720;
-      const g = this.ctx!.createGain();
-      g.gain.setValueAtTime(0.2, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.56);
-      osc.connect(filt);
-      filt.connect(g);
-      g.connect(this.masterGain!);
-      if (this.garageHallSend) g.connect(this.garageHallSend);
-      osc.start(t);
-      osc.stop(t + 0.58);
-    });
+
+    if (won) {
+      // Heavy stadium victory sub boom + rising power-chord brass hit + celebratory exhaust bark
+      const boom = this.ctx.createOscillator();
+      boom.type = 'sine';
+      boom.frequency.setValueAtTime(118, now);
+      boom.frequency.exponentialRampToValueAtTime(28, now + 0.58);
+      const boomG = this.ctx.createGain();
+      boomG.gain.setValueAtTime(0.62, now);
+      boomG.gain.exponentialRampToValueAtTime(0.001, now + 0.62);
+      boom.connect(boomG);
+      boomG.connect(this.masterGain);
+      boom.start(now);
+      boom.stop(now + 0.64);
+
+      const secondHit = this.ctx.createOscillator();
+      secondHit.type = 'sine';
+      secondHit.frequency.setValueAtTime(108, now + 0.24);
+      secondHit.frequency.exponentialRampToValueAtTime(32, now + 0.72);
+      const secondG = this.ctx.createGain();
+      secondG.gain.setValueAtTime(0.48, now + 0.24);
+      secondG.gain.exponentialRampToValueAtTime(0.001, now + 0.76);
+      secondHit.connect(secondG);
+      secondG.connect(this.masterGain);
+      secondHit.start(now + 0.24);
+      secondHit.stop(now + 0.78);
+
+      // Two-hit epic brass progression: C4-G4-C5 -> G4-B4-D5-G5
+      const hits = [
+        { t: now, freqs: [261.63, 392.0, 523.25], dur: 0.34 },
+        { t: now + 0.24, freqs: [293.66, 392.0, 493.88, 783.99], dur: 0.95 },
+      ];
+      hits.forEach((hit) => {
+        hit.freqs.forEach((freq) => {
+          [-0.008, 0.008].forEach((det) => {
+            const osc = this.ctx!.createOscillator();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(freq * (1 + det), hit.t);
+            const filt = this.ctx!.createBiquadFilter();
+            filt.type = 'lowpass';
+            filt.frequency.setValueAtTime(1100, hit.t);
+            filt.frequency.exponentialRampToValueAtTime(3800, hit.t + 0.14);
+            filt.frequency.exponentialRampToValueAtTime(1250, hit.t + hit.dur);
+            filt.Q.value = 2.0;
+            const g = this.ctx!.createGain();
+            g.gain.setValueAtTime(0.095, hit.t);
+            g.gain.exponentialRampToValueAtTime(0.001, hit.t + hit.dur);
+            osc.connect(filt);
+            filt.connect(g);
+            g.connect(this.masterGain!);
+            if (this.garageHallSend) g.connect(this.garageHallSend);
+            osc.start(hit.t);
+            osc.stop(hit.t + hit.dur + 0.03);
+          });
+        });
+      });
+
+      this.triggerExhaustPop(0.32);
+      window.setTimeout(() => this.triggerExhaustPop(0.28), 245);
+      if (this.carStyle !== 'muscle') {
+        window.setTimeout(() => this.triggerTurboBlowoff(1.0), 340);
+      }
+    } else {
+      // Heavy dramatic busted/defeat low brass & sub slam
+      const drop = this.ctx.createOscillator();
+      drop.type = 'sine';
+      drop.frequency.setValueAtTime(132, now);
+      drop.frequency.exponentialRampToValueAtTime(31, now + 0.65);
+      const dropG = this.ctx.createGain();
+      dropG.gain.setValueAtTime(0.58, now);
+      dropG.gain.exponentialRampToValueAtTime(0.001, now + 0.68);
+      drop.connect(dropG);
+      dropG.connect(this.masterGain);
+      drop.start(now);
+      drop.stop(now + 0.7);
+
+      [220.0, 196.0, 146.83].forEach((freq, idx) => {
+        const t = now + idx * 0.16;
+        [-0.007, 0.007].forEach((det) => {
+          const osc = this.ctx!.createOscillator();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(freq * (1 + det), t);
+          osc.frequency.exponentialRampToValueAtTime(freq * (1 + det) * 0.94, t + 0.45);
+          const filt = this.ctx!.createBiquadFilter();
+          filt.type = 'lowpass';
+          filt.frequency.setValueAtTime(980, t);
+          filt.frequency.exponentialRampToValueAtTime(320, t + 0.45);
+          filt.Q.value = 1.8;
+          const g = this.ctx!.createGain();
+          g.gain.setValueAtTime(0.11, t);
+          g.gain.exponentialRampToValueAtTime(0.001, t + 0.48);
+          osc.connect(filt);
+          filt.connect(g);
+          g.connect(this.masterGain!);
+          if (this.garageHallSend) g.connect(this.garageHallSend);
+          osc.start(t);
+          osc.stop(t + 0.5);
+        });
+      });
+    }
   }
 }
 
