@@ -234,8 +234,10 @@ export interface AiDebugEntry {
   speedKmh: number;
   targetSpeedKmh: number;
   nitrous: number;
-  adaptiveMult: number;
-  gapMeters: number;
+  skill: number; // 0..1 adaptive driver skill
+  adaptiveMult: number; // smoothed rubber-band multiplier
+  mistakes: number;
+  gapMeters: number; // positive = player ahead of AI
 }
 
 export type OpponentHudStatus = 'racing' | 'busted' | 'knocked_out' | 'finished';
@@ -345,6 +347,8 @@ export interface RaceTelemetry {
   hasBestGhost?: boolean;
   ghostEnabled?: boolean;
   aiDebugEntries?: AiDebugEntry[];
+  aiDifficulty?: TrackDifficulty;
+  lastWinMarginSec?: number | null;
   weatherState?: ActiveWeatherState;
   roadWetness?: number;
   damagePercent?: number;

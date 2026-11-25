@@ -811,12 +811,27 @@ export const RaceHUD: React.FC<Props> = ({
             </div>
           )}
           {aiDebugOpen && telemetry.aiDebugEntries && telemetry.aiDebugEntries.length > 0 && (
-            <div className="nfs-chamfer nfs-carbon-bg border border-amber-400/45 border-l-4 border-l-amber-400 px-3.5 py-2.5 w-[330px] space-y-1.5 text-[10px] font-mono-tabular">
+            <div className="nfs-chamfer nfs-carbon-bg border border-amber-400/45 border-l-4 border-l-amber-400 px-3.5 py-2.5 w-[350px] space-y-1.5 text-[10px] font-mono-tabular">
               <div className="flex items-center justify-between border-b border-white/10 pb-1">
                 <span className="font-display font-bold uppercase tracking-wider text-amber-300 text-[11px]">
-                  AI RACER TELEMETRY [{formatKeyCode(keys.toggleAiDebug.primary)}]
+                  AI DEBUG [{formatKeyCode(keys.toggleAiDebug.primary)}] · {telemetry.aiDifficulty ?? 'MEDIUM'}
                 </span>
-                <span className="text-slate-400">LINE + TARGET KM/H</span>
+                <span className="text-slate-300">
+                  LAST MARGIN:{' '}
+                  <span
+                    className={
+                      telemetry.lastWinMarginSec == null
+                        ? 'text-slate-400'
+                        : telemetry.lastWinMarginSec >= 0
+                          ? 'text-emerald-300 font-bold'
+                          : 'text-red-300 font-bold'
+                    }
+                  >
+                    {telemetry.lastWinMarginSec == null
+                      ? '--'
+                      : `${telemetry.lastWinMarginSec >= 0 ? '+' : ''}${telemetry.lastWinMarginSec.toFixed(1)}s`}
+                  </span>
+                </span>
               </div>
               <div className="space-y-1">
                 {telemetry.aiDebugEntries.map((ai, i) => {
@@ -834,7 +849,7 @@ export const RaceHUD: React.FC<Props> = ({
                               ? 'bg-cyan-500/20 text-cyan-300'
                               : ai.action === 'PASS' || ai.action === 'DEFEND'
                                 ? 'bg-amber-400/20 text-amber-300'
-                                : ai.action === 'BRAKE' || ai.action === 'DODGE' || ai.action === 'BUSTED'
+                                : ai.action === 'BRAKE' || ai.action === 'DODGE' || ai.action === 'BUSTED' || ai.action === 'SLIP'
                                   ? 'bg-red-500/20 text-red-300'
                                   : 'bg-white/10 text-slate-300'
                           }`}
@@ -846,10 +861,11 @@ export const RaceHUD: React.FC<Props> = ({
                         <span>
                           {ai.speedKmh}/{ai.targetSpeedKmh} <span className="text-slate-500">km/h</span>
                         </span>
-                        <span>NOS {ai.nitrous}%</span>
-                        <span className="text-emerald-300">x{ai.adaptiveMult.toFixed(2)}</span>
-                        <span className={ai.gapMeters >= 0 ? 'text-amber-300' : 'text-slate-400'}>
-                          {ai.gapMeters >= 0 ? `+${ai.gapMeters}m` : `${ai.gapMeters}m`}
+                        <span className="text-cyan-300">SKL {ai.skill.toFixed(2)}</span>
+                        <span className="text-emerald-300">RUB x{ai.adaptiveMult.toFixed(2)}</span>
+                        <span className="text-slate-400">MIS {ai.mistakes}</span>
+                        <span className={ai.gapMeters >= 0 ? 'text-amber-300' : 'text-sky-300'}>
+                          GAP {ai.gapMeters >= 0 ? `+${ai.gapMeters}m` : `${ai.gapMeters}m`}
                         </span>
                       </div>
                     </div>

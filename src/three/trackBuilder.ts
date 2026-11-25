@@ -239,124 +239,180 @@ function computeShortcutCorridor(
   const startIdx = Math.floor(SAMPLE_COUNT * def.startProg) % SAMPLE_COUNT;
   const endIdx = Math.floor(SAMPLE_COUNT * def.endProg) % SAMPLE_COUNT;
 
-  const entryCutStartIdx = (startIdx - 2 + SAMPLE_COUNT) % SAMPLE_COUNT;
-  const entryCutEndIdx = (startIdx + 3 + SAMPLE_COUNT) % SAMPLE_COUNT;
-  const exitCutStartIdx = (endIdx - 3 + SAMPLE_COUNT) % SAMPLE_COUNT;
-  const exitCutEndIdx = (endIdx + 2 + SAMPLE_COUNT) % SAMPLE_COUNT;
+  const entryCutStartIdx = (startIdx - 4 + SAMPLE_COUNT) % SAMPLE_COUNT;
+  const entryCutEndIdx = (startIdx + 5 + SAMPLE_COUNT) % SAMPLE_COUNT;
+  const exitCutStartIdx = (endIdx - 5 + SAMPLE_COUNT) % SAMPLE_COUNT;
+  const exitCutEndIdx = (endIdx + 4 + SAMPLE_COUNT) % SAMPLE_COUNT;
 
-  const scHalfW = 5.4;
+  const scHalfW = 6.2;
   const sInStart = samples[entryCutStartIdx];
-  const sInEnd = samples[entryCutEndIdx];
-  const sOutStart = samples[exitCutStartIdx];
   const sOutEnd = samples[exitCutEndIdx];
 
-  const entryCenterLat = def.side * (roadHalfWidth + scHalfW - 0.85);
+  const mouthLat = roadHalfWidth + scHalfW - 0.65;
+  const entryCenterLat = def.side * mouthLat;
   const entryPos = sInStart.point.clone().addScaledVector(sInStart.right, entryCenterLat);
   entryPos.y += 0.036 + entryCenterLat * Math.sin(sInStart.bankAngle);
 
-  const exitCenterLat = def.side * (roadHalfWidth + scHalfW - 0.85);
+  const exitCenterLat = def.side * mouthLat;
   const exitPos = sOutEnd.point.clone().addScaledVector(sOutEnd.right, exitCenterLat);
   exitPos.y += 0.036 + exitCenterLat * Math.sin(sOutEnd.bankAngle);
 
-  const minTrackClear = barrierHalfWidth + scHalfW + 5.2;
+  // Main deck outer edge = barrierHalfWidth + 2.4, shortcut deck outer edge = scHalfW + 2.2
+  // Require at least 2.6m of air gap between decks so concrete walls/decks/guardrails NEVER collide
+  const minSafeDeckDist = barrierHalfWidth + scHalfW + 7.2;
+  const baseBypassDist = barrierHalfWidth + scHalfW + 9.2;
+  const fullSpan = (exitCutEndIdx - entryCutStartIdx + SAMPLE_COUNT) % SAMPLE_COUNT;
+  const scSegs = 56;
 
-  const pushPointClearOfMain = (
-    pt: THREE.Vector3,
-    fallbackDir: THREE.Vector3,
-    clearRadius: number,
-    skipWindow = 4,
-  ) => {
+  const sampleTrackAtFloat = (fIdx: number) => {
+    const wrapped = ((fIdx % SAMPLE_COUNT) + SAMPLE_COUNT) % SAMPLE_COUNT;
+    const i0 = Math.floor(wrapped) % SAMPLE_COUNT;
+    const i1 = (i0 + 1) % SAMPLE_COUNT;
+    const frac = wrapped - Math.floor(wrapped);
+    const a = samples[i0];
+    const b = samples[i1];
+    const pt = new THREE.Vector3().lerpVectors(a.point, b.point, frac);
+    const rgt = new THREE.Vector3().lerpVectors(a.right, b.right, frac).normalize();
+    return { pt, rgt };
+  };
+
+  const smoothstep01 = (t: number) => {
+    const c = THREE.MathUtils.clamp(t, 0, 1);
+    return c * c * (3 - 2 * c);
+  };
+
+  // Seed initial points strictly along the def.side corridor of the main track
+  const scPts: THREE.Vector3[] = [];
+  const pairedBase: { pt: THREE.Vector3; rgt: THREE.Vector3 }[] = [];
+  const archBulge = 12 + def.pullFactor * 52;
+
+  for (let j = 0; j <= scSegs; j++) {
+    const u = j / scSegs;
+    const ref = sampleTrackAtFloat(entryCutStartIdx + u * fullSpan);
+    pairedBase.push(ref);
+
+    if (j === 0) {
+      scPts.push(entryPos.clone());
+      continue;
+    }
+    if (j === scSegs) {
+      scPts.push(exitPos.clone());
+      continue;
+    }
+
+    let latMag: number;
+    if (u < 0.16) {
+      latMag = THREE.MathUtils.lerp(mouthLat, baseBypassDist, smoothstep01(u / 0.16));
+    } else if (u > 0.84) {
+      latMag = THREE.MathUtils.lerp(mouthLat, baseBypassDist, smoothstep01((1 - u) / 0.16));
+    } else {
+      const midPhase = (u - 0.16) / 0.68;
+      latMag = baseBypassDist + archBulge * Math.sin(Math.PI * midPhase);
+    }
+
+    const pt = ref.pt.clone().addScaledVector(ref.rgt, def.side * latMag);
+    if (j <= 6) {
+      pt.y = THREE.MathUtils.lerp(entryPos.y, ref.pt.y, smoothstep01(j / 6));
+    } else if (j >= scSegs - 6) {
+      pt.y = THREE.MathUtils.lerp(exitPos.y, ref.pt.y, smoothstep01((scSegs - j) / 6));
+    }
+    scPts.push(pt);
+  }
+
+  // Smooth elevation Y over the interior so bridges/ramps never kink vertically
+  for (let pass = 0; pass < 3; pass++) {
+    for (let j = 2; j <= scSegs - 2; j++) {
+      scPts[j].y = THREE.MathUtils.lerp(scPts[j].y, (scPts[j - 1].y + scPts[j + 1].y) * 0.5, 0.35);
+    }
+  }
+
+  const enforcePointConstraints = (j: number) => {
+    const pt = scPts[j];
+    const ref = pairedBase[j];
+    const minSameSideLat =
+      j <= 6
+        ? THREE.MathUtils.lerp(mouthLat, minSafeDeckDist, smoothstep01(j / 6))
+        : j >= scSegs - 6
+          ? THREE.MathUtils.lerp(mouthLat, minSafeDeckDist, smoothstep01((scSegs - j) / 6))
+          : minSafeDeckDist;
+
+    // 1. Guarantee point NEVER crosses onto -def.side or pinches its paired main road segment
+    const curLat = (pt.x - ref.pt.x) * ref.rgt.x + (pt.z - ref.pt.z) * ref.rgt.z;
+    if (curLat * def.side < minSameSideLat) {
+      const delta = def.side * minSameSideLat - curLat;
+      pt.x += ref.rgt.x * delta;
+      pt.z += ref.rgt.z * delta;
+    }
+
+    // 2. Enforce global co-planar clearance AND bridge headroom against ALL non-mouth main track samples
+    const checkAllSamples = j >= 6 && j <= scSegs - 6;
+    const reqDist = checkAllSamples ? minSafeDeckDist : mouthLat + 0.5;
     for (let pass = 0; pass < 4; pass++) {
-      let closestMainPt: THREE.Vector3 | null = null;
-      let closestMainDistSq = clearRadius * clearRadius;
+      let closestPt: THREE.Vector3 | null = null;
+      let closestDistSq = reqDist * reqDist;
       for (let ti = 0; ti < SAMPLE_COUNT; ti++) {
-        if (trackIdxDist(ti, startIdx) <= skipWindow || trackIdxDist(ti, endIdx) <= skipWindow) continue;
+        if (j <= 7 && trackIdxDist(ti, startIdx) <= 5) continue;
+        if (j >= scSegs - 7 && trackIdxDist(ti, endIdx) <= 5) continue;
         const tp = samples[ti].point;
-        if (Math.abs(pt.y - tp.y) >= 13.5) continue;
+        const dySigned = tp.y - pt.y;
+        const unsafeVert =
+          dySigned >= 0 ? dySigned < 16.5 : -dySigned < 15.0;
+        if (!unsafeVert) continue;
         const dx = pt.x - tp.x;
         const dz = pt.z - tp.z;
         const dSq = dx * dx + dz * dz;
-        if (dSq < closestMainDistSq) {
-          closestMainDistSq = dSq;
-          closestMainPt = tp;
+        if (dSq < closestDistSq) {
+          closestDistSq = dSq;
+          closestPt = tp;
         }
       }
-      if (!closestMainPt) break;
-      const pushDir = new THREE.Vector3(pt.x - closestMainPt.x, 0, pt.z - closestMainPt.z);
-      if (pushDir.lengthSq() < 0.01) {
-        pushDir.copy(fallbackDir);
+      if (!closestPt) break;
+      const pushX = pt.x - closestPt.x;
+      const pushZ = pt.z - closestPt.z;
+      const pushLen = Math.hypot(pushX, pushZ);
+      let dirX: number;
+      let dirZ: number;
+      if (pushLen < 0.05) {
+        dirX = ref.rgt.x * def.side;
+        dirZ = ref.rgt.z * def.side;
       } else {
-        pushDir.normalize();
+        dirX = pushX / pushLen;
+        dirZ = pushZ / pushLen;
       }
-      pt.x = closestMainPt.x + pushDir.x * clearRadius;
-      pt.z = closestMainPt.z + pushDir.z * clearRadius;
+      pt.x = closestPt.x + dirX * reqDist;
+      pt.z = closestPt.z + dirZ * reqDist;
+
+      // Re-assert same-side invariant after radial push so we never cross centerline
+      const postLat = (pt.x - ref.pt.x) * ref.rgt.x + (pt.z - ref.pt.z) * ref.rgt.z;
+      if (postLat * def.side < minSameSideLat) {
+        const delta = def.side * minSameSideLat - postLat;
+        pt.x += ref.rgt.x * delta;
+        pt.z += ref.rgt.z * delta;
+      }
     }
   };
 
-  const pLeadIn = sInEnd.point
-    .clone()
-    .addScaledVector(sInEnd.right, def.side * (barrierHalfWidth + scHalfW + 3.4));
-  pLeadIn.y = sInEnd.point.y + def.side * barrierHalfWidth * Math.sin(sInEnd.bankAngle);
-  pushPointClearOfMain(pLeadIn, sInEnd.right.clone().multiplyScalar(def.side), barrierHalfWidth + scHalfW + 3.0, 5);
-
-  const pLeadOut = sOutStart.point
-    .clone()
-    .addScaledVector(sOutStart.right, def.side * (barrierHalfWidth + scHalfW + 3.4));
-  pLeadOut.y = sOutStart.point.y + def.side * barrierHalfWidth * Math.sin(sOutStart.bankAngle);
-  pushPointClearOfMain(pLeadOut, sOutStart.right.clone().multiplyScalar(def.side), barrierHalfWidth + scHalfW + 3.0, 5);
-
-  const midIdx = (startIdx + Math.floor(((endIdx - startIdx + SAMPLE_COUNT) % SAMPLE_COUNT) * 0.5)) % SAMPLE_COUNT;
-  const midTrackPt = samples[midIdx].point;
-  const chordMid = new THREE.Vector3().addVectors(pLeadIn, pLeadOut).multiplyScalar(0.5);
-  const pMid = chordMid.clone().lerp(midTrackPt, def.pullFactor * 0.12);
-  pMid.y = Math.max(0, (pLeadIn.y + pLeadOut.y) * 0.5);
-  pushPointClearOfMain(pMid, samples[midIdx].right.clone().multiplyScalar(def.side), minTrackClear + 9, 4);
-
-  const pQuarter1 = new THREE.Vector3().lerpVectors(pLeadIn, pMid, 0.52);
-  pQuarter1.y = THREE.MathUtils.lerp(pLeadIn.y, pMid.y, 0.52);
-  pushPointClearOfMain(pQuarter1, samples[midIdx].right.clone().multiplyScalar(def.side), minTrackClear + 6, 4);
-
-  const pQuarter2 = new THREE.Vector3().lerpVectors(pMid, pLeadOut, 0.48);
-  pQuarter2.y = THREE.MathUtils.lerp(pMid.y, pLeadOut.y, 0.48);
-  pushPointClearOfMain(pQuarter2, samples[midIdx].right.clone().multiplyScalar(def.side), minTrackClear + 6, 4);
-
-  const scCurve = new THREE.CatmullRomCurve3(
-    [entryPos, pLeadIn, pQuarter1, pMid, pQuarter2, pLeadOut, exitPos],
-    false,
-    'catmullrom',
-    0.5,
-  );
-  const scSegs = 56;
-  const scPts = scCurve.getSpacedPoints(scSegs);
-
-  for (let iter = 0; iter < 5; iter++) {
-    for (let j = 4; j <= scSegs - 4; j++) {
-      const clearReq =
-        j <= 5 || j >= scSegs - 5
-          ? barrierHalfWidth + scHalfW + 1.4
-          : minTrackClear + 1.5;
-      pushPointClearOfMain(scPts[j], samples[midIdx].right.clone().multiplyScalar(def.side), clearReq, 4);
+  for (let iter = 0; iter < 8; iter++) {
+    for (let j = 2; j <= scSegs - 2; j++) {
+      const ax = (scPts[j - 1].x + scPts[j + 1].x) * 0.5;
+      const az = (scPts[j - 1].z + scPts[j + 1].z) * 0.5;
+      scPts[j].x = THREE.MathUtils.lerp(scPts[j].x, ax, 0.36);
+      scPts[j].z = THREE.MathUtils.lerp(scPts[j].z, az, 0.36);
     }
-    for (let pass = 0; pass < 2; pass++) {
-      for (let j = 3; j <= scSegs - 3; j++) {
-        const ax = (scPts[j - 1].x + scPts[j + 1].x) * 0.5;
-        const az = (scPts[j - 1].z + scPts[j + 1].z) * 0.5;
-        scPts[j].x = THREE.MathUtils.lerp(scPts[j].x, ax, 0.34);
-        scPts[j].z = THREE.MathUtils.lerp(scPts[j].z, az, 0.34);
-      }
+    for (let j = 1; j <= scSegs - 1; j++) {
+      enforcePointConstraints(j);
     }
   }
-  for (let j = 6; j <= scSegs - 6; j++) {
-    pushPointClearOfMain(scPts[j], samples[midIdx].right.clone().multiplyScalar(def.side), minTrackClear - 0.6, 4);
-  }
-  for (let j = 5; j <= scSegs - 5; j++) {
+
+  // Final smoothing + strict post-smooth constraint enforcement with ZERO unguarded relaxation
+  for (let j = 2; j <= scSegs - 2; j++) {
     const ax = (scPts[j - 1].x + scPts[j + 1].x) * 0.5;
     const az = (scPts[j - 1].z + scPts[j + 1].z) * 0.5;
-    scPts[j].x = THREE.MathUtils.lerp(scPts[j].x, ax, 0.24);
-    scPts[j].z = THREE.MathUtils.lerp(scPts[j].z, az, 0.24);
-    if (j >= 7 && j <= scSegs - 7) {
-      pushPointClearOfMain(scPts[j], samples[midIdx].right.clone().multiplyScalar(def.side), barrierHalfWidth + scHalfW + 3.2, 4);
-    }
+    scPts[j].x = THREE.MathUtils.lerp(scPts[j].x, ax, 0.22);
+    scPts[j].z = THREE.MathUtils.lerp(scPts[j].z, az, 0.22);
+  }
+  for (let j = 1; j <= scSegs - 1; j++) {
+    enforcePointConstraints(j);
   }
 
   const scTangents: THREE.Vector3[] = [];
@@ -377,11 +433,12 @@ function computeShortcutCorridor(
     scRights.push(new THREE.Vector3().crossVectors(tan, up).normalize());
   }
 
+  // Inner wall & inner retaining deck only begin once the inner deck edge (scHalfW + 2.2) clears main deck edge (barrierHalfWidth + 2.4)
   const minCoplanarDistToMainSq = (p: THREE.Vector3) => {
     let bestSq = Infinity;
     for (let k = 0; k < SAMPLE_COUNT; k++) {
       const tp = samples[k].point;
-      if (Math.abs(p.y - tp.y) >= 13.5) continue;
+      if (Math.abs(p.y - tp.y) >= 15.0) continue;
       const dx = p.x - tp.x;
       const dz = p.z - tp.z;
       const dSq = dx * dx + dz * dz;
@@ -389,17 +446,17 @@ function computeShortcutCorridor(
     }
     return bestSq;
   };
-  const innerEdgeClearSq = (barrierHalfWidth + 0.85) * (barrierHalfWidth + 0.85);
-  let innerStartJ = 6;
-  for (let j = 4; j <= Math.floor(scSegs * 0.34); j++) {
+  const innerEdgeClearSq = (barrierHalfWidth + 4.8) * (barrierHalfWidth + 4.8);
+  let innerStartJ = 7;
+  for (let j = 6; j <= Math.floor(scSegs * 0.36); j++) {
     const innerEdgePt = scPts[j].clone().addScaledVector(scRights[j], -def.side * scHalfW);
     if (minCoplanarDistToMainSq(innerEdgePt) >= innerEdgeClearSq) {
       innerStartJ = j;
       break;
     }
   }
-  let innerEndJ = scSegs - 6;
-  for (let j = scSegs - 4; j >= Math.floor(scSegs * 0.66); j--) {
+  let innerEndJ = scSegs - 7;
+  for (let j = scSegs - 6; j >= Math.floor(scSegs * 0.64); j--) {
     const innerEdgePt = scPts[j].clone().addScaledVector(scRights[j], -def.side * scHalfW);
     if (minCoplanarDistToMainSq(innerEdgePt) >= innerEdgeClearSq) {
       innerEndJ = j;
@@ -639,8 +696,8 @@ export function getControlPoints(trackId: TrackId): THREE.Vector3[] {
         new THREE.Vector3(-580, 10, 40),
         new THREE.Vector3(-680, 2, 340),
         new THREE.Vector3(-340, -3, 580),
-        new THREE.Vector3(80, 4, 700),
-        new THREE.Vector3(-80, 0, 520),
+        new THREE.Vector3(40, 4, 700),
+        new THREE.Vector3(140, 2, 520),
       ]);
 
     case 'blackridge_summit':
@@ -1049,15 +1106,48 @@ export function buildTrack(
     return Math.min(raw, SAMPLE_COUNT - raw);
   };
 
-  const resolveClearIdx = (targetProg: number, minGap = 9): number => {
+  const resolveClearIdx = (targetProg: number, minGap = 9, avoidBridges = false): number => {
     const baseIdx = Math.floor(SAMPLE_COUNT * targetProg) % SAMPLE_COUNT;
-    for (let step = 0; step < 50; step++) {
+    for (let step = 0; step < 160; step++) {
       const sign = step % 2 === 0 ? 1 : -1;
       const offset = Math.ceil(step / 2) * sign;
       const cand = (baseIdx + offset + SAMPLE_COUNT) % SAMPLE_COUNT;
       if (isInsideAnyTunnel(cand, 4)) continue;
-      if (shortcutPortalIndices.some((pi) => idxDist(cand, pi) < 7)) continue;
+      if (shortcutPortalIndices.some((pi) => idxDist(cand, pi) < 12)) continue;
       if (occupiedFeatureIndices.some((oi) => idxDist(cand, oi) < minGap)) continue;
+      const cs = samples[cand];
+      if (avoidBridges && cs.point.y > 4.2) continue;
+      if (!isClearOfShortcuts(cs.point.x, cs.point.z, 7.0)) continue;
+      let sideBlocked = false;
+      for (const side of [-1, 1]) {
+        const px = cs.point.x + cs.right.x * side * (barrierHalfWidth + 1.5);
+        const pz = cs.point.z + cs.right.z * side * (barrierHalfWidth + 1.5);
+        if (!isClearOfShortcuts(px, pz, 6.0)) {
+          sideBlocked = true;
+          break;
+        }
+        for (let oi = 0; oi < SAMPLE_COUNT; oi += 3) {
+          if (idxDist(cand, oi) < 14) continue;
+          const os = samples[oi];
+          if (
+            Math.abs(os.point.y - cs.point.y) < 18 &&
+            Math.hypot(px - os.point.x, pz - os.point.z) < barrierHalfWidth + 4.8
+          ) {
+            sideBlocked = true;
+            break;
+          }
+          if (
+            os.point.y > cs.point.y + 0.5 &&
+            os.point.y - cs.point.y < 16.5 &&
+            Math.hypot(cs.point.x - os.point.x, cs.point.z - os.point.z) < barrierHalfWidth + 7.5
+          ) {
+            sideBlocked = true;
+            break;
+          }
+        }
+        if (sideBlocked) break;
+      }
+      if (sideBlocked) continue;
       return cand;
     }
     return baseIdx;
@@ -1109,9 +1199,13 @@ export function buildTrack(
       emissiveIntensity: 2.8,
     }),
   );
-  shortcutDefs.forEach((def, scId) => {
-    const corridor = computeShortcutCorridor(samples, roadHalfWidth, barrierHalfWidth, def);
+  const advGantryPosts: { x: number; z: number; r: number }[] = [];
+  const precomputedCorridors = shortcutDefs.map((def) =>
+    computeShortcutCorridor(samples, roadHalfWidth, barrierHalfWidth, def),
+  );
+  precomputedCorridors.forEach((corridor, scId) => {
     const {
+      def,
       scHalfW,
       scSegs,
       startIdx,
@@ -1132,12 +1226,12 @@ export function buildTrack(
       innerEndFrac,
     } = corridor;
 
-    for (let k = -2; k <= 3; k++) {
+    for (let k = -4; k <= 5; k++) {
       const idxA = (startIdx + k + SAMPLE_COUNT) % SAMPLE_COUNT;
       if (def.side < 0) leftBarrierCutout[idxA] = 1;
       else rightBarrierCutout[idxA] = 1;
     }
-    for (let k = -3; k <= 2; k++) {
+    for (let k = -5; k <= 4; k++) {
       const idxB = (endIdx + k + SAMPLE_COUNT) % SAMPLE_COUNT;
       if (def.side < 0) leftBarrierCutout[idxB] = 1;
       else rightBarrierCutout[idxB] = 1;
@@ -1158,10 +1252,10 @@ export function buildTrack(
         polygonOffsetUnits: -2,
       }),
     );
-    [11, 8, 5, 2].forEach((aheadSteps, aOrd) => {
+    [12, 8, 4, 1].forEach((aheadSteps, aOrd) => {
       const aIdx = (entryCutStartIdx - aheadSteps + SAMPLE_COUNT) % SAMPLE_COUNT;
       const as = samples[aIdx];
-      const lat = def.side * (roadHalfWidth - Math.max(1.2, 4.4 - aOrd * 0.95));
+      const lat = def.side * (roadHalfWidth - Math.max(0.8, 4.4 - aOrd * 1.15));
       const arrow = new THREE.Mesh(roadArrowGeo, roadArrowMat);
       arrow.position.set(
         as.point.x + as.right.x * lat,
@@ -1175,18 +1269,63 @@ export function buildTrack(
 
     // Main-road Advance Overhead Cantilever Sign ~100m upstream of the opening (level grounded upright gantry)
     let advIdx = (entryCutStartIdx - 10 + SAMPLE_COUNT) % SAMPLE_COUNT;
-    for (let step = 0; step < 8; step++) {
+    for (let step = 0; step < 18; step++) {
       const cand = (advIdx - step + SAMPLE_COUNT) % SAMPLE_COUNT;
-      if (!isInsideAnyTunnel(cand, 2)) {
+      if (isInsideAnyTunnel(cand, 2)) continue;
+      const cs = samples[cand];
+      const wx = cs.point.x + cs.right.x * def.side * (barrierHalfWidth + 0.85);
+      const wz = cs.point.z + cs.right.z * def.side * (barrierHalfWidth + 0.85);
+      let scBlocked = false;
+      for (const cItem of precomputedCorridors) {
+        const limSq = (cItem.scHalfW + 5.0) * (cItem.scHalfW + 5.0);
+        for (let j = 0; j < cItem.scPts.length; j++) {
+          const sp = cItem.scPts[j];
+          const dx = wx - sp.x;
+          const dz = wz - sp.z;
+          if (dx * dx + dz * dz < limSq) {
+            scBlocked = true;
+            break;
+          }
+        }
+        if (scBlocked) break;
+      }
+      if (scBlocked) continue;
+      let postBlocked = false;
+      for (let oi = 0; oi < SAMPLE_COUNT; oi += 3) {
+        if (idxDist(cand, oi) < 12) continue;
+        const os = samples[oi];
+        if (
+          Math.abs(os.point.y - cs.point.y) < 16 &&
+          Math.hypot(wx - os.point.x, wz - os.point.z) < barrierHalfWidth + 4.0
+        ) {
+          postBlocked = true;
+          break;
+        }
+        if (
+          os.point.y > cs.point.y + 0.5 &&
+          os.point.y - cs.point.y < 14.5 &&
+          Math.hypot(cs.point.x - os.point.x, cs.point.z - os.point.z) < barrierHalfWidth + 5.5
+        ) {
+          postBlocked = true;
+          break;
+        }
+      }
+      if (!postBlocked) {
         advIdx = cand;
         break;
       }
     }
+    reserveIdx(advIdx);
     const advS = samples[advIdx];
     const advGantry = new THREE.Group();
     advGantry.position.copy(advS.point);
     advGantry.rotation.y = Math.atan2(-advS.tangent.x, -advS.tangent.z);
     const postX = def.side * (barrierHalfWidth + 0.85);
+    advGantryPosts.push({
+      x: advS.point.x + advS.right.x * postX,
+      z: advS.point.z + advS.right.z * postX,
+      r: 3.5,
+    });
     const advPost = new THREE.Mesh(track(new THREE.BoxGeometry(0.76, 10.6, 0.76)), steelMat);
     advPost.position.set(postX, 3.8, 0);
     const armLen = roadHalfWidth * 1.15;
@@ -1229,23 +1368,37 @@ export function buildTrack(
     const scReflectorPts: { x: number; y: number; z: number; yaw: number }[] = [];
     const scPierPts: { x: number; y: number; z: number; yaw: number; colH: number }[] = [];
 
+    const entryBank = samples[entryCutStartIdx].bankAngle;
+    const exitBank = samples[exitCutEndIdx].bankAngle;
     for (let j = 0; j <= scSegs; j++) {
       const pt = scPts[j];
       const tan = scTangents[j];
       const rgt = scRights[j];
 
+      const bankFade =
+        j < 6
+          ? entryBank * (1 - j / 6)
+          : j > scSegs - 6
+            ? exitBank * ((j - (scSegs - 6)) / 6)
+            : 0;
+      const scBankSlope = Math.sin(bankFade);
+
       const lx = pt.x - rgt.x * scHalfW;
       const lz = pt.z - rgt.z * scHalfW;
       const rx = pt.x + rgt.x * scHalfW;
       const rz = pt.z + rgt.z * scHalfW;
-      const deckBlend = j <= 3 || j >= scSegs - 3 ? 0.030 : 0.042;
+      const deckBlend = j <= 4 || j >= scSegs - 4 ? 0.036 : 0.042;
       const y = pt.y + deckBlend;
-      const wallTop = y + 1.35;
-      const wallBot = y - 1.5;
+      const yL = y - scHalfW * scBankSlope;
+      const yR = y + scHalfW * scBankSlope;
+      const wallTopL = yL + 1.35;
+      const wallTopR = yR + 1.35;
+      const wallBotL = yL - 1.5;
+      const wallBotR = yR - 1.5;
 
-      scVerts.push(lx, y, lz, rx, y, rz);
+      scVerts.push(lx, yL, lz, rx, yR, rz);
       scUvs.push(0, j * 0.45, 1, j * 0.45);
-      scWallVerts.push(lx, wallBot, lz, lx, wallTop, lz, rx, wallBot, rz, rx, wallTop, rz);
+      scWallVerts.push(lx, wallBotL, lz, lx, wallTopL, lz, rx, wallBotR, rz, rx, wallTopR, rz);
       scWallUvs.push(j * 0.65, 0, j * 0.65, 1, j * 0.65, 0, j * 0.65, 1);
 
       const capLOutX = pt.x - rgt.x * (scHalfW + 0.55);
@@ -1253,10 +1406,10 @@ export function buildTrack(
       const capROutX = pt.x + rgt.x * (scHalfW + 0.55);
       const capROutZ = pt.z + rgt.z * (scHalfW + 0.55);
       scCapVerts.push(
-        capLOutX, wallTop, capLOutZ,
-        lx, wallTop, lz,
-        rx, wallTop, rz,
-        capROutX, wallTop, capROutZ,
+        capLOutX, wallTopL, capLOutZ,
+        lx, wallTopL, lz,
+        rx, wallTopR, rz,
+        capROutX, wallTopR, capROutZ,
       );
 
       const deckOutL = scHalfW + 2.2;
@@ -1266,10 +1419,10 @@ export function buildTrack(
       const dRX = pt.x + rgt.x * deckOutR;
       const dRZ = pt.z + rgt.z * deckOutR;
       scDeckVerts.push(
-        capLOutX, wallTop, capLOutZ,
-        dLX, wallBot - 1.8, dLZ,
-        capROutX, wallTop, capROutZ,
-        dRX, wallBot - 1.8, dRZ,
+        capLOutX, wallTopL, capLOutZ,
+        dLX, wallBotL - 1.8, dLZ,
+        capROutX, wallTopR, capROutZ,
+        dRX, wallBotR - 1.8, dRZ,
       );
 
       // Top steel guardrail ribbon above concrete barrier for strong edge visibility
@@ -1278,10 +1431,10 @@ export function buildTrack(
       const rRX = pt.x + rgt.x * (scHalfW + 0.14);
       const rRZ = pt.z + rgt.z * (scHalfW + 0.14);
       scRailVerts.push(
-        rLX, wallTop + 0.12, rLZ,
-        rLX, wallTop + 0.48, rLZ,
-        rRX, wallTop + 0.12, rRZ,
-        rRX, wallTop + 0.48, rRZ,
+        rLX, wallTopL + 0.12, rLZ,
+        rLX, wallTopL + 0.48, rLZ,
+        rRX, wallTopR + 0.12, rRZ,
+        rRX, wallTopR + 0.48, rRZ,
       );
 
       if (j < scSegs) {
@@ -1308,17 +1461,36 @@ export function buildTrack(
       if (j >= 2 && j <= scSegs - 2 && j % 3 === 0) {
         const yaw = Math.atan2(-tan.x, -tan.z);
         if (def.side < 0 || (j >= innerStartJ && j <= innerEndJ)) {
-          scReflectorPts.push({ x: capLOutX, y: wallTop + 0.24, z: capLOutZ, yaw });
+          scReflectorPts.push({ x: capLOutX, y: wallTopL + 0.24, z: capLOutZ, yaw });
         }
         if (def.side > 0 || (j >= innerStartJ && j <= innerEndJ)) {
-          scReflectorPts.push({ x: capROutX, y: wallTop + 0.24, z: capROutZ, yaw });
+          scReflectorPts.push({ x: capROutX, y: wallTopR + 0.24, z: capROutZ, yaw });
         }
       }
-      if (j >= 6 && j <= scSegs - 6 && j % 8 === 0 && pt.y > 1.8) {
+      if (j >= 6 && j <= scSegs - 6 && j % 8 === 0 && pt.y > 2.2) {
         const yaw = Math.atan2(-tan.x, -tan.z);
         const colH = pt.y + 6.5;
-        scPierPts.push({ x: pt.x - rgt.x * (scHalfW * 0.72), y: pt.y - colH * 0.5 - 1.2, z: pt.z - rgt.z * (scHalfW * 0.72), yaw, colH });
-        scPierPts.push({ x: pt.x + rgt.x * (scHalfW * 0.72), y: pt.y - colH * 0.5 - 1.2, z: pt.z + rgt.z * (scHalfW * 0.72), yaw, colH });
+        const pLX = pt.x - rgt.x * (scHalfW * 0.72);
+        const pLZ = pt.z - rgt.z * (scHalfW * 0.72);
+        const pRX = pt.x + rgt.x * (scHalfW * 0.72);
+        const pRZ = pt.z + rgt.z * (scHalfW * 0.72);
+        let clearMain = true;
+        for (let ti = 0; ti < SAMPLE_COUNT; ti += 2) {
+          const tp = samples[ti].point;
+          if (Math.abs(pt.y - tp.y) < 38) {
+            if (
+              Math.hypot(pLX - tp.x, pLZ - tp.z) < barrierHalfWidth + 6.0 ||
+              Math.hypot(pRX - tp.x, pRZ - tp.z) < barrierHalfWidth + 6.0
+            ) {
+              clearMain = false;
+              break;
+            }
+          }
+        }
+        if (clearMain) {
+          scPierPts.push({ x: pLX, y: pt.y - colH * 0.5 - 1.2, z: pLZ, yaw, colH });
+          scPierPts.push({ x: pRX, y: pt.y - colH * 0.5 - 1.2, z: pRZ, yaw, colH });
+        }
       }
     }
 
@@ -1411,86 +1583,110 @@ export function buildTrack(
     );
 
     const bulkheadGeo = track(new THREE.BoxGeometry(0.85, 3.15, 0.85));
-    const returnSpanW = Math.max(2.0, roadHalfWidth + scHalfW * 2 - 0.85 - barrierHalfWidth + 0.8);
-    const returnWallGeo = track(new THREE.BoxGeometry(returnSpanW, 3.15, 0.85));
 
+    // Keep entryCutStartIdx (eOrd=0) & exitCutEndIdx (eOrd=3) open and unobstructed for smooth turn-in/out;
+    // cap main barrier cut ends neatly, place impact drums & gore-split sign only at the center divider noses (eOrd=1,2),
+    // and anchor outer entry beacon pylon cleanly outside the shortcut's outer wall edge.
     [entryCutStartIdx, entryCutEndIdx, exitCutStartIdx, exitCutEndIdx].forEach((edgeIdx, eOrd) => {
       const es = samples[edgeIdx];
-      const lat = def.side * (barrierHalfWidth + 0.18);
-      const ax = es.point.x + es.right.x * lat;
-      const az = es.point.z + es.right.z * lat;
-      const ay = es.point.y + lat * Math.sin(es.bankAngle);
-      const drum = new THREE.Mesh(attenGeo, attenMat);
-      drum.position.set(ax, ay + 0.67, az);
-      const cap = new THREE.Mesh(attenCapGeo, attenCapMat);
-      cap.position.set(ax, ay + 1.34, az);
-      group.add(drum, cap);
-
+      const capLat = def.side * (barrierHalfWidth + 0.35);
+      const cy = es.point.y + capLat * Math.sin(es.bankAngle);
       const bCap = new THREE.Mesh(bulkheadGeo, concreteStructMat);
-      bCap.position.set(
-        es.point.x + es.right.x * def.side * (barrierHalfWidth + 0.35),
-        ay - 0.22,
-        es.point.z + es.right.z * def.side * (barrierHalfWidth + 0.35),
-      );
+      bCap.position.set(es.point.x + es.right.x * capLat, cy - 0.22, es.point.z + es.right.z * capLat);
       bCap.rotation.y = Math.atan2(-es.tangent.x, -es.tangent.z);
       group.add(bCap);
 
-      if (eOrd === 0 || eOrd === 3) {
-        const retLat = def.side * (barrierHalfWidth + returnSpanW * 0.5 - 0.15);
-        const rWall = new THREE.Mesh(returnWallGeo, concreteStructMat);
-        rWall.position.set(
-          es.point.x + es.right.x * retLat,
-          ay - 0.22,
-          es.point.z + es.right.z * retLat,
-        );
-        rWall.rotation.y = Math.atan2(-es.tangent.x, -es.tangent.z);
-        group.add(rWall);
+      if (eOrd === 1 || eOrd === 2) {
+        const lat = def.side * (barrierHalfWidth + 0.42);
+        const ax = es.point.x + es.right.x * lat;
+        const az = es.point.z + es.right.z * lat;
+        const ay = es.point.y + lat * Math.sin(es.bankAngle);
+        const drum = new THREE.Mesh(attenGeo, attenMat);
+        drum.position.set(ax, ay + 0.67, az);
+        const cap = new THREE.Mesh(attenCapGeo, attenCapMat);
+        cap.position.set(ax, ay + 1.34, az);
+        group.add(drum, cap);
       }
 
-      if (eOrd < 2) {
-        const pyLat = def.side * (barrierHalfWidth + 0.95);
-        const px = es.point.x + es.right.x * pyLat;
-        const pz = es.point.z + es.right.z * pyLat;
-        const py = es.point.y + pyLat * Math.sin(es.bankAngle);
+      if (eOrd === 0) {
+        // Place entry beacon pylon strictly OUTSIDE the outer shortcut shoulder so nothing narrows the mouth
+        const outPylonLat = def.side * (roadHalfWidth + scHalfW * 2 + 0.25);
+        const px = es.point.x + es.right.x * outPylonLat;
+        const pz = es.point.z + es.right.z * outPylonLat;
+        const py = es.point.y + outPylonLat * Math.sin(es.bankAngle);
         const pylon = new THREE.Mesh(entryPylonGeo, steelMat);
         pylon.position.set(px, py + 2.4, pz);
         const dome = new THREE.Mesh(entryDomeGeo, shortcutGlowMat);
         dome.position.set(px, py + 4.95, pz);
         group.add(pylon, dome);
+      } else if (eOrd === 1) {
+        const pyLat = def.side * (barrierHalfWidth + 0.75);
+        const px = es.point.x + es.right.x * pyLat;
+        const pz = es.point.z + es.right.z * pyLat;
+        const py = es.point.y + pyLat * Math.sin(es.bankAngle);
+        const tallPylon = new THREE.Mesh(track(new THREE.CylinderGeometry(0.28, 0.38, 6.8, 10)), steelMat);
+        tallPylon.position.set(px, py + 3.4, pz);
+        const dome = new THREE.Mesh(entryDomeGeo, shortcutGlowMat);
+        dome.position.set(px, py + 6.95, pz);
+        group.add(tallPylon, dome);
 
-        // Angled Gore-Split Sign right at the downstream mouth edge so drivers see the opening head-on
-        if (eOrd === 1) {
-          const goreSignG = new THREE.Group();
-          goreSignG.position.set(px, py + 3.4, pz);
-          goreSignG.rotation.y = Math.atan2(-es.tangent.x, -es.tangent.z) - def.side * 0.24;
-          const goreBoard = new THREE.Mesh(
-            track(new THREE.BoxGeometry(6.8, 2.55, 0.3)),
-            [steelMat, steelMat, steelMat, steelMat, mouthSignMat, mouthSignMat],
-          );
-          goreSignG.add(goreBoard);
-          group.add(goreSignG);
-        }
+        // Mounted cleanly overhead (bottom edge y + 4.425m) so vehicles & wings never clip the gore sign
+        const goreSignG = new THREE.Group();
+        goreSignG.position.set(px, py + 5.7, pz);
+        goreSignG.rotation.y = Math.atan2(-es.tangent.x, -es.tangent.z) - def.side * 0.24;
+        const goreBoard = new THREE.Mesh(
+          track(new THREE.BoxGeometry(6.8, 2.55, 0.3)),
+          [steelMat, steelMat, steelMat, steelMat, mouthSignMat, mouthSignMat],
+        );
+        goreSignG.add(goreBoard);
+        group.add(goreSignG);
       }
     });
 
-    // Mid-shortcut overhead steel light arch for clear industrial depth
-    const midScIdx = Math.floor(scSegs * 0.5);
-    const midScPt = scPts[midScIdx];
-    const midScTan = scTangents[midScIdx];
-    const scArch = new THREE.Group();
-    scArch.position.copy(midScPt);
-    scArch.rotation.y = Math.atan2(-midScTan.x, -midScTan.z);
-    const archPillarGeo = track(new THREE.BoxGeometry(0.55, 5.6, 0.55));
-    const apL = new THREE.Mesh(archPillarGeo, steelMat);
-    apL.position.set(-scHalfW - 0.15, 2.8, 0);
-    const apR = new THREE.Mesh(archPillarGeo, steelMat);
-    apR.position.set(scHalfW + 0.15, 2.8, 0);
-    const apTop = new THREE.Mesh(track(new THREE.BoxGeometry(scHalfW * 2 + 1.0, 0.5, 0.55)), steelMat);
-    apTop.position.set(0, 5.5, 0);
-    const apGlow = new THREE.Mesh(track(new THREE.BoxGeometry(scHalfW * 1.75, 0.22, 0.32)), shortcutGlowMat);
-    apGlow.position.set(0, 5.18, 0);
-    scArch.add(apL, apR, apTop, apGlow);
-    group.add(scArch);
+    // Mid-shortcut overhead steel light arch for clear industrial depth (skip/shift if under low main bridge)
+    let midScIdx = Math.floor(scSegs * 0.5);
+    let archClear = false;
+    for (let aStep = 0; aStep < Math.floor(scSegs * 0.35); aStep++) {
+      const sign = aStep % 2 === 0 ? 1 : -1;
+      const cand = THREE.MathUtils.clamp(
+        Math.floor(scSegs * 0.5) + Math.ceil(aStep / 2) * sign,
+        innerStartJ + 2,
+        innerEndJ - 2,
+      );
+      const cp = scPts[cand];
+      let blocked = false;
+      for (let ti = 0; ti < SAMPLE_COUNT; ti += 2) {
+        const os = samples[ti].point;
+        const dy = os.y - cp.y;
+        if (dy > -2 && dy < 12.5 && Math.hypot(cp.x - os.x, cp.z - os.z) < barrierHalfWidth + scHalfW + 3.5) {
+          blocked = true;
+          break;
+        }
+      }
+      if (!blocked) {
+        midScIdx = cand;
+        archClear = true;
+        break;
+      }
+    }
+    if (archClear) {
+      const midScPt = scPts[midScIdx];
+      const midScTan = scTangents[midScIdx];
+      const scArch = new THREE.Group();
+      scArch.position.copy(midScPt);
+      scArch.rotation.y = Math.atan2(-midScTan.x, -midScTan.z);
+      const archPillarGeo = track(new THREE.BoxGeometry(0.55, 5.6, 0.55));
+      const apL = new THREE.Mesh(archPillarGeo, steelMat);
+      apL.position.set(-scHalfW - 0.15, 2.8, 0);
+      const apR = new THREE.Mesh(archPillarGeo, steelMat);
+      apR.position.set(scHalfW + 0.15, 2.8, 0);
+      const apTop = new THREE.Mesh(track(new THREE.BoxGeometry(scHalfW * 2 + 1.0, 0.5, 0.55)), steelMat);
+      apTop.position.set(0, 5.5, 0);
+      const apGlow = new THREE.Mesh(track(new THREE.BoxGeometry(scHalfW * 1.75, 0.22, 0.32)), shortcutGlowMat);
+      apGlow.position.set(0, 5.18, 0);
+      scArch.add(apL, apR, apTop, apGlow);
+      group.add(scArch);
+    }
 
     const planks: ShortcutGatePlank[] = [];
     const postGeo = track(new THREE.BoxGeometry(0.5, 5.6, 0.5));
@@ -1614,6 +1810,106 @@ export function buildTrack(
   const waterCenterX = terrainCenterX + 80;
   const waterCenterZ = minZ - 140;
 
+  // --- Helpers: Strict Segment-Based Shortcut & Track Clearance + World Structure Occupancy ---
+  const scBounds: { cx: number; cz: number; rSq: number }[] = [];
+  for (let sc = 0; sc < shortcuts.length; sc++) {
+    const pts = shortcuts[sc].points;
+    let minSx = Infinity;
+    let maxSx = -Infinity;
+    let minSz = Infinity;
+    let maxSz = -Infinity;
+    for (let j = 0; j < pts.length; j++) {
+      const p = pts[j];
+      if (p.x < minSx) minSx = p.x;
+      if (p.x > maxSx) maxSx = p.x;
+      if (p.z < minSz) minSz = p.z;
+      if (p.z > maxSz) maxSz = p.z;
+    }
+    const cx = (minSx + maxSx) * 0.5;
+    const cz = (minSz + maxSz) * 0.5;
+    const r = Math.hypot(maxSx - cx, maxSz - cz) + 48;
+    scBounds.push({ cx, cz, rSq: r * r });
+  }
+
+  const isClearOfShortcuts = (x: number, z: number, extraMargin = 7): boolean => {
+    for (let sc = 0; sc < shortcuts.length; sc++) {
+      const bnd = scBounds[sc];
+      const bdx = x - bnd.cx;
+      const bdz = z - bnd.cz;
+      if (bdx * bdx + bdz * bdz > bnd.rSq) continue;
+      const sObj = shortcuts[sc];
+      const limitSq = (sObj.halfWidth + extraMargin) * (sObj.halfWidth + extraMargin);
+      const pts = sObj.points;
+      for (let j = 0; j < pts.length - 1; j++) {
+        const a = pts[j];
+        const b = pts[j + 1];
+        const abx = b.x - a.x;
+        const abz = b.z - a.z;
+        const lenSq = abx * abx + abz * abz || 1;
+        const segT = THREE.MathUtils.clamp(((x - a.x) * abx + (z - a.z) * abz) / lenSq, 0, 1);
+        const px = a.x + abx * segT;
+        const pz = a.z + abz * segT;
+        const dx = x - px;
+        const dz = z - pz;
+        if (dx * dx + dz * dz < limitSq) return false;
+      }
+    }
+    return true;
+  };
+
+  const isClearOfTrack = (x: number, z: number, minDist: number): boolean => {
+    const minSq = minDist * minDist;
+    for (let i = 0; i < SAMPLE_COUNT; i++) {
+      const dx = x - samples[i].point.x;
+      const dz = z - samples[i].point.z;
+      if (dx * dx + dz * dz < minSq) return false;
+    }
+    const extraScMargin = Math.max(10, minDist - barrierHalfWidth + 10);
+    if (!isClearOfShortcuts(x, z, extraScMargin)) return false;
+    return true;
+  };
+
+  const isNearShortcutPortal = (idx: number, minSampleDist = 11): boolean =>
+    shortcutPortalIndices.some((pi) => idxDist(idx, pi) < minSampleDist);
+
+  interface PlacedObstacle {
+    x: number;
+    z: number;
+    r: number;
+  }
+  const placedStructures: PlacedObstacle[] = [...advGantryPosts];
+  const isClearOfPlaced = (
+    x: number,
+    z: number,
+    radius: number,
+    padding = 2.5,
+    ignoreOrigin?: { x: number; z: number },
+  ): boolean => {
+    for (let i = 0; i < placedStructures.length; i++) {
+      const p = placedStructures[i];
+      if (ignoreOrigin && Math.abs(p.x - ignoreOrigin.x) < 0.05 && Math.abs(p.z - ignoreOrigin.z) < 0.05) {
+        continue;
+      }
+      const minD = p.r + radius + padding;
+      const dx = x - p.x;
+      const dz = z - p.z;
+      if (dx * dx + dz * dz < minD * minD) return false;
+    }
+    return true;
+  };
+  const tryPlaceStructure = (
+    x: number,
+    z: number,
+    structRadius: number,
+    trackClearDist: number,
+    padding = 2.5,
+  ): boolean => {
+    if (!isClearOfTrack(x, z, trackClearDist)) return false;
+    if (!isClearOfPlaced(x, z, structRadius, padding)) return false;
+    placedStructures.push({ x, z, r: structRadius });
+    return true;
+  };
+
   const sampleTerrainInfo = (wx: number, wz: number): { height: number; distToTrack: number } => {
     const cx = Math.floor(wx / TERRAIN_CELL);
     const cz = Math.floor(wz / TERRAIN_CELL);
@@ -1623,7 +1919,7 @@ export function buildTrack(
     let minScDistSq = Infinity;
     let nearestScY = 0;
     let minNearbyRoadY = Infinity;
-    const ceilingRadiusSq = 48 * 48;
+    const ceilingRadiusSq = 68 * 68;
 
     for (let dxC = -2; dxC <= 2; dxC++) {
       for (let dzC = -2; dzC <= 2; dzC++) {
@@ -1681,20 +1977,21 @@ export function buildTrack(
     const mainDist = minMainDistSq < Infinity ? Math.sqrt(minMainDistSq) : 400;
     const scDist = minScDistSq < Infinity ? Math.sqrt(minScDistSq) : 400;
     const mainEdge = mainDist - barrierHalfWidth;
-    const scEdge = scDist - 8.5;
+    const scEdge = scDist - 10.5;
     const useSc = scEdge < mainEdge;
     const edgeClearance = useSc ? scEdge : mainEdge;
     const nearestRoadY = useSc ? nearestScY : nearestMainY;
 
     const isHarborWater = hasHarborBay && wz < minZ + 380 && wx > minX - 100 && wx < maxX + 180;
-    const roadSupportY = isHarborWater ? -6.2 : nearestRoadY - 1.15;
+    const roadSupportY = isHarborWater ? -6.2 : nearestRoadY - 1.45;
 
-    if (edgeClearance < 22) {
-      const clampedY = minNearbyRoadY < Infinity && !isHarborWater ? Math.min(roadSupportY, minNearbyRoadY - 1.15) : roadSupportY;
+    if (edgeClearance < 26) {
+      const clampedY =
+        minNearbyRoadY < Infinity && !isHarborWater ? Math.min(roadSupportY, minNearbyRoadY - 1.45) : roadSupportY;
       return { height: clampedY, distToTrack: mainDist };
     }
 
-    const blend = THREE.MathUtils.smoothstep(edgeClearance, 22, 82);
+    const blend = THREE.MathUtils.smoothstep(edgeClearance, 26, 86);
     const ridgeScale =
       isCanyonOrSummit
         ? 1.75
@@ -1712,8 +2009,8 @@ export function buildTrack(
 
     const targetHill = isHarborWater ? -6.2 : Math.max(-0.35, rawHill);
     let finalH = THREE.MathUtils.lerp(roadSupportY, targetHill, blend);
-    if (!isHarborWater && minNearbyRoadY < Infinity && edgeClearance < 46) {
-      finalH = Math.min(finalH, minNearbyRoadY - 1.15);
+    if (!isHarborWater && minNearbyRoadY < Infinity && edgeClearance < 68) {
+      finalH = Math.min(finalH, minNearbyRoadY - 1.45);
     }
     return {
       height: finalH,
@@ -1723,7 +2020,7 @@ export function buildTrack(
 
   // --- 1. Environment-Adapted Terrain + Dynamic Harbor Bay ---
   const groundTex = track(createGroundTerrainTexture(maxAnisotropy));
-  const groundGeo = track(new THREE.PlaneGeometry(terrainSpanW, terrainSpanD, 176, 176));
+  const groundGeo = track(new THREE.PlaneGeometry(terrainSpanW, terrainSpanD, 232, 232));
   groundGeo.rotateX(-Math.PI / 2);
 
   const posAttr = groundGeo.attributes.position;
@@ -2093,45 +2390,104 @@ export function buildTrack(
     const inLZ = s.point.z - s.right.z * innerEdge;
     const outLX = s.point.x - s.right.x * outerEdge;
     const outLZ = s.point.z - s.right.z * outerEdge;
-    const inLY = s.point.y - 0.12 - barrierHalfWidth * bankSlope;
-    const outLY = Math.min(inLY - 0.35, sampleTerrainInfo(outLX, outLZ).height - 0.15);
+    const inLY = s.point.y - 0.16 - barrierHalfWidth * bankSlope;
+    const outLY = Math.min(inLY - 0.55, sampleTerrainInfo(outLX, outLZ).height - 0.35);
 
     const inRX = s.point.x + s.right.x * innerEdge;
     const inRZ = s.point.z + s.right.z * innerEdge;
     const outRX = s.point.x + s.right.x * outerEdge;
     const outRZ = s.point.z + s.right.z * outerEdge;
-    const inRY = s.point.y - 0.12 + barrierHalfWidth * bankSlope;
-    const outRY = Math.min(inRY - 0.35, sampleTerrainInfo(outRX, outRZ).height - 0.15);
+    const inRY = s.point.y - 0.16 + barrierHalfWidth * bankSlope;
+    const outRY = Math.min(inRY - 0.55, sampleTerrainInfo(outRX, outRZ).height - 0.35);
 
     vergeVerts.push(inLX, inLY, inLZ, outLX, outLY, outLZ, inRX, inRY, inRZ, outRX, outRY, outRZ);
     vergeUvs.push(0, vCoord, 1, vCoord, 0, vCoord, 1, vCoord);
 
     if (i < SAMPLE_COUNT) {
       const nextIdx = (i + 1) % SAMPLE_COUNT;
-      const skipL = leftBarrierCutout[sIdx] === 1 && leftBarrierCutout[nextIdx] === 1;
-      const skipR = rightBarrierCutout[sIdx] === 1 && rightBarrierCutout[nextIdx] === 1;
-      let isElevatedSpan = s.point.y > 4.2 || samples[nextIdx].point.y > 4.2;
-      if (!isElevatedSpan) {
-        for (let oi = 0; oi < SAMPLE_COUNT; oi += 4) {
-          const dIdx = Math.min(Math.abs(oi - sIdx), SAMPLE_COUNT - Math.abs(oi - sIdx));
-          if (dIdx < 16) continue;
-          const os = samples[oi];
-          if (
-            Math.hypot(s.point.x - os.point.x, s.point.z - os.point.z) < barrierHalfWidth + 6.5 &&
-            Math.abs(os.point.y - s.point.y) > 4.0
-          ) {
-            isElevatedSpan = true;
-            break;
+      const skipL = leftBarrierCutout[sIdx] === 1 || leftBarrierCutout[nextIdx] === 1;
+      const skipR = rightBarrierCutout[sIdx] === 1 || rightBarrierCutout[nextIdx] === 1;
+      const isElevatedSpan = s.point.y > 4.2 || samples[nextIdx].point.y > 4.2;
+
+      const sNext = samples[nextIdx];
+      const bankNext = Math.sin(sNext.bankAngle);
+      const inLXn = sNext.point.x - sNext.right.x * innerEdge;
+      const inLZn = sNext.point.z - sNext.right.z * innerEdge;
+      const outLXn = sNext.point.x - sNext.right.x * outerEdge;
+      const outLZn = sNext.point.z - sNext.right.z * outerEdge;
+      const inRXn = sNext.point.x + sNext.right.x * innerEdge;
+      const inRZn = sNext.point.z + sNext.right.z * innerEdge;
+      const outRXn = sNext.point.x + sNext.right.x * outerEdge;
+      const outRZn = sNext.point.z + sNext.right.z * outerEdge;
+      const outLYn = Math.min(
+        sNext.point.y - 0.16 - barrierHalfWidth * bankNext - 0.55,
+        sampleTerrainInfo(outLXn, outLZn).height - 0.35,
+      );
+      const outRYn = Math.min(
+        sNext.point.y - 0.16 + barrierHalfWidth * bankNext - 0.55,
+        sampleTerrainInfo(outRXn, outRZn).height - 0.35,
+      );
+
+      // Guard against inner-bend foldback where outer edge reverses behind previous ring
+      const lOutFwd = (outLXn - outLX) * s.tangent.x + (outLZn - outLZ) * s.tangent.z;
+      const rOutFwd = (outRXn - outRX) * s.tangent.x + (outRZn - outRZ) * s.tangent.z;
+
+      const checkVergeSpan = (
+        ax0: number,
+        az0: number,
+        ax1: number,
+        az1: number,
+        bx0: number,
+        bz0: number,
+        bx1: number,
+        bz1: number,
+      ): boolean => {
+        const ts = [0.25, 0.55, 0.85, 1.0];
+        for (let ti = 0; ti < ts.length; ti++) {
+          const t = ts[ti];
+          const pxA = THREE.MathUtils.lerp(ax0, ax1, t);
+          const pzA = THREE.MathUtils.lerp(az0, az1, t);
+          const pxB = THREE.MathUtils.lerp(bx0, bx1, t);
+          const pzB = THREE.MathUtils.lerp(bz0, bz1, t);
+          if (!isClearOfShortcuts(pxA, pzA, 11.0) || !isClearOfShortcuts(pxB, pzB, 11.0)) return false;
+          for (let oi = 0; oi < SAMPLE_COUNT; oi += 2) {
+            const dIdx = Math.min(Math.abs(oi - sIdx), SAMPLE_COUNT - Math.abs(oi - sIdx));
+            if (dIdx < 3) continue;
+            const os = samples[oi];
+            if (Math.abs(os.point.y - s.point.y) < 16) {
+              const clearRad = barrierHalfWidth + (dIdx < 16 ? 1.5 : 10.5);
+              if (
+                Math.hypot(pxA - os.point.x, pzA - os.point.z) < clearRad ||
+                Math.hypot(pxB - os.point.x, pzB - os.point.z) < clearRad
+              ) {
+                return false;
+              }
+            }
           }
         }
-      }
-      const inWaterL = hasHarborBay && s.point.y > 4 && outLZ < minZ + 380 && outLX > minX - 100 && outLX < maxX + 180;
-      const inWaterR = hasHarborBay && s.point.y > 4 && outRZ < minZ + 380 && outRX > minX - 100 && outRX < maxX + 180;
+        return true;
+      };
+
+      const vergeClearL =
+        !skipL &&
+        !isElevatedSpan &&
+        lOutFwd > 0.2 &&
+        Number.isFinite(outLYn) &&
+        checkVergeSpan(inLX, inLZ, outLX, outLZ, inLXn, inLZn, outLXn, outLZn);
+      const vergeClearR =
+        !skipR &&
+        !isElevatedSpan &&
+        rOutFwd > 0.2 &&
+        Number.isFinite(outRYn) &&
+        checkVergeSpan(inRX, inRZ, outRX, outRZ, inRXn, inRZn, outRXn, outRZn);
+
+      const inWaterL = hasHarborBay && outLZ < minZ + 380 && outLX > minX - 100 && outLX < maxX + 180;
+      const inWaterR = hasHarborBay && outRZ < minZ + 380 && outRX > minX - 100 && outRX < maxX + 180;
       const vb = i * 4;
-      if (!skipL && !inWaterL && !isElevatedSpan) {
+      if (vergeClearL && !inWaterL) {
         vergeIndices.push(vb, vb + 4, vb + 1, vb + 1, vb + 4, vb + 5);
       }
-      if (!skipR && !inWaterR && !isElevatedSpan) {
+      if (vergeClearR && !inWaterR) {
         vergeIndices.push(vb + 2, vb + 3, vb + 6, vb + 3, vb + 7, vb + 6);
       }
     }
@@ -2217,7 +2573,7 @@ export function buildTrack(
     const yaw = Math.atan2(-s.tangent.x, -s.tangent.z);
     const bankSlope = Math.sin(s.bankAngle);
     const elevated = s.point.y > 3.5;
-    if (leftBarrierCutout[i] === 0) {
+    if (leftBarrierCutout[i] === 0 && !isNearShortcutPortal(i, 7)) {
       postItems.push({
         x: s.point.x - s.right.x * (barrierHalfWidth + 0.32),
         y: s.point.y + 1.35 - barrierHalfWidth * bankSlope,
@@ -2226,7 +2582,7 @@ export function buildTrack(
         elevated,
       });
     }
-    if (rightBarrierCutout[i] === 0) {
+    if (rightBarrierCutout[i] === 0 && !isNearShortcutPortal(i, 7)) {
       postItems.push({
         x: s.point.x + s.right.x * (barrierHalfWidth + 0.32),
         y: s.point.y + 1.35 + barrierHalfWidth * bankSlope,
@@ -2269,43 +2625,7 @@ export function buildTrack(
     group.add(grPosts, grRefls);
   }
 
-  // --- Helpers: Strict Segment-Based Shortcut & Track Clearance Queries ---
-  const isClearOfShortcuts = (x: number, z: number, extraMargin = 7): boolean => {
-    for (let sc = 0; sc < shortcuts.length; sc++) {
-      const sObj = shortcuts[sc];
-      const limitSq = (sObj.halfWidth + extraMargin) * (sObj.halfWidth + extraMargin);
-      const pts = sObj.points;
-      for (let j = 0; j < pts.length - 1; j++) {
-        const a = pts[j];
-        const b = pts[j + 1];
-        const abx = b.x - a.x;
-        const abz = b.z - a.z;
-        const lenSq = abx * abx + abz * abz || 1;
-        const segT = THREE.MathUtils.clamp(((x - a.x) * abx + (z - a.z) * abz) / lenSq, 0, 1);
-        const px = a.x + abx * segT;
-        const pz = a.z + abz * segT;
-        const dx = x - px;
-        const dz = z - pz;
-        if (dx * dx + dz * dz < limitSq) return false;
-      }
-    }
-    return true;
-  };
-
-  const isClearOfTrack = (x: number, z: number, minDist: number): boolean => {
-    const minSq = minDist * minDist;
-    for (let i = 0; i < SAMPLE_COUNT; i++) {
-      const dx = x - samples[i].point.x;
-      const dz = z - samples[i].point.z;
-      if (dx * dx + dz * dz < minSq) return false;
-    }
-    const extraScMargin = Math.max(10, minDist - barrierHalfWidth + 10);
-    if (!isClearOfShortcuts(x, z, extraScMargin)) return false;
-    return true;
-  };
-
-  const isNearShortcutPortal = (idx: number, minSampleDist = 7): boolean =>
-    shortcutPortalIndices.some((pi) => idxDist(idx, pi) < minSampleDist);
+  // (Spatial & Shortcut Clearance Helpers moved above sampleTerrainInfo)
 
   // Viaduct Support Columns, Footings, Box-Girder Bridge Soffit & Cross-Girder Caps
   const soffitVerts: number[] = [];
@@ -2355,15 +2675,15 @@ export function buildTrack(
     if (idx % 14 !== 0) continue;
     const s = samples[idx];
     if (s.point.y <= 3.6) continue;
-    if (!isClearOfShortcuts(s.point.x, s.point.z, roadHalfWidth + 5)) continue;
+    if (!isClearOfShortcuts(s.point.x, s.point.z, roadHalfWidth + 6.5)) continue;
 
     let hasLowerUnderneath = false;
-    for (let oi = 0; oi < SAMPLE_COUNT; oi += 3) {
+    for (let oi = 0; oi < SAMPLE_COUNT; oi += 2) {
       if (idxDist(idx, oi) < 16) continue;
       const os = samples[oi];
       if (
-        os.point.y < s.point.y - 3.5 &&
-        Math.hypot(s.point.x - os.point.x, s.point.z - os.point.z) < barrierHalfWidth * 2 + 7.5
+        os.point.y < s.point.y - 2.0 &&
+        Math.hypot(s.point.x - os.point.x, s.point.z - os.point.z) < barrierHalfWidth * 2 + 8.5
       ) {
         hasLowerUnderneath = true;
         break;
@@ -2371,24 +2691,45 @@ export function buildTrack(
     }
 
     if (!hasLowerUnderneath) {
-      standardPierSamples.push(s);
+      const pLx = s.point.x - s.right.x * (roadHalfWidth * 0.92);
+      const pLz = s.point.z - s.right.z * (roadHalfWidth * 0.92);
+      const pRx = s.point.x + s.right.x * (roadHalfWidth * 0.92);
+      const pRz = s.point.z + s.right.z * (roadHalfWidth * 0.92);
+      let colsClear = isClearOfShortcuts(pLx, pLz, 6.5) && isClearOfShortcuts(pRx, pRz, 6.5);
+      if (colsClear) {
+        for (let oi = 0; oi < SAMPLE_COUNT; oi += 2) {
+          if (idxDist(idx, oi) < 14) continue;
+          const os = samples[oi];
+          if (Math.abs(os.point.y - s.point.y) >= 38) continue;
+          if (
+            Math.hypot(pLx - os.point.x, pLz - os.point.z) < barrierHalfWidth + 4.5 ||
+            Math.hypot(pRx - os.point.x, pRz - os.point.z) < barrierHalfWidth + 4.5
+          ) {
+            colsClear = false;
+            break;
+          }
+        }
+      }
+      if (colsClear) standardPierSamples.push(s);
     } else {
-      // Check if wide straddle portal legs clear the lower roadway cleanly
+      // Check if wide straddle portal legs clear ALL crossing/parallel roadways & shortcuts cleanly
       const lx = s.point.x - s.right.x * straddleSpanHalf;
       const lz = s.point.z - s.right.z * straddleSpanHalf;
       const rx = s.point.x + s.right.x * straddleSpanHalf;
       const rz = s.point.z + s.right.z * straddleSpanHalf;
-      let legsClear = true;
-      for (let oi = 0; oi < SAMPLE_COUNT; oi += 2) {
-        if (idxDist(idx, oi) < 14) continue;
-        const os = samples[oi];
-        if (os.point.y >= s.point.y - 2.0) continue;
-        if (
-          Math.hypot(lx - os.point.x, lz - os.point.z) < barrierHalfWidth + 3.2 ||
-          Math.hypot(rx - os.point.x, rz - os.point.z) < barrierHalfWidth + 3.2
-        ) {
-          legsClear = false;
-          break;
+      let legsClear = isClearOfShortcuts(lx, lz, 7.0) && isClearOfShortcuts(rx, rz, 7.0);
+      if (legsClear) {
+        for (let oi = 0; oi < SAMPLE_COUNT; oi += 2) {
+          if (idxDist(idx, oi) < 14) continue;
+          const os = samples[oi];
+          if (Math.abs(os.point.y - s.point.y) >= 38) continue;
+          if (
+            Math.hypot(lx - os.point.x, lz - os.point.z) < barrierHalfWidth + 4.5 ||
+            Math.hypot(rx - os.point.x, rz - os.point.z) < barrierHalfWidth + 4.5
+          ) {
+            legsClear = false;
+            break;
+          }
         }
       }
       if (legsClear) straddlePierSamples.push(s);
@@ -2538,8 +2879,8 @@ export function buildTrack(
     const hoodVerts: number[] = [];
     const tIndices: number[] = [];
     const bulbMats: { x: number; y: number; z: number; pitch: number; yaw: number; bank: number }[] = [];
-    const ribMats: { x: number; y: number; z: number; pitch: number; yaw: number; bank: number }[] = [];
-    const fanMats: { x: number; y: number; z: number; pitch: number; yaw: number; bank: number }[] = [];
+    const ribMats: { idx: number; x: number; y: number; z: number; pitch: number; yaw: number; bank: number }[] = [];
+    const fanMats: { idx: number; x: number; y: number; z: number; pitch: number; yaw: number; bank: number }[] = [];
 
     for (let k = 0; k <= tc.len; k++) {
       const idx = (tc.startIdx + k) % SAMPLE_COUNT;
@@ -2600,8 +2941,9 @@ export function buildTrack(
           bank: -s.bankAngle,
         });
       }
-      if (k % 3 === 0) {
+      if (k >= 2 && k <= tc.len - 2 && k % 3 === 0) {
         ribMats.push({
+          idx,
           x: s.point.x,
           y: s.point.y,
           z: s.point.z,
@@ -2612,6 +2954,7 @@ export function buildTrack(
       }
       if (k > 2 && k < tc.len - 2 && k % 7 === 0) {
         fanMats.push({
+          idx,
           x: s.point.x,
           y: s.point.y + tunHeight - 0.9,
           z: s.point.z,
@@ -2665,7 +3008,7 @@ export function buildTrack(
         dummy.updateMatrix();
         ribsInst.setMatrixAt(ri, dummy.matrix);
 
-        const s = samples[(tc.startIdx + ri * 3) % SAMPLE_COUNT];
+        const s = samples[rm.idx];
         [-tunSpan + 0.15, tunSpan - 0.15].forEach((lat, sideIdx) => {
           dummy.position.set(
             s.point.x + s.right.x * lat,
@@ -2687,7 +3030,7 @@ export function buildTrack(
     if (fanMats.length > 0) {
       const fansInst = new THREE.InstancedMesh(jetFanGeo, steelMat, fanMats.length * 2);
       fanMats.forEach((fm, fi) => {
-        const s = samples[(tc.startIdx + 3 + fi * 7) % SAMPLE_COUNT];
+        const s = samples[fm.idx];
         [-3.8, 3.8].forEach((lat, sIdx) => {
           dummy.position.set(fm.x + s.right.x * lat, fm.y, fm.z + s.right.z * lat);
           dummy.rotation.set(fm.pitch, fm.yaw, fm.bank, 'YXZ');
@@ -2743,34 +3086,55 @@ export function buildTrack(
 
       pg.add(portL, portR, wingL, wingR, portTop, portBeacon);
 
-      // Rugged rock massif boulders flanking tunnel portal mouths (strictly outside co-planar streets & off urban grids)
+      // Rugged rock massif boulders flanking tunnel portal mouths (strictly outside co-planar streets, shortcuts & underpasses)
       if (trackId !== 'downtown_labyrinth' && trackId !== 'silverton_pass') {
-        const isRockClear = (latOff: number) => {
+        const isRockClear = (latOff: number, rockRad: number): { wx: number; wz: number } | null => {
           const wx = ps.point.x + ps.right.x * latOff;
           const wz = ps.point.z + ps.right.z * latOff;
           for (let ti = 0; ti < SAMPLE_COUNT; ti++) {
             const tp = samples[ti].point;
-            if (Math.abs(ps.point.y - tp.y) >= 12) continue;
-            if (Math.hypot(wx - tp.x, wz - tp.z) < barrierHalfWidth + 6.5) return false;
+            if (Math.abs(ps.point.y - tp.y) >= 16) continue;
+            if (Math.hypot(wx - tp.x, wz - tp.z) < barrierHalfWidth + rockRad + 2.0) return null;
           }
-          return isClearOfShortcuts(wx, wz, 8.5);
+          if (!isClearOfShortcuts(wx, wz, rockRad + 4.0)) return null;
+          if (!isClearOfPlaced(wx, wz, rockRad, 3.0)) return null;
+          return { wx, wz };
         };
-        if (isRockClear(-tunSpan - 8.5)) {
+        const leftRockPos = isRockClear(-tunSpan - 9.5, 9.5);
+        if (leftRockPos) {
+          placedStructures.push({ x: leftRockPos.wx, z: leftRockPos.wz, r: 9.5 });
           const rockL = new THREE.Mesh(cliffBoulderGeo, tunnelRockMat);
-          rockL.position.set(-tunSpan - 8.5, 4.2, endOrd === 0 ? 1.5 : -1.5);
+          rockL.position.set(-tunSpan - 9.5, 4.2, endOrd === 0 ? 1.5 : -1.5);
           rockL.scale.set(1.15, 1.35, 1.1);
           pg.add(rockL);
         }
-        if (isRockClear(tunSpan + 8.5)) {
+        const rightRockPos = isRockClear(tunSpan + 9.5, 9.5);
+        if (rightRockPos) {
+          placedStructures.push({ x: rightRockPos.wx, z: rightRockPos.wz, r: 9.5 });
           const rockR = new THREE.Mesh(cliffBoulderGeo, tunnelRockMat);
-          rockR.position.set(tunSpan + 8.5, 4.0, endOrd === 0 ? 1.5 : -1.5);
+          rockR.position.set(tunSpan + 9.5, 4.0, endOrd === 0 ? 1.5 : -1.5);
           rockR.scale.set(1.15, 1.25, 1.1);
           pg.add(rockR);
         }
-        const crownRock = new THREE.Mesh(cliffBoulderGeo, tunnelRockMat);
-        crownRock.position.set(0, tunHeight + 5.2, endOrd === 0 ? -2.2 : 2.2);
-        crownRock.scale.set(2.2, 0.85, 1.2);
-        pg.add(crownRock);
+        // Only place tall crownRock if NO upper bridge deck or shortcut crosses overhead within 24.5m height
+        let crownClear = isClearOfShortcuts(ps.point.x, ps.point.z, 16);
+        if (crownClear) {
+          for (let ti = 0; ti < SAMPLE_COUNT; ti++) {
+            if (idxDist(pIdx, ti) < 14) continue;
+            const os = samples[ti].point;
+            const dy = os.y - ps.point.y;
+            if (dy > 0 && dy < 24.5 && Math.hypot(ps.point.x - os.x, ps.point.z - os.z) < barrierHalfWidth + 18) {
+              crownClear = false;
+              break;
+            }
+          }
+        }
+        if (crownClear) {
+          const crownRock = new THREE.Mesh(cliffBoulderGeo, tunnelRockMat);
+          crownRock.position.set(0, tunHeight + 5.6, endOrd === 0 ? -2.2 : 2.2);
+          crownRock.scale.set(2.1, 0.85, 1.2);
+          pg.add(crownRock);
+        }
       }
       group.add(pg);
     });
@@ -2778,9 +3142,26 @@ export function buildTrack(
 
   // --- 4. Track-Specific Iconic Landmarks (High-Detail Multi-Part Monuments) ---
   if (hasHarborBay) {
-    // Suspension Bridge Towers + Real 3D Steel Stay Cables + Sea Caissons (Verified clear of shortcut cutouts)
-    const towerSamples = [samples[Math.floor(SAMPLE_COUNT * 0.21)], samples[Math.floor(SAMPLE_COUNT * 0.29)]]
-      .filter((ts) => !isNearShortcutPortal(ts.index, 6));
+    // Suspension Bridge Towers + Real 3D Steel Stay Cables + Sea Caissons (Verified clear of shortcut cutouts & other road decks)
+    const towerSamples = [samples[Math.floor(SAMPLE_COUNT * 0.21)], samples[Math.floor(SAMPLE_COUNT * 0.29)]].filter(
+      (ts) => {
+        if (isNearShortcutPortal(ts.index, 6)) return false;
+        const latX = barrierHalfWidth + 1.5;
+        for (const side of [-1, 1]) {
+          const lx = ts.point.x + ts.right.x * side * latX;
+          const lz = ts.point.z + ts.right.z * side * latX;
+          if (!isClearOfShortcuts(lx, lz, 7.0)) return false;
+          for (let oi = 0; oi < SAMPLE_COUNT; oi += 2) {
+            if (idxDist(ts.index, oi) < 16) continue;
+            const os = samples[oi];
+            if (Math.abs(os.point.y - ts.point.y) < 42 && Math.hypot(lx - os.point.x, lz - os.point.z) < barrierHalfWidth + 7.0) {
+              return false;
+            }
+          }
+        }
+        return true;
+      },
+    );
     const towerLegGeo = track(new THREE.BoxGeometry(2.3, 54, 2.5));
     const towerCapGeo = track(new THREE.BoxGeometry(3.4, 1.8, 3.4));
     const caissonGeo = track(new THREE.BoxGeometry(6.8, 18, 7.6));
@@ -2796,10 +3177,13 @@ export function buildTrack(
     const cableSegments: { a: THREE.Vector3; b: THREE.Vector3; radius: number }[] = [];
 
     towerSamples.forEach((s) => {
+      reserveIdx(s.index);
       const tw = new THREE.Group();
       tw.position.set(s.point.x, s.point.y, s.point.z);
       tw.rotation.y = Math.atan2(-s.tangent.x, -s.tangent.z);
       const latX = barrierHalfWidth + 1.5;
+      placedStructures.push({ x: s.point.x - s.right.x * latX, z: s.point.z - s.right.z * latX, r: 4.5 });
+      placedStructures.push({ x: s.point.x + s.right.x * latX, z: s.point.z + s.right.z * latX, r: 4.5 });
 
       const lL = new THREE.Mesh(towerLegGeo, steelMat);
       lL.position.set(-latX, 13, 0);
@@ -2841,7 +3225,9 @@ export function buildTrack(
           s.point.z + s.right.z * side * latX,
         );
         [-18, -13, -8, -4, 4, 8, 13, 18].forEach((dIdx) => {
-          const ds = samples[(s.index + dIdx + SAMPLE_COUNT) % SAMPLE_COUNT];
+          const dsIdx = (s.index + dIdx + SAMPLE_COUNT) % SAMPLE_COUNT;
+          if ((side < 0 && leftBarrierCutout[dsIdx] === 1) || (side > 0 && rightBarrierCutout[dsIdx] === 1)) return;
+          const ds = samples[dsIdx];
           const botPt = new THREE.Vector3(
             ds.point.x + ds.right.x * side * (barrierHalfWidth + 0.3),
             ds.point.y + 1.2,
@@ -2925,7 +3311,7 @@ export function buildTrack(
     [0, 1, 2].forEach((ci) => {
       const cx = waterCenterX - 240 + ci * 135;
       const cz = waterCenterZ + 110 - ci * 28;
-      if (!isClearOfTrack(cx, cz, barrierHalfWidth + 32)) return;
+      if (!tryPlaceStructure(cx, cz, 30, barrierHalfWidth + 36, 6)) return;
       const cg = new THREE.Group();
       cg.position.set(cx, -3, cz);
       cg.rotation.y = 0.25;
@@ -2958,7 +3344,7 @@ export function buildTrack(
 
     const sxShip = waterCenterX + 80;
     const szShip = waterCenterZ - 160;
-    if (isClearOfTrack(sxShip, szShip, barrierHalfWidth + 68)) {
+    if (tryPlaceStructure(sxShip, szShip, 68, barrierHalfWidth + 68, 8)) {
       const hullMat = track(new THREE.MeshStandardMaterial({ color: '#1E293B', metalness: 0.5, roughness: 0.58 }));
       const redHullMat = track(new THREE.MeshStandardMaterial({ color: '#7F1D1D', roughness: 0.65 }));
       const whiteDeckMat = track(new THREE.MeshStandardMaterial({ color: '#E2E8F0', roughness: 0.55 }));
@@ -3015,7 +3401,7 @@ export function buildTrack(
     const lhRockMat = track(new THREE.MeshStandardMaterial({ color: '#334155', roughness: 0.94 }));
     const lhX = maxX - 110;
     const lhZ = minZ + 380;
-    if (isClearOfTrack(lhX, lhZ, barrierHalfWidth + 24)) {
+    if (tryPlaceStructure(lhX, lhZ, 22, barrierHalfWidth + 26, 5)) {
       const lhBaseY = sampleTerrainInfo(lhX, lhZ).height;
       const lhGroup = new THREE.Group();
       lhGroup.position.set(lhX, lhBaseY - 2.0, lhZ);
@@ -3089,12 +3475,16 @@ export function buildTrack(
     ];
     const contItems: { x: number; y: number; z: number; yaw: number; color: THREE.Color }[] = [];
     for (let i = 0; i < 42; i++) {
-      const s = samples[Math.floor(((i * 15) % SAMPLE_COUNT))];
+      const sIdx = Math.floor(((i * 17) % SAMPLE_COUNT));
+      if (isInsideAnyTunnel(sIdx, 2) || isNearShortcutPortal(sIdx, 6)) continue;
+      const s = samples[sIdx];
       const side = i % 2 === 0 ? 1 : -1;
-      const cx = s.point.x + s.right.x * side * (barrierHalfWidth + 21 + (i % 3) * 6);
-      const cz = s.point.z + s.right.z * side * (barrierHalfWidth + 21 + (i % 3) * 6);
-      if (isClearOfTrack(cx, cz, barrierHalfWidth + 16)) {
-        const baseY = sampleTerrainInfo(cx, cz).height;
+      const cx = s.point.x + s.right.x * side * (barrierHalfWidth + 22 + (i % 3) * 7);
+      const cz = s.point.z + s.right.z * side * (barrierHalfWidth + 22 + (i % 3) * 7);
+      if (hasHarborBay && cz < minZ + 380 && cx > minX - 80 && cx < maxX + 120) continue;
+      const baseY = sampleTerrainInfo(cx, cz).height;
+      if (baseY < -1.5) continue;
+      if (tryPlaceStructure(cx, cz, 8.5, barrierHalfWidth + 18, 2.5)) {
         const stacks = 1 + (i % 3);
         for (let st = 0; st < stacks; st++) {
           contItems.push({
@@ -3138,7 +3528,7 @@ export function buildTrack(
       const s = samples[Math.floor(SAMPLE_COUNT * prog)];
       const tx = s.point.x - s.right.x * (barrierHalfWidth + 36 + idx * 8);
       const tz = s.point.z - s.right.z * (barrierHalfWidth + 36 + idx * 8);
-      if (isClearOfTrack(tx, tz, barrierHalfWidth + 24)) {
+      if (tryPlaceStructure(tx, tz, 17, barrierHalfWidth + 26, 4)) {
         const ty = sampleTerrainInfo(tx, tz).height - 1.5;
         const plinth = new THREE.Mesh(track(new THREE.CylinderGeometry(13.8, 14.5, 3.0, 20)), concreteStructMat);
         plinth.position.set(tx, ty + 1.5, tz);
@@ -3157,9 +3547,9 @@ export function buildTrack(
     });
     if (tankPts.length >= 2) {
       const pipeRef = tankPts[0];
-      const fStackX = pipeRef.x - 18;
-      const fStackZ = pipeRef.z - 14;
-      if (isClearOfTrack(fStackX, fStackZ, barrierHalfWidth + 20)) {
+      const fStackX = pipeRef.x - 24;
+      const fStackZ = pipeRef.z - 18;
+      if (tryPlaceStructure(fStackX, fStackZ, 8, barrierHalfWidth + 20, 4)) {
         const fy = sampleTerrainInfo(fStackX, fStackZ).height - 1.0;
         const flareMast = new THREE.Mesh(track(new THREE.CylinderGeometry(0.9, 1.9, 44, 10)), steelMat);
         flareMast.position.set(fStackX, fy + 22, fStackZ);
@@ -3187,7 +3577,7 @@ export function buildTrack(
       const side = i % 2 === 0 ? 1 : -1;
       const wx = s.point.x + s.right.x * side * (barrierHalfWidth + 46 + (i % 3) * 14);
       const wz = s.point.z + s.right.z * side * (barrierHalfWidth + 46 + (i % 3) * 14);
-      if (!isClearOfTrack(wx, wz, barrierHalfWidth + 30)) continue;
+      if (!tryPlaceStructure(wx, wz, 22, barrierHalfWidth + 32, 8)) continue;
       const wy = sampleTerrainInfo(wx, wz).height - 1.5;
       const tg = new THREE.Group();
       tg.position.set(wx, wy, wz);
@@ -3221,7 +3611,18 @@ export function buildTrack(
 
     // Steel Truss Interstate Bridge Overpass
     const ovIdx = resolveClearIdx(0.72, 10);
+    reserveIdx(ovIdx);
     const ovS = samples[ovIdx];
+    placedStructures.push({
+      x: ovS.point.x - ovS.right.x * (barrierHalfWidth + 1.2),
+      z: ovS.point.z - ovS.right.z * (barrierHalfWidth + 1.2),
+      r: 3.0,
+    });
+    placedStructures.push({
+      x: ovS.point.x + ovS.right.x * (barrierHalfWidth + 1.2),
+      z: ovS.point.z + ovS.right.z * (barrierHalfWidth + 1.2),
+      r: 3.0,
+    });
     const ovG = new THREE.Group();
     ovG.position.copy(ovS.point);
     ovG.rotation.y = Math.atan2(-ovS.tangent.x, -ovS.tangent.z);
@@ -3256,7 +3657,7 @@ export function buildTrack(
       const side = idx % 2 === 0 ? -1 : 1;
       const rx = s.point.x + s.right.x * side * (barrierHalfWidth + 36);
       const rz = s.point.z + s.right.z * side * (barrierHalfWidth + 36);
-      if (!isClearOfTrack(rx, rz, barrierHalfWidth + 28)) return;
+      if (!tryPlaceStructure(rx, rz, 20, barrierHalfWidth + 28, 4)) return;
       const ry = sampleTerrainInfo(rx, rz).height - 1.5;
       const yaw = Math.atan2(-s.tangent.x, -s.tangent.z);
       const quad = new THREE.Group();
@@ -3283,9 +3684,9 @@ export function buildTrack(
       }
       group.add(quad);
 
-      const poleX = rx + s.right.x * side * 14;
-      const poleZ = rz + s.right.z * side * 14;
-      if (isClearOfTrack(poleX, poleZ, barrierHalfWidth + 16)) {
+      const poleX = rx + s.right.x * side * 29;
+      const poleZ = rz + s.right.z * side * 29;
+      if (tryPlaceStructure(poleX, poleZ, 5, barrierHalfWidth + 16, 2)) {
         const pole = new THREE.Mesh(track(new THREE.CylinderGeometry(0.45, 0.72, 34, 8)), steelMat);
         pole.position.set(poleX, ry + 17, poleZ);
         const headBar = new THREE.Mesh(track(new THREE.BoxGeometry(8.6, 0.6, 1.2)), steelMat);
@@ -3323,7 +3724,7 @@ export function buildTrack(
       const side = idx === 1 ? -1 : 1;
       const sx = s.point.x + s.right.x * side * 52;
       const sz = s.point.z + s.right.z * side * 52;
-      if (!isClearOfTrack(sx, sz, barrierHalfWidth + 30)) return;
+      if (!tryPlaceStructure(sx, sz, 20, barrierHalfWidth + 30, 4)) return;
       const baseH = sampleTerrainInfo(sx, sz).height - 1.5;
       const plinth = new THREE.Mesh(track(new THREE.CylinderGeometry(17, 18, 3.5, 22)), concreteStructMat);
       plinth.position.set(sx, baseH + 1.75, sz);
@@ -3334,9 +3735,9 @@ export function buildTrack(
       glowBand.position.set(sx, baseH + 49.5, sz);
       group.add(plinth, tower, glowBand);
 
-      const stackX = sx + s.right.x * side * 22;
-      const stackZ = sz + s.right.z * side * 22;
-      if (isClearOfTrack(stackX, stackZ, barrierHalfWidth + 18)) {
+      const stackX = sx + s.right.x * side * 30;
+      const stackZ = sz + s.right.z * side * 30;
+      if (tryPlaceStructure(stackX, stackZ, 6, barrierHalfWidth + 18, 3)) {
         const stack = new THREE.Mesh(chimneyGeo, steelMat);
         stack.position.set(stackX, baseH + 33, stackZ);
         const stackBand = new THREE.Mesh(track(new THREE.CylinderGeometry(2.0, 2.0, 2.8, 12)), ringGlowMat);
@@ -3348,7 +3749,18 @@ export function buildTrack(
     // Overhead Steel Pipe Bridges across highway (conflict-checked against tunnels & shortcut portals)
     [0.18, 0.62].forEach((prog) => {
       const pIdx = resolveClearIdx(prog, 8);
+      reserveIdx(pIdx);
       const s = samples[pIdx];
+      placedStructures.push({
+        x: s.point.x - s.right.x * (barrierHalfWidth + 1.1),
+        z: s.point.z - s.right.z * (barrierHalfWidth + 1.1),
+        r: 3.0,
+      });
+      placedStructures.push({
+        x: s.point.x + s.right.x * (barrierHalfWidth + 1.1),
+        z: s.point.z + s.right.z * (barrierHalfWidth + 1.1),
+        r: 3.0,
+      });
       const pg = new THREE.Group();
       pg.position.copy(s.point);
       pg.rotation.y = Math.atan2(-s.tangent.x, -s.tangent.z);
@@ -3380,9 +3792,39 @@ export function buildTrack(
     const trainWinMat = track(
       new THREE.MeshStandardMaterial({ color: '#E0F2FE', emissive: new THREE.Color('#38BDF8'), emissiveIntensity: 3.5 }),
     );
-    [0.32, 0.78].forEach((prog, idx) => {
-      const mIdx = resolveClearIdx(prog, 8);
+    [0.19, 0.77].forEach((prog, idx) => {
+      const mIdx = resolveClearIdx(prog, 12, true);
       const s = samples[mIdx];
+      // Verify wide monorail deck (±(barrierHalfWidth + 32)) clears all shortcuts and non-local road loops
+      let spanClear = true;
+      for (let lat = -(barrierHalfWidth + 32); lat <= barrierHalfWidth + 32; lat += 8) {
+        const wx = s.point.x + s.right.x * lat;
+        const wz = s.point.z + s.right.z * lat;
+        if (!isClearOfShortcuts(wx, wz, 8.0)) {
+          spanClear = false;
+          break;
+        }
+        if (Math.abs(lat) > barrierHalfWidth + 4) {
+          for (let oi = 0; oi < SAMPLE_COUNT; oi += 3) {
+            if (idxDist(mIdx, oi) < 14) continue;
+            const os = samples[oi];
+            if (Math.abs(os.point.y - s.point.y) < 18 && Math.hypot(wx - os.point.x, wz - os.point.z) < barrierHalfWidth + 6.0) {
+              spanClear = false;
+              break;
+            }
+          }
+        }
+        if (!spanClear) break;
+      }
+      if (!spanClear) return;
+      reserveIdx(mIdx);
+      for (const footLat of [-36, -18, 0, 18, 36]) {
+        placedStructures.push({
+          x: s.point.x + s.right.x * footLat,
+          z: s.point.z + s.right.z * footLat,
+          r: 12,
+        });
+      }
       const mg = new THREE.Group();
       mg.position.copy(s.point);
       mg.rotation.y = Math.atan2(-s.tangent.x, -s.tangent.z);
@@ -3437,7 +3879,18 @@ export function buildTrack(
     const trussSlateMat = track(new THREE.MeshStandardMaterial({ color: '#27272A', roughness: 0.78 }));
     [0.20, 0.78].forEach((prog) => {
       const aIdx = resolveClearIdx(prog, 8);
+      reserveIdx(aIdx);
       const s = samples[aIdx];
+      placedStructures.push({
+        x: s.point.x - s.right.x * (barrierHalfWidth + 0.3),
+        z: s.point.z - s.right.z * (barrierHalfWidth + 0.3),
+        r: 3.2,
+      });
+      placedStructures.push({
+        x: s.point.x + s.right.x * (barrierHalfWidth + 0.3),
+        z: s.point.z + s.right.z * (barrierHalfWidth + 0.3),
+        r: 3.2,
+      });
       const ag = new THREE.Group();
       ag.position.copy(s.point);
       ag.rotation.y = Math.atan2(-s.tangent.x, -s.tangent.z);
@@ -3464,7 +3917,18 @@ export function buildTrack(
     const timberMat = track(new THREE.MeshStandardMaterial({ color: '#5C3A21', roughness: 0.88, metalness: 0.08 }));
     [0.22, 0.67].forEach((prog) => {
       const aIdx = resolveClearIdx(prog, 8);
+      reserveIdx(aIdx);
       const s = samples[aIdx];
+      placedStructures.push({
+        x: s.point.x - s.right.x * (barrierHalfWidth + 0.3),
+        z: s.point.z - s.right.z * (barrierHalfWidth + 0.3),
+        r: 3.2,
+      });
+      placedStructures.push({
+        x: s.point.x + s.right.x * (barrierHalfWidth + 0.3),
+        z: s.point.z + s.right.z * (barrierHalfWidth + 0.3),
+        r: 3.2,
+      });
       const archG = new THREE.Group();
       archG.position.copy(s.point);
       archG.rotation.y = Math.atan2(-s.tangent.x, -s.tangent.z);
@@ -3491,7 +3955,7 @@ export function buildTrack(
       const mesaS = samples[Math.floor(SAMPLE_COUNT * 0.62)];
       const mx = mesaS.point.x + mesaS.right.x * 54;
       const mz = mesaS.point.z + mesaS.right.z * 54;
-      if (isClearOfTrack(mx, mz, barrierHalfWidth + 28)) {
+      if (tryPlaceStructure(mx, mz, 24, barrierHalfWidth + 28, 5)) {
         const my = sampleTerrainInfo(mx, mz).height - 2.0;
         const archMesa = new THREE.Group();
         archMesa.position.set(mx, my, mz);
@@ -3513,7 +3977,7 @@ export function buildTrack(
       const obsS = samples[Math.floor(SAMPLE_COUNT * 0.28)];
       const ox = obsS.point.x - obsS.right.x * 58;
       const oz = obsS.point.z - obsS.right.z * 58;
-      if (isClearOfTrack(ox, oz, barrierHalfWidth + 30)) {
+      if (tryPlaceStructure(ox, oz, 24, barrierHalfWidth + 30, 5)) {
         const oy = sampleTerrainInfo(ox, oz).height - 2.0;
         const obsMat = track(new THREE.MeshStandardMaterial({ color: '#E2E8F0', roughness: 0.4, metalness: 0.38 }));
         const obsGroup = new THREE.Group();
@@ -3536,9 +4000,9 @@ export function buildTrack(
         obsGroup.add(terrace, base, ringBand, dome, slit, scope);
         group.add(obsGroup);
 
-        const mastX = ox - obsS.right.x * 26;
-        const mastZ = oz - obsS.right.z * 26;
-        if (isClearOfTrack(mastX, mastZ, barrierHalfWidth + 16)) {
+        const mastX = ox - obsS.right.x * 36;
+        const mastZ = oz - obsS.right.z * 36;
+        if (tryPlaceStructure(mastX, mastZ, 7, barrierHalfWidth + 16, 3)) {
           const mast = new THREE.Mesh(track(new THREE.CylinderGeometry(0.42, 1.15, 48, 8)), steelMat);
           mast.position.set(mastX, oy + 24, mastZ);
           const dish = new THREE.Mesh(track(new THREE.ConeGeometry(4.2, 2.2, 14)), obsMat);
@@ -3699,7 +4163,8 @@ export function buildTrack(
     const side = i % 2 === 0 ? 1 : -1;
     const bbX = s.point.x + s.right.x * side * (barrierHalfWidth + 7.2);
     const bbZ = s.point.z + s.right.z * side * (barrierHalfWidth + 7.2);
-    if (!isClearOfTrack(bbX, bbZ, barrierHalfWidth + 5.0)) return;
+    if (!tryPlaceStructure(bbX, bbZ, 8, barrierHalfWidth + 5.5, 2.0)) return;
+    reserveIdx(sIdx);
     const bb = new THREE.Group();
     bb.position.set(bbX, s.point.y, bbZ);
     bb.rotation.y = Math.atan2(-s.tangent.x, -s.tangent.z) + (side === 1 ? -0.35 : 0.35);
@@ -3905,10 +4370,10 @@ export function buildTrack(
   for (let i = 0; i < 16; i++) {
     const sIdx = Math.floor(((i + 0.4) / 16) * SAMPLE_COUNT) % SAMPLE_COUNT;
     if (isInsideAnyTunnel(sIdx)) continue;
-    if (shortcutPortalIndices.some((pi) => idxDist(sIdx, pi) < 5)) continue;
+    if (shortcutPortalIndices.some((pi) => idxDist(sIdx, pi) < 9)) continue;
     const s = samples[sIdx];
     const side = i % 2 === 0 ? 1 : -1;
-    const lat = side * (roadHalfWidth - 0.65);
+    const lat = side * (roadHalfWidth + 0.35);
     const pos = s.point.clone().addScaledVector(s.right, lat);
     pos.y += 0.05 + lat * Math.sin(s.bankAngle);
 
@@ -3928,7 +4393,7 @@ export function buildTrack(
     });
   }
 
-  // --- 11. Pursuit Breakers (Conflict-Checked Outside Tunnels & Shortcuts) ---
+  // --- 11. Pursuit Breakers (Conflict-Checked Outside Tunnels & Shortcuts & Viaduct Bridges) ---
   const pursuitBreakers: PursuitBreaker[] = [];
   const breakerSpecs = [
     { prog: 0.21, side: 1 },
@@ -3949,12 +4414,13 @@ export function buildTrack(
   );
 
   breakerSpecs.forEach((spec, i) => {
-    const idx = resolveClearIdx(spec.prog, 9);
+    const idx = resolveClearIdx(spec.prog, 9, true);
     reserveIdx(idx);
     const s = samples[idx];
-    const lat = spec.side * (roadHalfWidth + 0.15);
+    const lat = spec.side * (roadHalfWidth + 1.15);
     const pos = s.point.clone().addScaledVector(s.right, lat);
     pos.y += lat * Math.sin(s.bankAngle);
+    if (!isClearOfShortcuts(pos.x, pos.z, 7.5)) return;
     const bGroup = new THREE.Group();
     bGroup.position.copy(pos);
     bGroup.rotation.y = Math.atan2(-s.tangent.x, -s.tangent.z);
@@ -4058,17 +4524,34 @@ export function buildTrack(
     }),
   );
 
+  const isSidePropClear = (px: number, pz: number, srcIdx: number, srcY: number, scMargin: number): boolean => {
+    if (!isClearOfShortcuts(px, pz, scMargin)) return false;
+    if (!isClearOfPlaced(px, pz, 1.5, 1.5)) return false;
+    for (let oi = 0; oi < SAMPLE_COUNT; oi += 3) {
+      if (idxDist(srcIdx, oi) < 12) continue;
+      const os = samples[oi];
+      if (
+        Math.abs(os.point.y - srcY) < 16 &&
+        Math.hypot(px - os.point.x, pz - os.point.z) < barrierHalfWidth + 4.0
+      ) {
+        return false;
+      }
+    }
+    return true;
+  };
+
   const polePlacements: { idx: number; side: number; px: number; py: number; pz: number; s: TrackSample }[] = [];
   for (let i = 0; i < lightPoleCount; i++) {
     const idx = Math.floor((i / lightPoleCount) * SAMPLE_COUNT);
-    if (isInsideAnyTunnel(idx, 2) || isNearShortcutPortal(idx, 4)) continue;
+    if (isInsideAnyTunnel(idx, 2) || isNearShortcutPortal(idx, 8)) continue;
+    if (occupiedFeatureIndices.some((oi) => idxDist(idx, oi) < 3)) continue;
     const s = samples[idx];
     const side = i % 2 === 0 ? 1 : -1;
     if ((side < 0 && leftBarrierCutout[idx] === 1) || (side > 0 && rightBarrierCutout[idx] === 1)) continue;
     const px = s.point.x + s.right.x * side * (barrierHalfWidth + 1.0);
     const pz = s.point.z + s.right.z * side * (barrierHalfWidth + 1.0);
-    if (!isClearOfShortcuts(px, pz, 5.5)) continue;
     const py = s.point.y + side * barrierHalfWidth * Math.sin(s.bankAngle);
+    if (!isSidePropClear(px, pz, idx, py, 5.5)) continue;
     polePlacements.push({ idx, side, px, py, pz, s });
   }
 
@@ -4143,6 +4626,7 @@ export function buildTrack(
   const rightTurnChevs: { s: TrackSample; outerSide: number }[] = [];
   for (let i = 0; i < SAMPLE_COUNT; i += 4) {
     if (isInsideAnyTunnel(i, 1) || isNearShortcutPortal(i, 5)) continue;
+    if (occupiedFeatureIndices.some((oi) => idxDist(i, oi) < 3)) continue;
     const sPrev = samples[(i - 4 + SAMPLE_COUNT) % SAMPLE_COUNT];
     const sNext = samples[(i + 4) % SAMPLE_COUNT];
     const turnCross = sPrev.tangent.x * sNext.tangent.z - sPrev.tangent.z * sNext.tangent.x;
@@ -4152,7 +4636,7 @@ export function buildTrack(
       if ((outerSide < 0 && leftBarrierCutout[i] === 1) || (outerSide > 0 && rightBarrierCutout[i] === 1)) continue;
       const cx = s.point.x + s.right.x * outerSide * (barrierHalfWidth + 0.5);
       const cz = s.point.z + s.right.z * outerSide * (barrierHalfWidth + 0.5);
-      if (!isClearOfShortcuts(cx, cz, 5.0)) continue;
+      if (!isSidePropClear(cx, cz, i, s.point.y, 5.5)) continue;
       if (turnCross > 0) {
         rightTurnChevs.push({ s, outerSide: -1 });
       } else {
@@ -4193,7 +4677,7 @@ export function buildTrack(
     if (ti % 2 !== 0) return;
     const s = item.s;
     const bankSlope = Math.sin(s.bankAngle);
-    const lat = item.outerSide * (barrierHalfWidth - 0.6);
+    const lat = item.outerSide * (barrierHalfWidth - 0.3);
     const yaw = Math.atan2(-s.tangent.x, -s.tangent.z);
     for (let stack = 0; stack < 3; stack++) {
       apexTireSpots.push({
@@ -4246,11 +4730,12 @@ export function buildTrack(
       marks.forEach((m) => {
         const bIdx = (i - m.offset + SAMPLE_COUNT) % SAMPLE_COUNT;
         if (isInsideAnyTunnel(bIdx, 1) || isNearShortcutPortal(bIdx, 5)) return;
+        if (occupiedFeatureIndices.some((oi) => idxDist(bIdx, oi) < 2)) return;
         if ((outerSide < 0 && leftBarrierCutout[bIdx] === 1) || (outerSide > 0 && rightBarrierCutout[bIdx] === 1)) return;
         const bs = samples[bIdx];
         const bx = bs.point.x + bs.right.x * outerSide * (barrierHalfWidth + 1.35);
         const bz = bs.point.z + bs.right.z * outerSide * (barrierHalfWidth + 1.35);
-        if (!isClearOfShortcuts(bx, bz, 5.5)) return;
+        if (!isSidePropClear(bx, bz, bIdx, bs.point.y, 5.5)) return;
         brakeSpots.push({ idx: bIdx, outerSide, label: m.label });
       });
       i += 18;
@@ -4353,7 +4838,8 @@ export function buildTrack(
     const side = gIdx === 0 ? -1 : 1;
     const gx = s.point.x + s.right.x * side * (barrierHalfWidth + 24);
     const gz = s.point.z + s.right.z * side * (barrierHalfWidth + 24);
-    if (!isClearOfTrack(gx, gz, barrierHalfWidth + 22)) return;
+    if (!tryPlaceStructure(gx, gz, 21, barrierHalfWidth + 22, 4)) return;
+    reserveIdx(gsIdx);
     const gy = Math.max(s.point.y - 0.5, sampleTerrainInfo(gx, gz).height);
     const gsG = new THREE.Group();
     gsG.position.set(gx, gy, gz);
@@ -4381,264 +4867,6 @@ export function buildTrack(
     gsG.add(canopy, floodBar);
     group.add(gsG);
   });
-
-  // --- 14. Environment-Adapted Multi-Part Foliage (Palms, Broadleaf / Olive Groves & Cypress) ---
-  interface TreeSpot {
-    x: number;
-    y: number;
-    z: number;
-    scale: number;
-    tint: THREE.Color;
-    kind: 'palm' | 'broadleaf';
-  }
-  const treePositions: TreeSpot[] = [];
-  const foliagePalette =
-    isForestTrack || environment === 'noon_clear' || environment === 'dawn_mist' || environment === 'mediterranean_day'
-      ? [
-          new THREE.Color('#2E7D32'),
-          new THREE.Color('#43A047'),
-          new THREE.Color('#558B2F'),
-          new THREE.Color('#689F38'),
-          new THREE.Color('#2E6F40'),
-        ]
-      : environment === 'canyon_sun'
-        ? [
-            new THREE.Color('#EA580C'),
-            new THREE.Color('#D97706'),
-            new THREE.Color('#65A30D'),
-            new THREE.Color('#4D7C0F'),
-            new THREE.Color('#CA8A04'),
-          ]
-        : [
-            new THREE.Color('#D97706'),
-            new THREE.Color('#B45309'),
-            new THREE.Color('#4D7C0F'),
-            new THREE.Color('#3F6212'),
-            new THREE.Color('#65A30D'),
-            new THREE.Color('#CA8A04'),
-          ];
-
-  const treeStep = isForestTrack ? 3 : 4;
-  for (let i = 0; i < SAMPLE_COUNT; i += treeStep) {
-    const s = samples[i];
-    const side = i % 2 === 0 ? 1 : -1;
-    const distOut = barrierHalfWidth + 13 + ((i * 7) % 16);
-    const tx = s.point.x + s.right.x * side * distOut;
-    const tz = s.point.z + s.right.z * side * distOut;
-    if (hasHarborBay && tz < minZ + 380 && tx > minX - 80 && tx < maxX + 120) continue;
-    if (isClearOfTrack(tx, tz, barrierHalfWidth + 10)) {
-      const ty = sampleTerrainInfo(tx, tz).height;
-      if (ty > -3) {
-        const forestBoost = trackId === 'heritage_forest' ? 1.38 : isForestTrack ? 1.15 : 0.94;
-        const nearCoast = hasHarborBay && tz < minZ + 560;
-        treePositions.push({
-          x: tx,
-          y: ty - 0.3,
-          z: tz,
-          scale: forestBoost + ((i * 13) % 7) * 0.11,
-          tint: foliagePalette[i % foliagePalette.length],
-          kind: nearCoast || ((trackId === 'rockport_loop' || trackId === 'camden_coast') && i % 3 === 0) ? 'palm' : 'broadleaf',
-        });
-      }
-    }
-  }
-
-  for (let t = 0; t < (isForestTrack ? 280 : 190); t++) {
-    const ang = t * 2.39996;
-    const rad = 140 + ((t * 73) % 1450);
-    const tx = terrainCenterX + Math.cos(ang) * rad;
-    const tz = terrainCenterZ + Math.sin(ang) * rad;
-    if (hasHarborBay && tz < minZ + 380 && tx > minX - 80 && tx < maxX + 120) continue;
-    if (isClearOfTrack(tx, tz, barrierHalfWidth + 26)) {
-      const ty = sampleTerrainInfo(tx, tz).height;
-      if (ty > -3) {
-        const nearCoast = hasHarborBay && tz < minZ + 560;
-        treePositions.push({
-          x: tx,
-          y: ty - 0.4,
-          z: tz,
-          scale: (trackId === 'heritage_forest' ? 1.32 : 1.0) + (t % 5) * 0.16,
-          tint: foliagePalette[t % foliagePalette.length],
-          kind: nearCoast ? 'palm' : 'broadleaf',
-        });
-      }
-    }
-  }
-
-  const palmTrees = treePositions.filter((t) => t.kind === 'palm');
-  const broadTrees = treePositions.filter((t) => t.kind === 'broadleaf');
-
-  if (palmTrees.length > 0) {
-    // Multi-part Date Palms: tapered lower trunk + angled upper trunk + 6 arched radiating fronds
-    const palmLowerGeo = track(new THREE.CylinderGeometry(0.28, 0.44, 4.6, 7));
-    palmLowerGeo.translate(0, 2.3, 0);
-    const palmUpperGeo = track(new THREE.CylinderGeometry(0.20, 0.28, 4.2, 7));
-    palmUpperGeo.translate(0, 2.1, 0);
-    const palmTrunkMat = track(new THREE.MeshStandardMaterial({ color: '#6B4F35', roughness: 0.92 }));
-    const palmFrondGeo = track(new THREE.BoxGeometry(0.95, 0.14, 3.6));
-    palmFrondGeo.translate(0, 0, 1.8);
-    const palmFrondMat = track(new THREE.MeshStandardMaterial({ color: '#2F855A', roughness: 0.72 }));
-
-    const pLow = new THREE.InstancedMesh(palmLowerGeo, palmTrunkMat, palmTrees.length);
-    const pUp = new THREE.InstancedMesh(palmUpperGeo, palmTrunkMat, palmTrees.length);
-    const pFronds = new THREE.InstancedMesh(palmFrondGeo, palmFrondMat, palmTrees.length * 6);
-    const frondTint = new THREE.Color('#38A169');
-
-    palmTrees.forEach((tp, idx) => {
-      const yaw = idx * 1.15;
-      const lean = 0.08 + (idx % 3) * 0.03;
-      dummy.position.set(tp.x, tp.y, tp.z);
-      dummy.rotation.set(lean, yaw, 0, 'YXZ');
-      dummy.scale.setScalar(tp.scale);
-      dummy.updateMatrix();
-      pLow.setMatrixAt(idx, dummy.matrix);
-
-      const topX = tp.x + Math.sin(yaw) * Math.sin(lean) * 4.4 * tp.scale;
-      const topZ = tp.z + Math.cos(yaw) * Math.sin(lean) * 4.4 * tp.scale;
-      const topY = tp.y + Math.cos(lean) * 4.4 * tp.scale;
-      dummy.position.set(topX, topY, topZ);
-      dummy.rotation.set(lean * 1.4, yaw, 0, 'YXZ');
-      dummy.scale.setScalar(tp.scale);
-      dummy.updateMatrix();
-      pUp.setMatrixAt(idx, dummy.matrix);
-
-      const crownX = topX + Math.sin(yaw) * Math.sin(lean * 1.4) * 4.0 * tp.scale;
-      const crownZ = topZ + Math.cos(yaw) * Math.sin(lean * 1.4) * 4.0 * tp.scale;
-      const crownY = topY + Math.cos(lean * 1.4) * 4.0 * tp.scale;
-      for (let f = 0; f < 6; f++) {
-        const fYaw = yaw + (f / 6) * Math.PI * 2;
-        dummy.position.set(crownX, crownY, crownZ);
-        dummy.rotation.set(0.32 + (f % 2) * 0.14, fYaw, 0, 'YXZ');
-        dummy.scale.set(tp.scale, tp.scale, tp.scale * (0.92 + (f % 3) * 0.1));
-        dummy.updateMatrix();
-        pFronds.setMatrixAt(idx * 6 + f, dummy.matrix);
-        pFronds.setColorAt(idx * 6 + f, f % 2 === 0 ? frondTint : tp.tint);
-      }
-    });
-    [pLow, pUp, pFronds].forEach((m) => {
-      m.instanceMatrix.needsUpdate = true;
-      m.computeBoundingSphere();
-      group.add(m);
-    });
-    if (pFronds.instanceColor) pFronds.instanceColor.needsUpdate = true;
-  }
-
-  if (broadTrees.length > 0) {
-    // Multi-part Mediterranean Broadleaf / Olive Trees (trunk + 3 organic asymmetric foliage clusters)
-    const trunkGeo = track(new THREE.CylinderGeometry(0.28, 0.48, 4.4, 7));
-    trunkGeo.translate(0, 2.2, 0);
-    const trunkMat = track(new THREE.MeshStandardMaterial({ color: '#4A3222', roughness: 0.94 }));
-    const crownMainGeo = track(new THREE.DodecahedronGeometry(2.6, 1));
-    crownMainGeo.translate(0, 5.8, 0);
-    const crownSideGeo = track(new THREE.DodecahedronGeometry(1.85, 1));
-    crownSideGeo.translate(1.25, 4.9, 0.7);
-    const crownTopGeo = track(new THREE.DodecahedronGeometry(1.65, 1));
-    crownTopGeo.translate(-0.85, 6.8, -0.6);
-    const foliageMat = track(new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: 0.84, metalness: 0.02 }));
-
-    const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, broadTrees.length);
-    const leaves1 = new THREE.InstancedMesh(crownMainGeo, foliageMat, broadTrees.length);
-    const leaves2 = new THREE.InstancedMesh(crownSideGeo, foliageMat, broadTrees.length);
-    const leaves3 = new THREE.InstancedMesh(crownTopGeo, foliageMat, broadTrees.length);
-
-    broadTrees.forEach((tp, idx) => {
-      dummy.position.set(tp.x, tp.y, tp.z);
-      dummy.rotation.set(0, idx * 0.85, 0);
-      dummy.scale.set(tp.scale * (0.95 + (idx % 3) * 0.08), tp.scale, tp.scale * (0.95 + ((idx + 1) % 3) * 0.08));
-      dummy.updateMatrix();
-      trunks.setMatrixAt(idx, dummy.matrix);
-      leaves1.setMatrixAt(idx, dummy.matrix);
-      leaves2.setMatrixAt(idx, dummy.matrix);
-      leaves3.setMatrixAt(idx, dummy.matrix);
-      leaves1.setColorAt(idx, tp.tint);
-      leaves2.setColorAt(idx, tp.tint);
-      leaves3.setColorAt(idx, tp.tint);
-    });
-    [trunks, leaves1, leaves2, leaves3].forEach((m) => {
-      m.instanceMatrix.needsUpdate = true;
-      m.computeBoundingSphere();
-      group.add(m);
-    });
-    if (leaves1.instanceColor) leaves1.instanceColor.needsUpdate = true;
-    if (leaves2.instanceColor) leaves2.instanceColor.needsUpdate = true;
-    if (leaves3.instanceColor) leaves3.instanceColor.needsUpdate = true;
-  }
-
-  // Trackside Bushes, Shrub Clusters & Rock Outcrops along road verges (eliminates empty terrain)
-  const bushSpots: { x: number; y: number; z: number; sx: number; sy: number; sz: number; tint: THREE.Color }[] = [];
-  const rockSpots: { x: number; y: number; z: number; sx: number; sy: number; sz: number; rot: number }[] = [];
-  for (let i = 2; i < SAMPLE_COUNT; i += 3) {
-    if (isInsideAnyTunnel(i, 1) || isNearShortcutPortal(i, 3)) continue;
-    const s = samples[i];
-    const side = i % 2 === 0 ? 1 : -1;
-    const distOut = barrierHalfWidth + 6.5 + ((i * 11) % 10);
-    const bx = s.point.x + s.right.x * side * distOut;
-    const bz = s.point.z + s.right.z * side * distOut;
-    if (hasHarborBay && bz < minZ + 380 && bx > minX - 80 && bx < maxX + 120) continue;
-    if (!isClearOfTrack(bx, bz, barrierHalfWidth + 5.0)) continue;
-    const by = Math.max(s.point.y - 0.8, sampleTerrainInfo(bx, bz).height);
-    if (by < -2.2) continue;
-
-    if (isCanyonOrSummit && i % 6 === 0) {
-      rockSpots.push({
-        x: bx,
-        y: by + 0.4,
-        z: bz,
-        sx: 1.6 + (i % 4) * 0.7,
-        sy: 1.0 + (i % 3) * 0.55,
-        sz: 1.5 + ((i * 3) % 4) * 0.65,
-        rot: i * 0.7,
-      });
-    } else {
-      bushSpots.push({
-        x: bx,
-        y: by + 0.35,
-        z: bz,
-        sx: 1.2 + (i % 4) * 0.42,
-        sy: 0.75 + (i % 3) * 0.3,
-        sz: 1.2 + ((i + 2) % 4) * 0.4,
-        tint: foliagePalette[(i + 1) % foliagePalette.length],
-      });
-    }
-  }
-  if (bushSpots.length > 0) {
-    const bushGeo = track(new THREE.IcosahedronGeometry(1.15, 1));
-    const bushMat = track(new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: 0.88, metalness: 0.02 }));
-    const bushInst = new THREE.InstancedMesh(bushGeo, bushMat, bushSpots.length);
-    bushSpots.forEach((bs, idx) => {
-      dummy.position.set(bs.x, bs.y, bs.z);
-      dummy.rotation.set(0, idx * 0.55, 0);
-      dummy.scale.set(bs.sx, bs.sy, bs.sz);
-      dummy.updateMatrix();
-      bushInst.setMatrixAt(idx, dummy.matrix);
-      bushInst.setColorAt(idx, bs.tint);
-    });
-    bushInst.instanceMatrix.needsUpdate = true;
-    if (bushInst.instanceColor) bushInst.instanceColor.needsUpdate = true;
-    bushInst.computeBoundingSphere();
-    group.add(bushInst);
-  }
-  if (rockSpots.length > 0) {
-    const bldRockGeo = track(new THREE.DodecahedronGeometry(1.3, 0));
-    const bldRockMat = track(
-      new THREE.MeshStandardMaterial({
-        color: trackId === 'blackridge_summit' ? '#64748B' : '#854D27',
-        roughness: 0.95,
-        metalness: 0.04,
-      }),
-    );
-    const rockInst = new THREE.InstancedMesh(bldRockGeo, bldRockMat, rockSpots.length);
-    rockSpots.forEach((rs, idx) => {
-      dummy.position.set(rs.x, rs.y, rs.z);
-      dummy.rotation.set(0.2 * idx, rs.rot, 0.1 * idx);
-      dummy.scale.set(rs.sx, rs.sy, rs.sz);
-      dummy.updateMatrix();
-      rockInst.setMatrixAt(idx, dummy.matrix);
-    });
-    rockInst.instanceMatrix.needsUpdate = true;
-    rockInst.computeBoundingSphere();
-    group.add(rockInst);
-  }
 
   // --- 14B. Oceanfront Villas, Turquoise Pool Decks, Marina Piers & Moored Yachts + Countryside "3robyat" Rural Estates ---
   const villaTex = track(createBuildingFacadeTexture(maxAnisotropy, 'villa'));
@@ -4687,13 +4915,15 @@ export function buildTrack(
     if (!inRuralZone && !(hasHarborBay && s.point.z < minZ + 620)) continue;
 
     const side = i % 2 === 0 ? 1 : -1;
-    const distOut = barrierHalfWidth + 27 + ((i * 9) % 24);
+    const vScale = 0.94 + (i % 3) * 0.16;
+    const vRad = 16.5 * vScale;
+    const distOut = barrierHalfWidth + 29 + ((i * 9) % 24);
     const vx = s.point.x + s.right.x * side * distOut;
     const vz = s.point.z + s.right.z * side * distOut;
     if (hasHarborBay && vz < minZ + 380 && vx > minX - 80 && vx < maxX + 120) continue;
-    if (!isClearOfTrack(vx, vz, barrierHalfWidth + 23)) continue;
     const vy = sampleTerrainInfo(vx, vz).height;
     if (vy < -1.8) continue;
+    if (!tryPlaceStructure(vx, vz, vRad, barrierHalfWidth + vRad + 5.5, 4.5)) continue;
 
     const isCoastalVilla = hasHarborBay && vz < minZ + 680;
     villaSpots.push({
@@ -4701,7 +4931,7 @@ export function buildTrack(
       y: vy - 0.35,
       z: vz,
       yaw: Math.atan2(-s.tangent.x, -s.tangent.z) + (side > 0 ? Math.PI * 0.5 : -Math.PI * 0.5),
-      scale: 0.94 + (i % 3) * 0.16,
+      scale: vScale,
       hasPool: isCoastalVilla || i % 2 === 0,
     });
   }
@@ -4774,7 +5004,7 @@ export function buildTrack(
   }
 
   // Countryside Windmills / Turbines on rural ridges ("3robyat" open countryside horizons)
-  if (!isCanyonOrSummit && trackId !== 'downtown_labyrinth') {
+  if (!isCanyonOrSummit && trackId !== 'downtown_labyrinth' && trackId !== 'hwy99_speedway') {
     const millSpots: { x: number; y: number; z: number; yaw: number; scale: number }[] = [];
     for (let m = 0; m < 10; m++) {
       const s = samples[Math.floor(((0.22 + m * 0.052) % 1) * SAMPLE_COUNT)];
@@ -4782,7 +5012,7 @@ export function buildTrack(
       const mx = s.point.x + s.right.x * side * (barrierHalfWidth + 68 + (m % 3) * 26);
       const mz = s.point.z + s.right.z * side * (barrierHalfWidth + 68 + (m % 3) * 26);
       if (hasHarborBay && mz < minZ + 380 && mx > minX - 80 && mx < maxX + 120) continue;
-      if (!isClearOfTrack(mx, mz, barrierHalfWidth + 52)) continue;
+      if (!tryPlaceStructure(mx, mz, 14, barrierHalfWidth + 52, 6)) continue;
       const my = sampleTerrainInfo(mx, mz).height;
       if (my > 0) {
         millSpots.push({ x: mx, y: my - 0.5, z: mz, yaw: m * 0.7, scale: 1.0 + (m % 3) * 0.18 });
@@ -4839,9 +5069,9 @@ export function buildTrack(
     const fx = s.point.x + s.right.x * side * distOut;
     const fz = s.point.z + s.right.z * side * distOut;
     if (hasHarborBay && fz < minZ + 380 && fx > minX - 80 && fx < maxX + 120) return;
-    if (!isClearOfTrack(fx, fz, barrierHalfWidth + 21)) return;
     const fy = sampleTerrainInfo(fx, fz).height;
     if (fy < -1.5) return;
+    if (!tryPlaceStructure(fx, fz, 15.5, barrierHalfWidth + 21, 3)) return;
     stationSpots.push({
       x: fx,
       y: fy - 0.25,
@@ -4906,12 +5136,12 @@ export function buildTrack(
     });
   }
 
-  // Tall Mediterranean Cypress Trees flanking villa drives & coastal ridges
+  // Tall Mediterranean Cypress Trees flanking villa drives & coastal ridges (strictly clear of courtyard & walls)
   const cypressSpots: { x: number; y: number; z: number; scale: number }[] = [];
   villaSpots.forEach((vs, vi) => {
-    const cx = vs.x + Math.cos(vs.yaw) * 11.5;
-    const cz = vs.z - Math.sin(vs.yaw) * 11.5;
-    if (isClearOfTrack(cx, cz, barrierHalfWidth + 14)) {
+    const cx = vs.x + Math.cos(vs.yaw) * (18.5 * vs.scale);
+    const cz = vs.z - Math.sin(vs.yaw) * (18.5 * vs.scale);
+    if (tryPlaceStructure(cx, cz, 2.6, barrierHalfWidth + 14, 1.8)) {
       cypressSpots.push({ x: cx, y: vs.y, z: cz, scale: 0.9 + (vi % 3) * 0.22 });
     }
   });
@@ -4954,38 +5184,47 @@ export function buildTrack(
     const yachtGlassMat = track(new THREE.MeshStandardMaterial({ color: '#0F172A', roughness: 0.15, metalness: 0.65 }));
     const yachtWhiteMat = track(new THREE.MeshStandardMaterial({ color: '#F8FAFC', roughness: 0.3, metalness: 0.12 }));
 
-    const piers = new THREE.InstancedMesh(pierGeo, pierMat, 5);
-    const hulls = new THREE.InstancedMesh(yachtHullGeo, yachtWhiteMat, 10);
-    const cabins = new THREE.InstancedMesh(yachtCabinGeo, yachtGlassMat, 10);
-    const flys = new THREE.InstancedMesh(yachtFlyGeo, yachtWhiteMat, 10);
-
+    const validPiers: { px: number; pz: number; idx: number }[] = [];
     for (let p = 0; p < 5; p++) {
       const px = terrainCenterX - 240 + p * 125;
       const pz = marinaBaseZ - 38;
-      dummy.position.set(px, waterY + 0.75, pz);
-      dummy.rotation.set(0, 0, 0);
-      dummy.scale.set(1, 1, 1);
-      dummy.updateMatrix();
-      piers.setMatrixAt(p, dummy.matrix);
-
-      for (let side = 0; side < 2; side++) {
-        const yIdx = p * 2 + side;
-        const yx = px + (side === 0 ? -5.8 : 5.8);
-        const yz = pz - 6 - side * 10;
-        dummy.position.set(yx, waterY - 0.15, yz);
-        dummy.rotation.set(0, (side === 0 ? 0.04 : -0.04) + p * 0.02, 0);
-        dummy.scale.set(1, 1, 1);
-        dummy.updateMatrix();
-        hulls.setMatrixAt(yIdx, dummy.matrix);
-        cabins.setMatrixAt(yIdx, dummy.matrix);
-        flys.setMatrixAt(yIdx, dummy.matrix);
+      if (tryPlaceStructure(px, pz, 26, barrierHalfWidth + 24, 4)) {
+        validPiers.push({ px, pz, idx: p });
       }
     }
-    [piers, hulls, cabins, flys].forEach((m) => {
-      m.instanceMatrix.needsUpdate = true;
-      m.computeBoundingSphere();
-      group.add(m);
-    });
+
+    if (validPiers.length > 0) {
+      const piers = new THREE.InstancedMesh(pierGeo, pierMat, validPiers.length);
+      const hulls = new THREE.InstancedMesh(yachtHullGeo, yachtWhiteMat, validPiers.length * 2);
+      const cabins = new THREE.InstancedMesh(yachtCabinGeo, yachtGlassMat, validPiers.length * 2);
+      const flys = new THREE.InstancedMesh(yachtFlyGeo, yachtWhiteMat, validPiers.length * 2);
+
+      validPiers.forEach(({ px, pz, idx: p }, vpIdx) => {
+        dummy.position.set(px, waterY + 0.75, pz);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        piers.setMatrixAt(vpIdx, dummy.matrix);
+
+        for (let side = 0; side < 2; side++) {
+          const yIdx = vpIdx * 2 + side;
+          const yx = px + (side === 0 ? -5.8 : 5.8);
+          const yz = pz - 6 - side * 10;
+          dummy.position.set(yx, waterY - 0.15, yz);
+          dummy.rotation.set(0, (side === 0 ? 0.04 : -0.04) + p * 0.02, 0);
+          dummy.scale.set(1, 1, 1);
+          dummy.updateMatrix();
+          hulls.setMatrixAt(yIdx, dummy.matrix);
+          cabins.setMatrixAt(yIdx, dummy.matrix);
+          flys.setMatrixAt(yIdx, dummy.matrix);
+        }
+      });
+      [piers, hulls, cabins, flys].forEach((m) => {
+        m.instanceMatrix.needsUpdate = true;
+        m.computeBoundingSphere();
+        group.add(m);
+      });
+    }
   }
 
   // Urban / Industrial Close-Track Architectural Storefronts & Awning Canopies (Zero clipping margin)
@@ -5000,17 +5239,20 @@ export function buildTrack(
       const px = s.point.x + s.right.x * side * sxOut;
       const pz = s.point.z + s.right.z * side * sxOut;
       if (hasHarborBay && pz < minZ + 380 && px > minX - 80 && px < maxX + 120) continue;
-      if (!isClearOfTrack(px, pz, barrierHalfWidth + 21.5)) continue;
+      const shSx = 10 + (i % 3) * 3;
+      const shSz = 12 + (i % 4) * 3;
+      const shRad = Math.hypot(shSx, shSz) * 0.58;
       const py = sampleTerrainInfo(px, pz).height;
       if (py < -2) continue;
+      if (!tryPlaceStructure(px, pz, shRad, barrierHalfWidth + shRad + 7.5, 3.0)) continue;
       shopSpots.push({
         x: px,
         y: py - 0.5,
         z: pz,
         yaw: Math.atan2(-s.tangent.x, -s.tangent.z),
-        sx: 10 + (i % 3) * 3,
+        sx: shSx,
         sy: 7.5 + (i % 4) * 2.5,
-        sz: 12 + (i % 4) * 3,
+        sz: shSz,
       });
     }
     if (shopSpots.length > 0) {
@@ -5073,16 +5315,20 @@ export function buildTrack(
     for (let i = 0; i < SAMPLE_COUNT; i += 7) {
       const s = samples[i];
       [-1, 1].forEach((side, sIdx) => {
-        const bx = s.point.x + s.right.x * side * (barrierHalfWidth + 46 + ((i * 5) % 28));
-        const bz = s.point.z + s.right.z * side * (barrierHalfWidth + 46 + ((i * 5) % 28));
-        if (isClearOfTrack(bx, bz, barrierHalfWidth + 38)) {
+        const bx = s.point.x + s.right.x * side * (barrierHalfWidth + 56 + ((i * 5) % 30));
+        const bz = s.point.z + s.right.z * side * (barrierHalfWidth + 56 + ((i * 5) % 30));
+        const bSx = 22 + ((i + sIdx) % 4) * 6;
+        const bSz = 22 + ((i + sIdx) % 3) * 7;
+        // rockTier1 (ConeGeometry r=1.05) scaled by 1.15 reaches horizontal radius 1.2075 * max(bSx, bSz)
+        const bRad = Math.max(bSx, bSz) * 1.24;
+        if (tryPlaceStructure(bx, bz, bRad, barrierHalfWidth + bRad + 8.0, 5.5)) {
           bldgItems.push({
             x: bx,
             y: sampleTerrainInfo(bx, bz).height - 2,
             z: bz,
-            sx: 22 + ((i + sIdx) % 4) * 6,
+            sx: bSx,
             sy: trackId === 'blackridge_summit' ? 34 + ((i * 3) % 54) : 26 + ((i * 3) % 44),
-            sz: 22 + ((i + sIdx) % 3) * 7,
+            sz: bSz,
             rot: Math.atan2(-s.tangent.x, -s.tangent.z) + sIdx * 0.4,
             variant: 0,
           });
@@ -5102,18 +5348,22 @@ export function buildTrack(
         continue;
       }
       [-1, 1].forEach((side, sIdx) => {
-        const distOut = barrierHalfWidth + 46 + ((i + sIdx * 11) % 30);
+        const distOut = barrierHalfWidth + 48 + ((i + sIdx * 11) % 30);
         const bx = s.point.x + s.right.x * side * distOut;
         const bz = s.point.z + s.right.z * side * distOut;
         if (hasHarborBay && bz < minZ + 380 && bx > minX - 80 && bx < maxX + 120) return;
-        if (isClearOfTrack(bx, bz, barrierHalfWidth + 40)) {
+        const bSx = 18 + ((i + sIdx * 3) % 4) * 4;
+        const bSz = 18 + ((i + sIdx * 5) % 4) * 4;
+        // podiumGeo is 1.12x so actual footprint radius reaches hypot(bSx, bSz) * 0.56
+        const bRad = Math.hypot(bSx, bSz) * 0.60;
+        if (tryPlaceStructure(bx, bz, bRad, barrierHalfWidth + bRad + 8.0, 4.5)) {
           bldgItems.push({
             x: bx,
             y: sampleTerrainInfo(bx, bz).height - 1.5,
             z: bz,
-            sx: 18 + ((i + sIdx * 3) % 4) * 4,
+            sx: bSx,
             sy: isDowntown ? 52 + ((i * 7) % 72) : 22 + ((i * 5) % 28),
-            sz: 18 + ((i + sIdx * 5) % 4) * 4,
+            sz: bSz,
             rot: yaw,
             variant: (i + sIdx) % 3,
           });
@@ -5122,7 +5372,7 @@ export function buildTrack(
     }
 
     // Outer city district skyline blocks for lush background depth (well back on scenic villa tracks)
-    const outerMargin = trackId === 'downtown_labyrinth' ? barrierHalfWidth + 46 : barrierHalfWidth + 82;
+    const outerBase = trackId === 'downtown_labyrinth' ? barrierHalfWidth + 48 : barrierHalfWidth + 82;
     const outerCount = trackId === 'downtown_labyrinth' ? 120 : 64;
     for (let k = 0; k < outerCount; k++) {
       const ang = k * 2.39996;
@@ -5130,14 +5380,17 @@ export function buildTrack(
       const bx = terrainCenterX + Math.cos(ang) * rad;
       const bz = terrainCenterZ + Math.sin(ang) * rad;
       if (hasHarborBay && bz < minZ + 440 && bx > minX - 100 && bx < maxX + 140) continue;
-      if (isClearOfTrack(bx, bz, outerMargin)) {
+      const bSx = 22 + (k % 4) * 5;
+      const bSz = 22 + ((k + 2) % 4) * 5;
+      const bRad = Math.hypot(bSx, bSz) * 0.60;
+      if (tryPlaceStructure(bx, bz, bRad, Math.max(outerBase, barrierHalfWidth + bRad + 8.0), 4.5)) {
         bldgItems.push({
           x: bx,
           y: sampleTerrainInfo(bx, bz).height - 1.5,
           z: bz,
-          sx: 22 + (k % 4) * 5,
+          sx: bSx,
           sy: 32 + ((k * 11) % 64),
-          sz: 22 + ((k + 2) % 4) * 5,
+          sz: bSz,
           rot: (k % 8) * (Math.PI * 0.25),
           variant: k % 3,
         });
@@ -5329,15 +5582,269 @@ export function buildTrack(
     }
   }
 
-  // --- 16. Distant Horizon Skyline / Mountain Silhouette Ring (Strictly Outside Track Perimeter) ---
+  // --- 15B. Environment-Adapted Foliage, Shrubs & Boulders (Placed AFTER all structures to prevent clipping into roofs) ---
+  interface TreeSpot {
+    x: number;
+    y: number;
+    z: number;
+    scale: number;
+    tint: THREE.Color;
+    kind: 'palm' | 'broadleaf';
+  }
+  const treePositions: TreeSpot[] = [];
+  const foliagePalette =
+    isForestTrack || environment === 'noon_clear' || environment === 'dawn_mist' || environment === 'mediterranean_day'
+      ? [
+          new THREE.Color('#2E7D32'),
+          new THREE.Color('#43A047'),
+          new THREE.Color('#558B2F'),
+          new THREE.Color('#689F38'),
+          new THREE.Color('#2E6F40'),
+        ]
+      : environment === 'canyon_sun'
+        ? [
+            new THREE.Color('#EA580C'),
+            new THREE.Color('#D97706'),
+            new THREE.Color('#65A30D'),
+            new THREE.Color('#4D7C0F'),
+            new THREE.Color('#CA8A04'),
+          ]
+        : [
+            new THREE.Color('#D97706'),
+            new THREE.Color('#B45309'),
+            new THREE.Color('#4D7C0F'),
+            new THREE.Color('#3F6212'),
+            new THREE.Color('#65A30D'),
+            new THREE.Color('#CA8A04'),
+          ];
+
+  const treeStep = isForestTrack ? 3 : 4;
+  for (let i = 0; i < SAMPLE_COUNT; i += treeStep) {
+    const s = samples[i];
+    const side = i % 2 === 0 ? 1 : -1;
+    const distOut = barrierHalfWidth + 13 + ((i * 7) % 16);
+    const tx = s.point.x + s.right.x * side * distOut;
+    const tz = s.point.z + s.right.z * side * distOut;
+    if (hasHarborBay && tz < minZ + 380 && tx > minX - 80 && tx < maxX + 120) continue;
+    const forestBoost = trackId === 'heritage_forest' ? 1.38 : isForestTrack ? 1.15 : 0.94;
+    const tScale = forestBoost + ((i * 13) % 7) * 0.11;
+    const ty = sampleTerrainInfo(tx, tz).height;
+    if (ty > -3 && tryPlaceStructure(tx, tz, 4.2 * tScale, barrierHalfWidth + 11.5, 1.5)) {
+      const nearCoast = hasHarborBay && tz < minZ + 560;
+      treePositions.push({
+        x: tx,
+        y: ty - 0.3,
+        z: tz,
+        scale: tScale,
+        tint: foliagePalette[i % foliagePalette.length],
+        kind: nearCoast || ((trackId === 'rockport_loop' || trackId === 'camden_coast') && i % 3 === 0) ? 'palm' : 'broadleaf',
+      });
+    }
+  }
+
+  for (let t = 0; t < (isForestTrack ? 280 : 190); t++) {
+    const ang = t * 2.39996;
+    const rad = 140 + ((t * 73) % 1450);
+    const tx = terrainCenterX + Math.cos(ang) * rad;
+    const tz = terrainCenterZ + Math.sin(ang) * rad;
+    if (hasHarborBay && tz < minZ + 380 && tx > minX - 80 && tx < maxX + 120) continue;
+    const tScale = (trackId === 'heritage_forest' ? 1.32 : 1.0) + (t % 5) * 0.16;
+    const ty = sampleTerrainInfo(tx, tz).height;
+    if (ty > -3 && tryPlaceStructure(tx, tz, 4.2 * tScale, barrierHalfWidth + 26, 1.5)) {
+      const nearCoast = hasHarborBay && tz < minZ + 560;
+      treePositions.push({
+        x: tx,
+        y: ty - 0.4,
+        z: tz,
+        scale: tScale,
+        tint: foliagePalette[t % foliagePalette.length],
+        kind: nearCoast ? 'palm' : 'broadleaf',
+      });
+    }
+  }
+
+  const palmTrees = treePositions.filter((t) => t.kind === 'palm');
+  const broadTrees = treePositions.filter((t) => t.kind === 'broadleaf');
+
+  if (palmTrees.length > 0) {
+    const palmLowerGeo = track(new THREE.CylinderGeometry(0.28, 0.44, 4.6, 7));
+    palmLowerGeo.translate(0, 2.3, 0);
+    const palmUpperGeo = track(new THREE.CylinderGeometry(0.20, 0.28, 4.2, 7));
+    palmUpperGeo.translate(0, 2.1, 0);
+    const palmTrunkMat = track(new THREE.MeshStandardMaterial({ color: '#6B4F35', roughness: 0.92 }));
+    const palmFrondGeo = track(new THREE.BoxGeometry(0.95, 0.14, 3.6));
+    palmFrondGeo.translate(0, 0, 1.8);
+    const palmFrondMat = track(new THREE.MeshStandardMaterial({ color: '#2F855A', roughness: 0.72 }));
+
+    const pLow = new THREE.InstancedMesh(palmLowerGeo, palmTrunkMat, palmTrees.length);
+    const pUp = new THREE.InstancedMesh(palmUpperGeo, palmTrunkMat, palmTrees.length);
+    const pFronds = new THREE.InstancedMesh(palmFrondGeo, palmFrondMat, palmTrees.length * 6);
+    const frondTint = new THREE.Color('#38A169');
+
+    palmTrees.forEach((tp, idx) => {
+      const yaw = idx * 1.15;
+      const lean = 0.08 + (idx % 3) * 0.03;
+      dummy.position.set(tp.x, tp.y, tp.z);
+      dummy.rotation.set(lean, yaw, 0, 'YXZ');
+      dummy.scale.setScalar(tp.scale);
+      dummy.updateMatrix();
+      pLow.setMatrixAt(idx, dummy.matrix);
+
+      const topX = tp.x + Math.sin(yaw) * Math.sin(lean) * 4.4 * tp.scale;
+      const topZ = tp.z + Math.cos(yaw) * Math.sin(lean) * 4.4 * tp.scale;
+      const topY = tp.y + Math.cos(lean) * 4.4 * tp.scale;
+      dummy.position.set(topX, topY, topZ);
+      dummy.rotation.set(lean * 1.4, yaw, 0, 'YXZ');
+      dummy.scale.setScalar(tp.scale);
+      dummy.updateMatrix();
+      pUp.setMatrixAt(idx, dummy.matrix);
+
+      const crownX = topX + Math.sin(yaw) * Math.sin(lean * 1.4) * 4.0 * tp.scale;
+      const crownZ = topZ + Math.cos(yaw) * Math.sin(lean * 1.4) * 4.0 * tp.scale;
+      const crownY = topY + Math.cos(lean * 1.4) * 4.0 * tp.scale;
+      for (let f = 0; f < 6; f++) {
+        const fYaw = yaw + (f / 6) * Math.PI * 2;
+        dummy.position.set(crownX, crownY, crownZ);
+        dummy.rotation.set(0.32 + (f % 2) * 0.14, fYaw, 0, 'YXZ');
+        dummy.scale.set(tp.scale, tp.scale, tp.scale * (0.92 + (f % 3) * 0.1));
+        dummy.updateMatrix();
+        pFronds.setMatrixAt(idx * 6 + f, dummy.matrix);
+        pFronds.setColorAt(idx * 6 + f, f % 2 === 0 ? frondTint : tp.tint);
+      }
+    });
+    [pLow, pUp, pFronds].forEach((m) => {
+      m.instanceMatrix.needsUpdate = true;
+      m.computeBoundingSphere();
+      group.add(m);
+    });
+    if (pFronds.instanceColor) pFronds.instanceColor.needsUpdate = true;
+  }
+
+  if (broadTrees.length > 0) {
+    const trunkGeo = track(new THREE.CylinderGeometry(0.28, 0.48, 4.4, 7));
+    trunkGeo.translate(0, 2.2, 0);
+    const trunkMat = track(new THREE.MeshStandardMaterial({ color: '#4A3222', roughness: 0.94 }));
+    const crownMainGeo = track(new THREE.DodecahedronGeometry(2.6, 1));
+    crownMainGeo.translate(0, 5.8, 0);
+    const crownSideGeo = track(new THREE.DodecahedronGeometry(1.85, 1));
+    crownSideGeo.translate(1.25, 4.9, 0.7);
+    const crownTopGeo = track(new THREE.DodecahedronGeometry(1.65, 1));
+    crownTopGeo.translate(-0.85, 6.8, -0.6);
+    const foliageMat = track(new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: 0.84, metalness: 0.02 }));
+
+    const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, broadTrees.length);
+    const leaves1 = new THREE.InstancedMesh(crownMainGeo, foliageMat, broadTrees.length);
+    const leaves2 = new THREE.InstancedMesh(crownSideGeo, foliageMat, broadTrees.length);
+    const leaves3 = new THREE.InstancedMesh(crownTopGeo, foliageMat, broadTrees.length);
+
+    broadTrees.forEach((tp, idx) => {
+      dummy.position.set(tp.x, tp.y, tp.z);
+      dummy.rotation.set(0, idx * 0.85, 0);
+      dummy.scale.set(tp.scale * (0.95 + (idx % 3) * 0.08), tp.scale, tp.scale * (0.95 + ((idx + 1) % 3) * 0.08));
+      dummy.updateMatrix();
+      trunks.setMatrixAt(idx, dummy.matrix);
+      leaves1.setMatrixAt(idx, dummy.matrix);
+      leaves2.setMatrixAt(idx, dummy.matrix);
+      leaves3.setMatrixAt(idx, dummy.matrix);
+      leaves1.setColorAt(idx, tp.tint);
+      leaves2.setColorAt(idx, tp.tint);
+      leaves3.setColorAt(idx, tp.tint);
+    });
+    [trunks, leaves1, leaves2, leaves3].forEach((m) => {
+      m.instanceMatrix.needsUpdate = true;
+      m.computeBoundingSphere();
+      group.add(m);
+    });
+    if (leaves1.instanceColor) leaves1.instanceColor.needsUpdate = true;
+    if (leaves2.instanceColor) leaves2.instanceColor.needsUpdate = true;
+    if (leaves3.instanceColor) leaves3.instanceColor.needsUpdate = true;
+  }
+
+  // Trackside Bushes, Shrub Clusters & Rock Outcrops along road verges (Strictly clear of buildings & shortcuts)
+  const bushSpots: { x: number; y: number; z: number; sx: number; sy: number; sz: number; tint: THREE.Color }[] = [];
+  const rockSpots: { x: number; y: number; z: number; sx: number; sy: number; sz: number; rot: number }[] = [];
+  for (let i = 2; i < SAMPLE_COUNT; i += 3) {
+    if (isInsideAnyTunnel(i, 1) || isNearShortcutPortal(i, 3)) continue;
+    const s = samples[i];
+    const side = i % 2 === 0 ? 1 : -1;
+    const distOut = barrierHalfWidth + 6.5 + ((i * 11) % 10);
+    const bx = s.point.x + s.right.x * side * distOut;
+    const bz = s.point.z + s.right.z * side * distOut;
+    if (hasHarborBay && bz < minZ + 380 && bx > minX - 80 && bx < maxX + 120) continue;
+    const by = Math.max(s.point.y - 0.8, sampleTerrainInfo(bx, bz).height);
+    if (by < -2.2) continue;
+    if (!tryPlaceStructure(bx, bz, 2.8, barrierHalfWidth + 5.6, 1.0)) continue;
+
+    if (isCanyonOrSummit && i % 6 === 0) {
+      rockSpots.push({
+        x: bx,
+        y: by + 0.4,
+        z: bz,
+        sx: 1.6 + (i % 4) * 0.7,
+        sy: 1.0 + (i % 3) * 0.55,
+        sz: 1.5 + ((i * 3) % 4) * 0.65,
+        rot: i * 0.7,
+      });
+    } else {
+      bushSpots.push({
+        x: bx,
+        y: by + 0.35,
+        z: bz,
+        sx: 1.2 + (i % 4) * 0.42,
+        sy: 0.75 + (i % 3) * 0.3,
+        sz: 1.2 + ((i + 2) % 4) * 0.4,
+        tint: foliagePalette[(i + 1) % foliagePalette.length],
+      });
+    }
+  }
+  if (bushSpots.length > 0) {
+    const bushGeo = track(new THREE.IcosahedronGeometry(1.15, 1));
+    const bushMat = track(new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: 0.88, metalness: 0.02 }));
+    const bushInst = new THREE.InstancedMesh(bushGeo, bushMat, bushSpots.length);
+    bushSpots.forEach((bs, idx) => {
+      dummy.position.set(bs.x, bs.y, bs.z);
+      dummy.rotation.set(0, idx * 0.55, 0);
+      dummy.scale.set(bs.sx, bs.sy, bs.sz);
+      dummy.updateMatrix();
+      bushInst.setMatrixAt(idx, dummy.matrix);
+      bushInst.setColorAt(idx, bs.tint);
+    });
+    bushInst.instanceMatrix.needsUpdate = true;
+    if (bushInst.instanceColor) bushInst.instanceColor.needsUpdate = true;
+    bushInst.computeBoundingSphere();
+    group.add(bushInst);
+  }
+  if (rockSpots.length > 0) {
+    const bldRockGeo = track(new THREE.DodecahedronGeometry(1.3, 0));
+    const bldRockMat = track(
+      new THREE.MeshStandardMaterial({
+        color: trackId === 'blackridge_summit' ? '#64748B' : '#854D27',
+        roughness: 0.95,
+        metalness: 0.04,
+      }),
+    );
+    const rockInst = new THREE.InstancedMesh(bldRockGeo, bldRockMat, rockSpots.length);
+    rockSpots.forEach((rs, idx) => {
+      dummy.position.set(rs.x, rs.y, rs.z);
+      dummy.rotation.set(0.2 * idx, rs.rot, 0.1 * idx);
+      dummy.scale.set(rs.sx, rs.sy, rs.sz);
+      dummy.updateMatrix();
+      rockInst.setMatrixAt(idx, dummy.matrix);
+    });
+    rockInst.instanceMatrix.needsUpdate = true;
+    rockInst.computeBoundingSphere();
+    group.add(rockInst);
+  }
+
+  // --- 16. Distant Horizon Skyline / Mountain Silhouette Ring (Strictly Outside Track Perimeter & Placed Structures) ---
   const horizonTargetCount = 38;
   const horizonSpots: { hx: number; hz: number; ang: number; i: number }[] = [];
   for (let i = 0; i < horizonTargetCount; i++) {
     const ang = (i / horizonTargetCount) * Math.PI * 2;
-    const rad = maxTrackRad + 260 + (i % 4) * 95;
+    const rad = maxTrackRad + 340 + (i % 4) * 105;
     const hx = terrainCenterX + Math.cos(ang) * rad;
     const hz = terrainCenterZ + Math.sin(ang) * rad;
-    if (isClearOfTrack(hx, hz, barrierHalfWidth + 210)) {
+    if (isClearOfTrack(hx, hz, barrierHalfWidth + 230) && isClearOfPlaced(hx, hz, 130, 12)) {
       horizonSpots.push({ hx, hz, ang, i });
     }
   }
@@ -5496,20 +6003,31 @@ export function buildTrack(
     };
   };
 
-  // --- Driveable Shortcut Corridor Query (Continuous Line-Segment Projection) ---
+  // --- Driveable Shortcut Corridor Query (Zero-Allocation Continuous Line-Segment Projection) ---
   const tempRight = new THREE.Vector3();
   const tempTan = new THREE.Vector3();
+  const pooledHitTan = new THREE.Vector3();
+  const pooledScHit: {
+    shortcut: TrackShortcut;
+    ptIndex: number;
+    frac: number;
+    lateral: number;
+    elevationY: number;
+    slopePitch: number;
+    tangent: THREE.Vector3;
+    distanceSq: number;
+  } = {
+    shortcut: null as unknown as TrackShortcut,
+    ptIndex: 0,
+    frac: 0,
+    lateral: 0,
+    elevationY: 0,
+    slopePitch: 0,
+    tangent: pooledHitTan,
+    distanceSq: 0,
+  };
   const queryShortcut = (x: number, z: number, hintShortcutId?: number | null) => {
-    let bestHit: {
-      shortcut: TrackShortcut;
-      ptIndex: number;
-      frac: number;
-      lateral: number;
-      elevationY: number;
-      slopePitch: number;
-      tangent: THREE.Vector3;
-      distanceSq: number;
-    } | null = null;
+    let found = false;
     let bestSq = 40 * 40;
 
     for (let sc = 0; sc < shortcuts.length; sc++) {
@@ -5517,6 +6035,11 @@ export function buildTrack(
       if (hintShortcutId !== undefined && hintShortcutId !== null && sObj.id !== hintShortcutId) {
         continue;
       }
+      const bnd = scBounds[sc];
+      const bdx = x - bnd.cx;
+      const bdz = z - bnd.cz;
+      if (bdx * bdx + bdz * bdz > bnd.rSq) continue;
+
       const pts = sObj.points;
       const segCount = pts.length - 1;
       for (let j = 0; j < segCount; j++) {
@@ -5543,23 +6066,19 @@ export function buildTrack(
           if (tempTan.lengthSq() < 0.0001) tempTan.copy(tanA);
           else tempTan.normalize();
           tempRight.set(-tempTan.z, 0, tempTan.x);
-          const lateral = dx * tempRight.x + dz * tempRight.z;
-          const elevationY = THREE.MathUtils.lerp(a.y, b.y, segT);
-          const slopePitch = THREE.MathUtils.lerp(sObj.slopePitches[j], sObj.slopePitches[j + 1], segT);
-          bestHit = {
-            shortcut: sObj,
-            ptIndex: segT >= 0.5 ? j + 1 : j,
-            frac: (j + segT) / segCount,
-            lateral,
-            elevationY,
-            slopePitch,
-            tangent: tempTan.clone(),
-            distanceSq: dSq,
-          };
+          pooledHitTan.copy(tempTan);
+          pooledScHit.shortcut = sObj;
+          pooledScHit.ptIndex = segT >= 0.5 ? j + 1 : j;
+          pooledScHit.frac = (j + segT) / segCount;
+          pooledScHit.lateral = dx * tempRight.x + dz * tempRight.z;
+          pooledScHit.elevationY = THREE.MathUtils.lerp(a.y, b.y, segT);
+          pooledScHit.slopePitch = THREE.MathUtils.lerp(sObj.slopePitches[j], sObj.slopePitches[j + 1], segT);
+          pooledScHit.distanceSq = dSq;
+          found = true;
         }
       }
     }
-    return bestHit;
+    return found ? pooledScHit : null;
   };
 
   const updateAnimations = (timeSec: number, countdownInt: number, introActive: boolean) => {

@@ -6,8 +6,12 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { musicEngine } from '../audio/musicEngine';
 import { soundEngine } from '../audio/soundEngine';
 import {
+  AdaptiveAiRecord,
   AiSettings,
+  clampSkillForDifficulty,
   DEFAULT_AI_SETTINGS,
+  loadAdaptiveAiState,
+  recordRaceAndAdjustAdaptiveSkill,
   REWIND_RACE_MAX_USES,
   REWIND_SAMPLE_HZ,
 } from '../config/aiConfig';
@@ -145,6 +149,8 @@ interface RacerEntity {
   busted: boolean;
   bustProgress: number;
   finishTimeMs: number;
+  currentLapStartMs: number;
+  lapTimesMs: number[];
   speedTrapTotalKmh: number;
   speedTrapHits: number;
   trapCooldowns: number[];
@@ -386,6 +392,7 @@ export class RacingEngine {
   private calloutId = 0;
   private callout: { text: string; tone: 'amber' | 'cyan' | 'red' | 'emerald'; expiresAt: number; id: number } | null = null;
   private lastTelemetryEmit = 0;
+  private cachedTrackMeta: (typeof TRACKS)[number] | null = null;
 
   // U1 Physics, Handling, Tuning, Graphics, Gamepad & Zero-GC Telemetry
   private handlingMode: HandlingMode = 'balanced';
@@ -492,6 +499,7 @@ export class RacingEngine {
 
   // U2 Adaptive AI, AI Debug, 5s Rewind & Ghost System
   private aiSettings: AiSettings = { ...DEFAULT_AI_SETTINGS };
+  private adaptiveAiState: AdaptiveAiRecord = loadAdaptiveAiState();
   private aiDebugVisible = false;
   private aiDebugLines: THREE.Line[] = [];
   private aiDebugEntriesScratch: AiDebugEntry[] = [];
@@ -1554,16 +1562,17 @@ export class RacingEngine {
 
     const totalLaps = this.getTotalLaps();
     const raceDiff = this.getRaceDifficulty();
+    this.adaptiveAiState = loadAdaptiveAiState();
     const isPackRace =
       params.mode === 'circuit' ||
       params.mode === 'sprint' ||
       params.mode === 'knockout' ||
       params.mode === 'speedtrap';
-    // Start player P3 (middle row) on Easy/Medium for a clean launch view; P4 back row on Hard/Expert
+    // AI spawns slightly ahead off the line so the player has to catch up rather than breaking away
     const playerBackRow = raceDiff === 'Hard' || raceDiff === 'Expert';
     const startSampleIdx = isPackRace
       ? this.track.samples.length - (playerBackRow ? 12 : 10)
-      : this.track.samples.length - 8;
+      : this.track.samples.length - 10;
     const gridStart = this.track.samples[startSampleIdx];
     const startHeading = Math.atan2(-gridStart.tangent.x, -gridStart.tangent.z);
     this.camHeading = startHeading;
@@ -1630,6 +1639,8 @@ export class RacingEngine {
       busted: false,
       bustProgress: 0,
       finishTimeMs: 0,
+      currentLapStartMs: 0,
+      lapTimesMs: [],
       speedTrapTotalKmh: 0,
       speedTrapHits: 0,
       trapCooldowns: this.track.speedTraps.map(() => 0),
@@ -1655,12 +1666,19 @@ export class RacingEngine {
         maxAnisotropy: this.maxAnisotropy,
         isSoftwareGl: this.isSoftwareGl,
       });
-      const rPos = gridStart.point.clone().addScaledVector(gridStart.right, laneGridX);
-      rPos.y += ROAD_SURFACE_OFFSET + laneGridX * Math.sin(gridStart.bankAngle);
+      const bossSampleIdx = (startSampleIdx + 2) % this.track.samples.length;
+      const bossStart = this.track.samples[bossSampleIdx];
+      const bossHeading = Math.atan2(-bossStart.tangent.x, -bossStart.tangent.z);
+      const rPos = bossStart.point.clone().addScaledVector(bossStart.right, laneGridX);
+      rPos.y += ROAD_SURFACE_OFFSET + laneGridX * Math.sin(bossStart.bankAngle);
       rivalVisual.root.position.copy(rPos);
-      rivalVisual.root.rotation.y = startHeading;
+      rivalVisual.root.rotation.y = bossHeading;
       this.scene.add(rivalVisual.root);
 
+      const bossInitialSkill = clampSkillForDifficulty(
+        raceDiff,
+        this.adaptiveAiState.skills[raceDiff] + 0.02,
+      );
       const bossBrain = createAiBrainState(
         0,
         rivalSpec,
@@ -1673,6 +1691,7 @@ export class RacingEngine {
         this.assists,
         this.activeEnvironment,
         params.trackId,
+        bossInitialSkill,
       );
 
       this.racers.push({
@@ -1681,17 +1700,17 @@ export class RacingEngine {
         isPlayer: false,
         spec: rivalSpec,
         visual: rivalVisual,
-        spawnIdx: startSampleIdx,
+        spawnIdx: bossSampleIdx,
         spawnLane: laneGridX,
         brain: bossBrain,
         pos: rPos,
         prevPos: rPos.clone(),
-        heading: startHeading,
-        prevHeading: startHeading,
-        slopePitch: gridStart.slopePitch,
-        prevSlopePitch: gridStart.slopePitch,
-        bankRoll: gridStart.bankAngle,
-        prevBankRoll: gridStart.bankAngle,
+        heading: bossHeading,
+        prevHeading: bossHeading,
+        slopePitch: bossStart.slopePitch,
+        prevSlopePitch: bossStart.slopePitch,
+        bankRoll: bossStart.bankAngle,
+        prevBankRoll: bossStart.bankAngle,
         forwardSpeed: 0,
         lateralSpeed: 0,
         steerAngle: 0,
@@ -1709,17 +1728,19 @@ export class RacingEngine {
         activeShortcutId: null,
         reachedShortcutCore: false,
         shortcutPassCooldown: 0,
-        trackIdx: startSampleIdx,
-        progress: gridStart.progress,
+        trackIdx: bossSampleIdx,
+        progress: bossStart.progress,
         lap: 0,
-        totalProgress: gridStart.progress - 1 + 0.001,
+        totalProgress: bossStart.progress - 1,
         laneTarget: laneGridX,
-        aiSkill: Math.max(0.95, params.rival.aiSkill),
+        aiSkill: bossBrain.skill,
         finished: false,
         knockedOut: false,
         busted: false,
         bustProgress: 0,
         finishTimeMs: 0,
+        currentLapStartMs: 0,
+        lapTimesMs: [],
         speedTrapTotalKmh: 0,
         speedTrapHits: 0,
         trapCooldowns: this.track.speedTraps.map(() => 0),
@@ -1743,19 +1764,11 @@ export class RacingEngine {
       const playerTierFloor = Math.max(0, (params.playerSpec.tier - 1) * 3 - (raceDiff === 'Easy' ? 1 : 0));
       const startPoolIdx = Math.min(12, Math.max(aiTierBoost * 2, playerTierFloor));
       const aiPool = BLACKLIST_RIVALS.slice(startPoolIdx, startPoolIdx + 3);
-      const offsets = playerBackRow
-        ? [
-            { idx: this.track.samples.length - 8, lane: -laneGridX },
-            { idx: this.track.samples.length - 8, lane: laneGridX },
-            { idx: this.track.samples.length - 12, lane: -laneGridX },
-          ]
-        : [
-            { idx: this.track.samples.length - 7, lane: -laneGridX },
-            { idx: this.track.samples.length - 7, lane: laneGridX },
-            { idx: this.track.samples.length - 12, lane: laneGridX },
-          ];
-      const diffSkillBase =
-        raceDiff === 'Easy' ? 1.00 : raceDiff === 'Medium' ? 1.02 : raceDiff === 'Hard' ? 1.05 : 1.08;
+      const offsets = [
+        { idx: this.track.samples.length - 5, lane: -laneGridX },
+        { idx: this.track.samples.length - 6, lane: laneGridX },
+        { idx: this.track.samples.length - 7, lane: -laneGridX },
+      ];
       aiPool.forEach((r, i) => {
         const s = this.track!.samples[offsets[i].idx];
         const aiSpec = CARS.find((c) => c.id === r.carId) ?? CARS[0];
@@ -1775,6 +1788,11 @@ export class RacingEngine {
         aiVisual.root.rotation.y = aHead;
         this.scene.add(aiVisual.root);
 
+        const slotSkillJitter = i === 0 ? 0.02 : i === 1 ? 0 : -0.02;
+        const aiInitialSkill = clampSkillForDifficulty(
+          raceDiff,
+          this.adaptiveAiState.skills[raceDiff] + slotSkillJitter,
+        );
         const aiBrain = createAiBrainState(
           i,
           aiSpec,
@@ -1787,6 +1805,7 @@ export class RacingEngine {
           this.assists,
           this.activeEnvironment,
           params.trackId,
+          aiInitialSkill,
         );
 
         this.racers.push({
@@ -1828,12 +1847,14 @@ export class RacingEngine {
           lap: 0,
           totalProgress: s.progress - 1,
           laneTarget: offsets[i].lane,
-          aiSkill: Math.min(1.08, diffSkillBase + i * 0.018 + aiTierBoost * 0.015),
+          aiSkill: aiBrain.skill,
           finished: false,
           knockedOut: false,
           busted: false,
           bustProgress: 0,
           finishTimeMs: 0,
+          currentLapStartMs: 0,
+          lapTimesMs: [],
           speedTrapTotalKmh: 0,
           speedTrapHits: 0,
           trapCooldowns: this.track!.speedTraps.map(() => 0),
@@ -2628,13 +2649,15 @@ export class RacingEngine {
       r.trackIdx = r.spawnIdx;
       r.progress = s.progress;
       r.lap = 0;
-      r.totalProgress = r.id === 'rival_boss' ? s.progress - 1 + 0.001 : s.progress - 1;
+      r.totalProgress = s.progress - 1;
       r.laneTarget = r.spawnLane;
       r.finished = false;
       r.knockedOut = false;
       r.busted = false;
       r.bustProgress = 0;
       r.finishTimeMs = 0;
+      r.currentLapStartMs = 0;
+      r.lapTimesMs = [];
       r.speedTrapTotalKmh = 0;
       r.speedTrapHits = 0;
       r.frontDamage = 0;
@@ -2653,7 +2676,12 @@ export class RacingEngine {
       r.visual.bodyGroup.position.y = 0;
       r.visual.bodyGroup.rotation.set(0, 0, 0);
       if (r.brain) {
-        resetAiBrainState(r.brain, r.spawnLane);
+        this.adaptiveAiState = loadAdaptiveAiState();
+        const raceDiff = this.getRaceDifficulty();
+        const slotJitter =
+          r.id === 'rival_boss' || r.id === 'ai_0' ? 0.02 : r.id === 'ai_1' ? 0 : -0.02;
+        resetAiBrainState(r.brain, r.spawnLane, this.adaptiveAiState.skills[raceDiff] + slotJitter, raceDiff);
+        r.aiSkill = r.brain.skill;
       }
     }
 
@@ -2977,11 +3005,11 @@ export class RacingEngine {
     if (!this.isSoftwareGl && this.mode === 'race' && !this.paused && rawDelta > 0) {
       this.perfFrameAccumMs += rawDelta * 1000;
       this.perfFrameSamples++;
-      if (this.perfFrameSamples >= 45) {
+      if (this.perfFrameSamples >= 35) {
         const avgMs = this.perfFrameAccumMs / this.perfFrameSamples;
         this.perfFrameAccumMs = 0;
         this.perfFrameSamples = 0;
-        if (avgMs > 20.5) {
+        if (avgMs > 18.5) {
           if (this.currentPixelRatio > 1.0) {
             this.currentPixelRatio = Math.max(1.0, Number((this.currentPixelRatio - 0.25).toFixed(2)));
             this.renderer.setPixelRatio(this.currentPixelRatio);
@@ -3109,20 +3137,24 @@ export class RacingEngine {
         p.visual.bodyGroup.rotation.y = 0.28;
         p.visual.bodyGroup.rotation.z = -0.045;
         const spin = (p.forwardSpeed * slowDt) / 0.36;
-        p.visual.wheelSpinners.forEach((w) => (w.rotation.x -= spin));
-
-        p.visual.nosFlames.forEach((f) => {
+        for (let k = 0; k < p.visual.wheelSpinners.length; k++) {
+          p.visual.wheelSpinners[k].rotation.x -= spin;
+        }
+        for (let k = 0; k < p.visual.nosFlames.length; k++) {
+          const f = p.visual.nosFlames[k];
           f.visible = true;
           f.scale.set(1.1 + Math.random() * 0.25, 1.1 + Math.random() * 0.25, 1.0 + Math.random() * 0.9);
-        });
-        p.visual.nosCores.forEach((c) => {
+        }
+        for (let k = 0; k < p.visual.nosCores.length; k++) {
+          const c = p.visual.nosCores[k];
           c.visible = true;
           c.scale.set(1.0, 1.0, 0.85 + Math.random() * 0.65);
-        });
-        p.visual.nosHalos.forEach((h) => {
+        }
+        for (let k = 0; k < p.visual.nosHalos.length; k++) {
+          const h = p.visual.nosHalos[k];
           h.visible = true;
           h.scale.setScalar(1.0 + Math.random() * 0.45);
-        });
+        }
 
         // Billowing rear tire smoke + victory exhaust sparks
         const rearX = p.pos.x - fwdX * 1.45;
@@ -3154,7 +3186,9 @@ export class RacingEngine {
         p.visual.root.position.copy(p.pos);
         p.visual.root.rotation.set(pInfo.slopePitch, p.heading, -pInfo.bankAngle, 'YXZ');
         const spin = (p.forwardSpeed * slowDt) / 0.36;
-        p.visual.wheelSpinners.forEach((w) => (w.rotation.x -= spin));
+        for (let k = 0; k < p.visual.wheelSpinners.length; k++) {
+          p.visual.wheelSpinners[k].rotation.x -= spin;
+        }
       } else if (this.outroOutcome === 'busted') {
         // Busted: surviving RPD interceptors aggressively box inward around the player car
         for (let ci = 0; ci < this.cops.length; ci++) {
@@ -3257,7 +3291,9 @@ export class RacingEngine {
           this.camera.fov = 46;
           this.camera.updateProjectionMatrix();
         }
-        p.visual.backfireFlames.forEach((f) => (f.visible = false));
+        for (let k = 0; k < p.visual.backfireFlames.length; k++) {
+          p.visual.backfireFlames[k].visible = false;
+        }
       } else {
         // Cut 2: Tight low rear-bumper launch cam behind player with exhaust backfires & tire warmup smoke
         const sub = (t - 0.50) / 0.50;
@@ -3287,10 +3323,11 @@ export class RacingEngine {
         }
 
         const firePulse = Math.sin(sub * Math.PI * 5.2) > 0.45;
-        p.visual.backfireFlames.forEach((f) => {
+        for (let k = 0; k < p.visual.backfireFlames.length; k++) {
+          const f = p.visual.backfireFlames[k];
           f.visible = firePulse;
           if (firePulse) f.scale.set(1.05, 1.05, 0.85 + Math.random() * 0.8);
-        });
+        }
         if (firePulse && Math.random() < 0.65) {
           _v1.set(p.pos.x - pFwdX * 2.15 + pRightX * (Math.random() > 0.5 ? 0.36 : -0.36), p.pos.y + 0.36, p.pos.z - pFwdZ * 2.15);
           _v2.set(-pFwdX * 8 + (Math.random() - 0.5) * 2.5, 0.6 + Math.random() * 0.9, -pFwdZ * 8 + (Math.random() - 0.5) * 2.5);
@@ -4161,20 +4198,23 @@ export class RacingEngine {
 
     // NOS Exhaust Flames
     if (boostFlare) {
-      p.visual.nosFlames.forEach((f) => {
+      for (let k = 0; k < p.visual.nosFlames.length; k++) {
+        const f = p.visual.nosFlames[k];
         f.visible = true;
         f.scale.set(1.0 + Math.random() * 0.22, 1.0 + Math.random() * 0.22, 0.85 + Math.random() * 0.95);
-      });
-      p.visual.nosCores.forEach((c) => {
+      }
+      for (let k = 0; k < p.visual.nosCores.length; k++) {
+        const c = p.visual.nosCores[k];
         c.visible = true;
         c.scale.set(1.0 + Math.random() * 0.15, 1.0 + Math.random() * 0.15, 0.75 + Math.random() * 0.7);
-      });
-      p.visual.nosHalos.forEach((h) => {
+      }
+      for (let k = 0; k < p.visual.nosHalos.length; k++) {
+        const h = p.visual.nosHalos[k];
         h.visible = true;
         const pulse = 0.95 + Math.random() * 0.5;
         h.scale.setScalar(pulse);
         (h.material as THREE.MeshBasicMaterial).opacity = 0.45 + Math.random() * 0.35;
-      });
+      }
       const sinH = Math.sin(p.heading);
       const cosH = Math.cos(p.heading);
       const rightX = cosH;
@@ -4191,9 +4231,9 @@ export class RacingEngine {
         this.spawnParticle(_v1, _v2, nosActive ? (sp === 0 ? '#38BDF8' : '#E0F2FE') : '#F59E0B', 0.72, 0.26);
       }
     } else {
-      p.visual.nosFlames.forEach((f) => (f.visible = false));
-      p.visual.nosCores.forEach((c) => (c.visible = false));
-      p.visual.nosHalos.forEach((h) => (h.visible = false));
+      for (let k = 0; k < p.visual.nosFlames.length; k++) p.visual.nosFlames[k].visible = false;
+      for (let k = 0; k < p.visual.nosCores.length; k++) p.visual.nosCores[k].visible = false;
+      for (let k = 0; k < p.visual.nosHalos.length; k++) p.visual.nosHalos[k].visible = false;
     }
 
     const { gear, rpm } = this.computeGearAndRpm(p.forwardSpeed, throttleDown);
@@ -4206,22 +4246,24 @@ export class RacingEngine {
     }
     this.lastPlayerGear = gear;
     const showBackfire = this.backfireTimer > 0 && !boostFlare;
-    p.visual.backfireFlames.forEach((f) => {
+    for (let k = 0; k < p.visual.backfireFlames.length; k++) {
+      const f = p.visual.backfireFlames[k];
       f.visible = showBackfire;
       if (showBackfire) {
         const s = 0.75 + Math.random() * 0.7;
         f.scale.set(0.95, 0.95, s);
       }
-    });
+    }
 
     const braking = brakeDown || handbrakeDown;
     p.visual.brakeLightMat.emissiveIntensity = braking ? 4.8 : 1.1;
     p.visual.reverseLightMat.emissiveIntensity = gear === -1 ? 3.5 : 0.15;
-    p.visual.brakeGlows.forEach((bg) => {
+    for (let k = 0; k < p.visual.brakeGlows.length; k++) {
+      const bg = p.visual.brakeGlows[k];
       const m = bg.material as THREE.MeshBasicMaterial;
       m.opacity = braking ? 0.72 : 0.22;
       bg.scale.setScalar(braking ? 1.35 : 0.9);
-    });
+    }
 
     let copProx = 0;
     for (let i = 0; i < this.cops.length; i++) {
@@ -4285,6 +4327,11 @@ export class RacingEngine {
         this.weatherSnap.roadWetness,
         this.spikeStrips,
         this.raceParams.playerConfig,
+        {
+          totalLaps: this.getTotalLaps(),
+          aiLap: Math.max(1, ai.lap),
+          raceElapsedSec: this.raceElapsedMs / 1000,
+        },
       );
     }
 
@@ -4562,10 +4609,10 @@ export class RacingEngine {
     const canEnterShortcut = Boolean(
       r.activeShortcutId === null &&
         scHit &&
-        scHit.frac >= 0.005 &&
-        scHit.frac <= scHit.shortcut.innerStartFrac + 0.05 &&
-        info.lateralOffset * scHit.shortcut.side > this.track.roadHalfWidth - 1.0 &&
-        Math.abs(scHit.lateral) <= scHit.shortcut.halfWidth - 0.35 &&
+        scHit.frac >= 0.002 &&
+        scHit.frac <= scHit.shortcut.innerStartFrac + 0.08 &&
+        info.lateralOffset * scHit.shortcut.side > this.track.roadHalfWidth - 2.2 &&
+        Math.abs(scHit.lateral) <= scHit.shortcut.halfWidth + 0.6 &&
         r.forwardSpeed > -4.0,
     );
 
@@ -4802,6 +4849,24 @@ export class RacingEngine {
             soundEngine.triggerLapComplete(false);
           }
         }
+      } else {
+        const aiLapMs = this.raceElapsedMs - r.currentLapStartMs;
+        if (r.lap > 1 && r.currentLapStartMs > 0 && aiLapMs > 5000) {
+          r.lapTimesMs.push(aiLapMs);
+        }
+        r.currentLapStartMs = this.raceElapsedMs;
+        const totalLaps = this.getTotalLaps();
+        if (
+          !r.finished &&
+          this.raceParams &&
+          this.raceParams.mode !== 'pursuit' &&
+          this.raceParams.mode !== 'freeroam' &&
+          this.raceParams.mode !== 'tollbooth' &&
+          r.lap > totalLaps
+        ) {
+          r.finished = true;
+          r.finishTimeMs = this.raceElapsedMs;
+        }
       }
     } else if (delta > 0.5) {
       r.lap = Math.max(0, r.lap - 1);
@@ -4815,8 +4880,8 @@ export class RacingEngine {
     const insideShortcutMouth = Boolean(
       scHit &&
         scHit.shortcut.side === latSign &&
-        Math.abs(scHit.lateral) <= scHit.shortcut.halfWidth - 0.35 &&
-        (scHit.frac <= scHit.shortcut.innerStartFrac || scHit.frac >= scHit.shortcut.innerEndFrac),
+        Math.abs(scHit.lateral) <= scHit.shortcut.halfWidth + 0.8 &&
+        (scHit.frac <= scHit.shortcut.innerStartFrac + 0.04 || scHit.frac >= scHit.shortcut.innerEndFrac - 0.04),
     );
 
     const maxLat = this.track.barrierHalfWidth - 1.15;
@@ -4910,8 +4975,8 @@ export class RacingEngine {
       const insideMouth = Boolean(
         scHit &&
           scHit.shortcut.side === latSign &&
-          Math.abs(scHit.lateral) <= scHit.shortcut.halfWidth - 0.35 &&
-          (scHit.frac <= scHit.shortcut.innerStartFrac || scHit.frac >= scHit.shortcut.innerEndFrac),
+          Math.abs(scHit.lateral) <= scHit.shortcut.halfWidth + 0.8 &&
+          (scHit.frac <= scHit.shortcut.innerStartFrac + 0.04 || scHit.frac >= scHit.shortcut.innerEndFrac - 0.04),
       );
       const maxLat = this.track.barrierHalfWidth - 1.15;
       if (!insideMouth && Math.abs(info.lateralOffset) > maxLat) {
@@ -6205,6 +6270,39 @@ export class RacingEngine {
       this.spawnPoliceCruiser(this.player.trackIdx - 3, -2.8, false, false);
     }
 
+    // Record race telemetry & update persistent adaptive AI skill (target margin = 3.0s)
+    const isAiRaceMode =
+      this.raceParams.mode === 'circuit' ||
+      this.raceParams.mode === 'sprint' ||
+      this.raceParams.mode === 'knockout' ||
+      this.raceParams.mode === 'blacklist';
+    if (isAiRaceMode && !busted && !knockedOut && !tollboothExpired && this.track) {
+      const aiOpponents = this.racers.filter((r) => !r.isPlayer && !r.knockedOut);
+      if (aiOpponents.length > 0) {
+        const bestAi = [...aiOpponents].sort((a, b) => {
+          if (a.finished !== b.finished) return a.finished ? -1 : 1;
+          if (a.finished && b.finished) return a.finishTimeMs - b.finishTimeMs;
+          return b.totalProgress - a.totalProgress;
+        })[0];
+        let winMarginSec = 0;
+        if (bestAi.finished && bestAi.finishTimeMs > 0) {
+          winMarginSec = (bestAi.finishTimeMs - this.raceElapsedMs) / 1000;
+        } else {
+          const gapMeters = (this.player.totalProgress - bestAi.totalProgress) * this.track.totalLength;
+          const refSpeedMs = Math.max(25, Math.abs(bestAi.forwardSpeed) || 55);
+          winMarginSec = Math.max(-45, Math.min(45, gapMeters / refSpeedMs));
+        }
+        const allAiLapTimes = aiOpponents.flatMap((r) => r.lapTimesMs);
+        const totalMistakes = aiOpponents.reduce((sum, r) => sum + (r.brain?.mistakeCount ?? 0), 0);
+        this.adaptiveAiState = recordRaceAndAdjustAdaptiveSkill(
+          this.getRaceDifficulty(),
+          winMarginSec,
+          allAiLapTimes,
+          totalMistakes,
+        );
+      }
+    }
+
     const result: RaceResult = {
       mode: this.raceParams.mode,
       trackId: this.raceParams.trackId,
@@ -6549,7 +6647,7 @@ export class RacingEngine {
 
   private emitTelemetry(totalLaps: number, force: boolean) {
     const now = performance.now();
-    if (!force && now - this.lastTelemetryEmit < 55) return;
+    if (!force && now - this.lastTelemetryEmit < 95) return;
     this.lastTelemetryEmit = now;
     if (!this.player || !this.track) return;
 
@@ -6615,7 +6713,10 @@ export class RacingEngine {
           ? 'countdown'
           : 'racing';
 
-    const trackMeta = TRACKS.find((t) => t.id === this.raceParams?.trackId);
+    if (!this.cachedTrackMeta || this.cachedTrackMeta.id !== this.raceParams?.trackId) {
+      this.cachedTrackMeta = TRACKS.find((t) => t.id === this.raceParams?.trackId) ?? null;
+    }
+    const trackMeta = this.cachedTrackMeta;
     const mode = this.raceParams?.mode ?? 'circuit';
     const introLabel = m
       ? `BLACKLIST #${m.tierRank} // ${m.title.toUpperCase()}`
@@ -6882,7 +6983,8 @@ export class RacingEngine {
       for (let i = 0; i < this.racers.length; i++) {
         const r = this.racers[i];
         if (r.isPlayer || !r.brain) continue;
-        const gapM = Math.round((r.totalProgress - p.totalProgress) * this.track.totalLength);
+        // Positive gapMeters = player is ahead of AI (matches gap = player_distance - ai_distance)
+        const gapM = Math.round((p.totalProgress - r.totalProgress) * this.track.totalLength);
         let entry = this.aiDebugEntriesScratch[aiDebugIdx];
         if (!entry) {
           entry = {
@@ -6893,7 +6995,9 @@ export class RacingEngine {
             speedKmh: 0,
             targetSpeedKmh: 0,
             nitrous: 100,
+            skill: r.brain.skill,
             adaptiveMult: 1,
+            mistakes: r.brain.mistakeCount,
             gapMeters: 0,
           };
           this.aiDebugEntriesScratch[aiDebugIdx] = entry;
@@ -6905,7 +7009,9 @@ export class RacingEngine {
         entry.speedKmh = Math.round(Math.abs(r.forwardSpeed) * 3.6);
         entry.targetSpeedKmh = Math.round(r.brain.targetSpeedMs * 3.6);
         entry.nitrous = Math.round(r.brain.nitrous);
+        entry.skill = Math.round(r.brain.skill * 100) / 100;
         entry.adaptiveMult = Math.round(r.brain.adaptiveMult * 100) / 100;
+        entry.mistakes = r.brain.mistakeCount;
         entry.gapMeters = gapM;
         aiDebugIdx++;
       }
@@ -6994,6 +7100,8 @@ export class RacingEngine {
       hasBestGhost: Boolean(this.bestGhostForCurrentTrack),
       ghostEnabled: this.showGhost,
       aiDebugEntries: this.aiDebugVisible ? this.aiDebugEntriesScratch : undefined,
+      aiDifficulty: this.getRaceDifficulty(),
+      lastWinMarginSec: this.adaptiveAiState.lastWinMarginSec,
       weatherState: this.weatherSnap.activeWeather,
       roadWetness: this.weatherSnap.roadWetness,
       damagePercent: Math.round(
