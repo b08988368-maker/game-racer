@@ -3,6 +3,13 @@ import test from 'node:test';
 import * as THREE from 'three';
 import { EA_TRAX_PLAYLIST } from '../audio/musicEngine';
 import {
+  clampAudioValue,
+  MAX_CONCURRENT_SFX_VOICES,
+  SFX_COOLDOWN_MS,
+  shouldTriggerCooldown,
+  stepMusicLookaheadWindow,
+} from '../audio/audioSafety';
+import {
   AI_PERSONALITY_TRAITS,
   AI_TUNING_CONFIG,
   clampSkillForDifficulty,
@@ -12,7 +19,14 @@ import {
   DEFAULT_AI_SETTINGS,
   DIFFICULTY_AI_PROFILES,
 } from '../config/aiConfig';
-import { AIR_GRAVITY_MPS2, FIXED_PHYSICS_DT, HANDLING_PRESETS } from '../config/physicsConfig';
+import {
+  AIR_GRAVITY_MPS2,
+  FIXED_PHYSICS_DT,
+  HANDLING_PRESETS,
+  MAX_FRAME_DELTA_SEC,
+  MAX_PHYSICS_SUBSTEPS,
+} from '../config/physicsConfig';
+import { getDefaultDriverSettings, GRAPHICS_QUALITY_PRESETS } from '../config/settingsConfig';
 import {
   BLACKLIST_RIVALS,
   CARS,
@@ -39,6 +53,8 @@ import {
   getControlPoints,
   getTrackRoadHalfWidth,
 } from './trackBuilder';
+import { buildCarMesh, resolveCarUpgradeVisualStage } from './carBuilder';
+import { computeOutroDirective } from './outroDirector';
 import {
   createVehicleDynamicsState,
   stepVehiclePhysics,
@@ -1104,4 +1120,175 @@ test('AI opponents race each other, roll per-lap randomness, and stay clear of w
   assert.equal(brain0.currentLap, 2);
   assert.notEqual(brain0.lapRandomMult, lap1Rand, 'Per-lap randomness should re-roll on new lap');
 });
+
+test('Stage 5 max upgrade visuals add quad exhaust/NOS hardware, exposed velocity stacks, twin NOS bottles, and GT wing', () => {
+  const s1 = resolveCarUpgradeVisualStage({
+    engineLevel: 1,
+    turboLevel: 1,
+    nitrousLevel: 1,
+    tiresLevel: 1,
+  });
+  assert.equal(s1.isMaxed, false);
+  assert.equal(s1.hasHighPower, false);
+  assert.equal(s1.hasTwinNos, false);
+  assert.equal(s1.hasProAero, false);
+
+  const s5 = resolveCarUpgradeVisualStage({
+    engineLevel: MAX_UPGRADE_LEVEL,
+    turboLevel: MAX_UPGRADE_LEVEL,
+    nitrousLevel: MAX_UPGRADE_LEVEL,
+    tiresLevel: MAX_UPGRADE_LEVEL,
+  });
+  assert.equal(s5.isMaxed, true);
+  assert.equal(s5.hasHighPower, true);
+  assert.equal(s5.hasTwinNos, true);
+  assert.equal(s5.hasProAero, true);
+  assert.equal(s5.hasFullApexPack, true);
+
+  // Stub minimal 2D canvas context so Three.js CanvasTexture helpers inside buildCarMesh run in Node
+  const prevDoc = (globalThis as { document?: unknown }).document;
+  const fakeCtx = {
+    createRadialGradient: () => ({ addColorStop: () => {} }),
+    createLinearGradient: () => ({ addColorStop: () => {} }),
+    fillRect: () => {},
+    clearRect: () => {},
+    beginPath: () => {},
+    arc: () => {},
+    fill: () => {},
+    stroke: () => {},
+    moveTo: () => {},
+    lineTo: () => {},
+    closePath: () => {},
+    fillStyle: '#000',
+    strokeStyle: '#000',
+    lineWidth: 1,
+  };
+  (globalThis as { document?: unknown }).document = {
+    createElement: () => ({
+      width: 128,
+      height: 128,
+      getContext: () => fakeCtx,
+    }),
+  };
+
+  try {
+    const spec = CARS.find((c) => c.bodyStyle === 'coupe') ?? CARS[0];
+    const dummyShadow = new THREE.Texture();
+
+    const stockCar = buildCarMesh({
+      spec,
+      paintHex: '#E11D48',
+      livery: 'clean',
+      rimStyle: 'chrome',
+      shadowTexture: dummyShadow,
+      maxAnisotropy: 1,
+      isSoftwareGl: true,
+      upgradeLevels: { engineLevel: 1, turboLevel: 1, nitrousLevel: 1, tiresLevel: 1 },
+    });
+
+    const maxCar = buildCarMesh({
+      spec,
+      paintHex: '#E11D48',
+      livery: 'clean',
+      rimStyle: 'chrome',
+      shadowTexture: dummyShadow,
+      maxAnisotropy: 1,
+      isSoftwareGl: true,
+      upgradeLevels: {
+        engineLevel: MAX_UPGRADE_LEVEL,
+        turboLevel: MAX_UPGRADE_LEVEL,
+        nitrousLevel: MAX_UPGRADE_LEVEL,
+        tiresLevel: MAX_UPGRADE_LEVEL,
+      },
+    });
+
+    assert.equal(stockCar.isMaxStage, false);
+    assert.equal(maxCar.isMaxStage, true);
+    assert.equal(stockCar.nosFlames.length, 2, 'Stock coupe should have twin exhaust flames');
+    assert.equal(maxCar.nosFlames.length, 4, 'Maxed Stage-5 coupe should have quad titanium exhaust flames');
+    assert.ok(
+      maxCar.root.children.length > stockCar.root.children.length,
+      'Maxed car root should include Stage-5 Apex chassis underglow plane',
+    );
+    assert.ok(
+      (maxCar.hoodGroup?.children.length ?? 0) > (stockCar.hoodGroup?.children.length ?? 0),
+      'Maxed car hood should include exposed twin-turbo velocity stacks & plenum',
+    );
+    assert.ok(
+      (maxCar.spoilerGroup?.children.length ?? 0) > (stockCar.spoilerGroup?.children.length ?? 0),
+      'Maxed car spoiler should upgrade to dual-plane carbon GT wing with gold trim & Gurney lip',
+    );
+    assert.ok(
+      maxCar.bodyGroup.children.length > stockCar.bodyGroup.children.length,
+      'Maxed car bodyGroup should mount twin NOS cylinders, purge nozzles, and titanium exhaust collars',
+    );
+
+    stockCar.dispose();
+    maxCar.dispose();
+    dummyShadow.dispose();
+  } finally {
+    if (prevDoc === undefined) {
+      delete (globalThis as { document?: unknown }).document;
+    } else {
+      (globalThis as { document?: unknown }).document = prevDoc;
+    }
+  }
+});
+
+test('Multi-beat outro director produces smooth non-NaN camera & showcase progressions for win, busted, and loss', () => {
+  const win1 = computeOutroDirective('win', 0.25);
+  const win2 = computeOutroDirective('win', 1.8);
+  const win3 = computeOutroDirective('win', 3.4);
+  assert.equal(win1.beat, 1);
+  assert.equal(win2.beat, 2);
+  assert.equal(win3.beat, 3);
+  assert.equal(win1.nosBurst, true);
+  assert.ok(win2.fireworkIntensity > win1.fireworkIntensity, 'Beat 2 should ramp up celebratory fireworks');
+  assert.ok(win3.orbitAngleOffset > win2.orbitAngleOffset && win2.orbitAngleOffset > win1.orbitAngleOffset);
+
+  const busted1 = computeOutroDirective('busted', 0.3);
+  const busted2 = computeOutroDirective('busted', 2.0);
+  assert.equal(busted1.beat, 1);
+  assert.equal(busted2.beat, 2);
+  assert.equal(busted1.nosBurst, false);
+  assert.ok(busted1.camHeight > busted2.camHeight, 'Busted Beat 1 drops down from chopper altitude into Beat 2');
+  assert.ok(Math.abs(busted2.camRoll) > 0.01, 'Busted maintains tense Dutch angle');
+
+  const loss1 = computeOutroDirective('loss', 0.4);
+  const loss2 = computeOutroDirective('loss', 2.2);
+  assert.equal(loss1.beat, 1);
+  assert.equal(loss2.beat, 2);
+  assert.equal(loss1.nosBurst, false);
+  for (const frame of [win1, win2, win3, busted1, busted2, loss1, loss2]) {
+    assert.ok(Number.isFinite(frame.camDist) && frame.camDist > 2);
+    assert.ok(Number.isFinite(frame.camHeight) && frame.camHeight > 0.5);
+    assert.ok(Number.isFinite(frame.camFov) && frame.camFov >= 40 && frame.camFov <= 80);
+    assert.ok(frame.slowScale > 0 && frame.slowScale <= 1);
+  }
+});
+
+test('Audio safety clamps non-finite values, throttles substep SFX bursts, and caps music catch-up scheduling', () => {
+  assert.equal(clampAudioValue(NaN, 0.5, 0, 1), 0.5);
+  assert.equal(clampAudioValue(Infinity, 0.5, 0, 1), 0.5);
+  assert.equal(clampAudioValue(-Infinity, 0.5, 0, 1), 0.5);
+  assert.equal(clampAudioValue(-3, 0.5, 0, 1), 0);
+  assert.equal(clampAudioValue(4.2, 0.5, 0, 1), 1);
+  assert.equal(clampAudioValue(0.37, 0.5, 0, 1), 0.37);
+
+  assert.equal(shouldTriggerCooldown(1000, 1008, SFX_COOLDOWN_MS.impact), false);
+  assert.equal(shouldTriggerCooldown(1000, 1000 + SFX_COOLDOWN_MS.impact, SFX_COOLDOWN_MS.impact), true);
+  assert.ok(MAX_CONCURRENT_SFX_VOICES <= 16);
+
+  const stalled = stepMusicLookaheadWindow(10.0, 12.5, 0.25, 3);
+  assert.equal(stalled.maxSteps, 3, 'Lag recovery must cap scheduled synth steps per tick');
+  assert.ok(stalled.startTime >= 12.5, 'Stalled lookahead clock must fast-forward rather than re-bursting stale beats');
+
+  assert.ok(MAX_PHYSICS_SUBSTEPS <= 4, 'Physics substeps per frame must be bounded to avoid spiral of death');
+  assert.ok(MAX_FRAME_DELTA_SEC <= 0.04, 'Frame delta cap must remain tight for responsive pacing');
+  assert.equal(getDefaultDriverSettings().graphicsQuality, 'medium');
+  assert.equal(GRAPHICS_QUALITY_PRESETS.medium.bloomEnabled, false);
+  assert.ok(GRAPHICS_QUALITY_PRESETS.medium.pixelRatioCap <= 1.25);
+});
+
+
 

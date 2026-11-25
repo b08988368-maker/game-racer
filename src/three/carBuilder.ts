@@ -9,6 +9,62 @@ import {
   createPoliceLiveryTexture,
 } from './textures';
 
+export interface UpgradeVisualLevels {
+  engineLevel: number;
+  turboLevel: number;
+  nitrousLevel: number;
+  tiresLevel: number;
+}
+
+export interface CarUpgradeVisualStage {
+  engineLvl: number;
+  turboLvl: number;
+  nosLvl: number;
+  tiresLvl: number;
+  avgLevel: number;
+  isMaxed: boolean;
+  hasHighPower: boolean;
+  hasTwinNos: boolean;
+  hasProAero: boolean;
+  hasFullApexPack: boolean;
+}
+
+export function resolveCarUpgradeVisualStage(levels?: UpgradeVisualLevels): CarUpgradeVisualStage {
+  if (!levels) {
+    return {
+      engineLvl: 1,
+      turboLvl: 1,
+      nosLvl: 1,
+      tiresLvl: 1,
+      avgLevel: 1,
+      isMaxed: false,
+      hasHighPower: false,
+      hasTwinNos: false,
+      hasProAero: false,
+      hasFullApexPack: false,
+    };
+  }
+  const clamp = (v: number) => Math.max(1, Math.min(5, Math.round(v)));
+  const engineLvl = clamp(levels.engineLevel);
+  const turboLvl = clamp(levels.turboLevel);
+  const nosLvl = clamp(levels.nitrousLevel);
+  const tiresLvl = clamp(levels.tiresLevel);
+  const avgLevel = (engineLvl + turboLvl + nosLvl + tiresLvl) * 0.25;
+  const isMaxed = engineLvl >= 5 && turboLvl >= 5 && nosLvl >= 5 && tiresLvl >= 5;
+  return {
+    engineLvl,
+    turboLvl,
+    nosLvl,
+    tiresLvl,
+    avgLevel,
+    isMaxed,
+    hasHighPower: engineLvl >= 4 || turboLvl >= 4,
+    hasTwinNos: nosLvl >= 4,
+    hasProAero: tiresLvl >= 4 || avgLevel >= 4.0,
+    hasFullApexPack: isMaxed || avgLevel >= 4.5,
+  };
+}
+
 export interface CarVisualHandles {
   root: THREE.Group;
   bodyGroup: THREE.Group;
@@ -37,6 +93,8 @@ export interface CarVisualHandles {
   lightbarBlue?: THREE.MeshStandardMaterial;
   lightbarHaloRed?: THREE.Mesh;
   lightbarHaloBlue?: THREE.Mesh;
+  isMaxStage?: boolean;
+  upgradeStageAvg?: number;
   dispose: () => void;
 }
 
@@ -72,6 +130,7 @@ interface BuildCarOptions {
   isRhino?: boolean;
   isTraffic?: boolean;
   isTrafficTruck?: boolean;
+  upgradeLevels?: UpgradeVisualLevels;
 }
 
 interface GeoPart {
@@ -183,6 +242,7 @@ function buildWheelGroup(
   lowPoly: boolean,
   isOffroad: boolean,
   track: <T extends { dispose: () => void }>(item: T) => T,
+  hasProStageWheel = false,
 ): { pivot: THREE.Group; spinner: THREE.Group } {
   const pivot = new THREE.Group();
   const spinner = new THREE.Group();
@@ -287,6 +347,15 @@ function buildWheelGroup(
   const rim = new THREE.Mesh(mergedRimGeo, rimMat);
   spinner.add(rim);
 
+  if (!lowPoly && hasProStageWheel) {
+    // Stage-5 anodized center-lock wheel nut + outer aero cooling lip accent
+    const nutGeo = track(new THREE.CylinderGeometry(rimR * 0.14, rimR * 0.14, 0.04, 6));
+    nutGeo.rotateZ(Math.PI / 2);
+    const nut = new THREE.Mesh(nutGeo, caliperMat);
+    nut.position.set(xSign * (width * 0.45), 0, 0);
+    spinner.add(nut);
+  }
+
   if (!lowPoly) {
     // Ventilated disc + center alloy hat + cooling ring detail
     const rotorGeo = track(new THREE.CylinderGeometry(rimR * 0.84, rimR * 0.84, 0.036, 18));
@@ -336,8 +405,11 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
   } = opts;
   const { width, height, length, wheelRadius: rawWheelRadius } = spec.dimensions;
   const lowDetail = Boolean(isTraffic || isTrafficTruck);
+  const upgradeStage = resolveCarUpgradeVisualStage(
+    lowDetail || isPolice || isRhino ? undefined : opts.upgradeLevels,
+  );
   const isBossCar = Boolean(spec.bossOnly || spec.aeroKit === 'boss_gt');
-  const isWide = Boolean(isBossCar || spec.aeroKit === 'widebody');
+  const isWide = Boolean(isBossCar || spec.aeroKit === 'widebody' || upgradeStage.hasProAero);
   const style = spec.bodyStyle;
   const wheelRadius = isRhino ? rawWheelRadius : rawWheelRadius * 0.84;
 
@@ -365,6 +437,28 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
   const contactShadow = new THREE.Mesh(shadowGeo, shadowMat);
   contactShadow.position.y = 0.006;
   root.add(contactShadow);
+
+  // Stage-5 Maxed / Pro-NOS subtle chassis ground underglow aura
+  if (!lowDetail && !isPolice && !isRhino && (upgradeStage.hasFullApexPack || upgradeStage.nosLvl >= 5)) {
+    const glowColor = upgradeStage.isMaxed
+      ? 'rgba(245, 158, 11, 0.72)'
+      : 'rgba(56, 189, 248, 0.68)';
+    const underTex = getSharedLightGlowTexture(glowColor);
+    const underGeo = track(new THREE.PlaneGeometry(width * 1.9, length * 1.36));
+    underGeo.rotateX(-Math.PI / 2);
+    const underMat = track(
+      new THREE.MeshBasicMaterial({
+        map: underTex,
+        transparent: true,
+        opacity: upgradeStage.isMaxed ? 0.56 : 0.42,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    const underMesh = new THREE.Mesh(underGeo, underMat);
+    underMesh.position.y = 0.012;
+    root.add(underMesh);
+  }
 
   if (isPlayer) {
     const beamTex = getSharedHeadlightPoolTexture();
@@ -482,9 +576,32 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
   const tireMat = track(new THREE.MeshStandardMaterial({ color: '#14161B', metalness: 0.04, roughness: 0.88 }));
   const caliperMat = track(
     new THREE.MeshStandardMaterial({
-      color: isPolice || isRhino ? '#F59E0B' : isBossCar ? '#F59E0B' : '#EF4444',
-      metalness: 0.58,
-      roughness: 0.24,
+      color:
+        isPolice || isRhino
+          ? '#F59E0B'
+          : isBossCar || upgradeStage.hasProAero
+            ? '#FBBF24'
+            : '#EF4444',
+      metalness: 0.65,
+      roughness: 0.22,
+    }),
+  );
+  const titaniumMat = track(
+    new THREE.MeshStandardMaterial({
+      color: '#38BDF8',
+      emissive: new THREE.Color('#0284C7'),
+      emissiveIntensity: upgradeStage.isMaxed ? 0.55 : 0.28,
+      metalness: 0.88,
+      roughness: 0.18,
+    }),
+  );
+  const nosBottleMat = track(
+    new THREE.MeshStandardMaterial({
+      color: '#06B6D4',
+      emissive: new THREE.Color('#0EA5E9'),
+      emissiveIntensity: upgradeStage.nosLvl >= 5 ? 0.85 : 0.35,
+      metalness: 0.75,
+      roughness: 0.16,
     }),
   );
   const headlightMat = track(
@@ -498,7 +615,8 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
   );
   const chromeMat = track(new THREE.MeshStandardMaterial({ color: '#E2E8F0', metalness: 0.94, roughness: 0.14 }));
 
-  const clearance = wheelRadius * (isRhino ? 0.62 : 0.27);
+  const stanceDrop = upgradeStage.hasProAero ? (upgradeStage.isMaxed ? 0.02 : 0.012) : 0;
+  const clearance = Math.max(0.055, wheelRadius * (isRhino ? 0.62 : 0.27) - stanceDrop);
   const hl = length * 0.5;
   const frontAxleZ = -length * 0.305;
   const rearAxleZ = length * 0.305;
@@ -835,12 +953,37 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
       const wheelRing = new THREE.TorusGeometry(0.115, 0.018, 6, 12);
       carbonParts.push({ geo: wheelRing, pos: [-cabW * 0.22, beltY + cabH * 0.28, cabStartZ + 0.20], rot: [0.35, 0, 0] });
 
-      if (isGtr || isBossCar) {
+      if (isGtr || isBossCar || upgradeStage.hasFullApexPack) {
         accentParts.push(
           { geo: new THREE.BoxGeometry(cabW * 0.72, 0.045, 0.045), pos: [0, beltY + cabH * 0.64, cabEndZ - 0.08] },
           { geo: new THREE.BoxGeometry(0.04, cabH * 0.72, 0.04), pos: [-cabW * 0.28, beltY + cabH * 0.36, cabEndZ - 0.08], rot: [0.3, 0, 0.35] },
           { geo: new THREE.BoxGeometry(0.04, cabH * 0.72, 0.04), pos: [cabW * 0.28, beltY + cabH * 0.36, cabEndZ - 0.08], rot: [0.3, 0, -0.35] },
         );
+      }
+
+      // Stage 4/5 Nitrous Oxide Hardware: Twin Anodized-Cyan NOS Cylinders + Front-Fender Purge Nozzles
+      if (upgradeStage.hasTwinNos && !isPolice) {
+        const bottleGeo = track(new THREE.CylinderGeometry(0.068, 0.068, 0.36, 10));
+        bottleGeo.rotateX(Math.PI * 0.38);
+        const capGeo = track(new THREE.CylinderGeometry(0.032, 0.055, 0.07, 8));
+        capGeo.rotateX(Math.PI * 0.38);
+        [-cabW * 0.18, cabW * 0.18].forEach((bx) => {
+          const bottle = new THREE.Mesh(bottleGeo, nosBottleMat);
+          bottle.position.set(bx, beltY + cabH * 0.22, cabEndZ - 0.10);
+          const cap = new THREE.Mesh(capGeo, chromeMat);
+          cap.position.set(bx, beltY + cabH * 0.31, cabEndZ - 0.21);
+          bodyGroup.add(bottle, cap);
+        });
+        if (upgradeStage.nosLvl >= 5) {
+          const purgeGeo = track(new THREE.CylinderGeometry(0.018, 0.022, 0.08, 8));
+          [-bw * 0.40, bw * 0.40].forEach((px) => {
+            const nozzle = new THREE.Mesh(purgeGeo, nosBottleMat);
+            nozzle.position.set(px, beltY + 0.035, cabStartZ - 0.20);
+            nozzle.rotation.z = px < 0 ? 0.35 : -0.35;
+            nozzle.rotation.x = -0.25;
+            bodyGroup.add(nozzle);
+          });
+        }
       }
     }
 
@@ -927,16 +1070,31 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
       // Sculpted center power-bulge spine & twin hood aero creases
       const spineMesh = new THREE.Mesh(
         track(makeChamferCube(bw * 0.18, 0.032, hoodLidLen * 0.78, 0.01, false)),
-        isBossCar || isExotic ? carbonMat : solidPaintMat,
+        isBossCar || isExotic || upgradeStage.hasHighPower ? carbonMat : solidPaintMat,
       );
       spineMesh.position.set(0, 0.038, hoodLidCenterRelZ);
       hGroup.add(spineMesh);
+
+      // Stage 4/5 High-Power Exposed Twin-Turbo Velocity Stacks & Carbon Heat Extractors
+      if (upgradeStage.hasHighPower) {
+        const intakeRingGeo = track(new THREE.CylinderGeometry(0.072, 0.054, 0.095, 10));
+        const stackBaseGeo = track(makeChamferCube(bw * 0.32, 0.06, hoodLidLen * 0.36, 0.01, false));
+        const plenum = new THREE.Mesh(stackBaseGeo, caliperMat);
+        plenum.position.set(0, 0.068, hoodLidCenterRelZ + 0.04);
+        hGroup.add(plenum);
+        [-bw * 0.14, bw * 0.14].forEach((tx) => {
+          const stack = new THREE.Mesh(intakeRingGeo, titaniumMat);
+          stack.position.set(tx, 0.098, hoodLidCenterRelZ - 0.08);
+          stack.rotation.x = -0.18;
+          hGroup.add(stack);
+        });
+      }
     }
 
     // 5. Front Chin Splitter, Recessed FMIC Intercooler, Side Skirts & Multi-Fin Rear Diffuser
-    const splitterExtend = isBossCar ? 0.42 : 0.30;
+    const splitterExtend = isBossCar || upgradeStage.isMaxed ? 0.44 : upgradeStage.hasProAero ? 0.36 : 0.30;
     carbonParts.push(
-      { geo: makeChamferCube(bw * (isBossCar ? 1.04 : 1.00), 0.08, midLen * 1.02, 0.015, lowDetail), pos: [0, clearance + 0.03, midCenterZ] },
+      { geo: makeChamferCube(bw * (isBossCar || upgradeStage.isMaxed ? 1.05 : 1.00), 0.08, midLen * 1.02, 0.015, lowDetail), pos: [0, clearance + 0.03, midCenterZ] },
     );
 
     if (!lowDetail && !isPolice) {
@@ -947,7 +1105,7 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
       bodyGroup.add(frontBumperGroup);
 
       const frontLip = new THREE.Mesh(
-        track(makeChamferCube(bw * (isBossCar ? 1.06 : 0.99), 0.06, splitterExtend, 0.015, false)),
+        track(makeChamferCube(bw * (isBossCar || upgradeStage.isMaxed ? 1.06 : 0.99), 0.06, splitterExtend, 0.015, false)),
         carbonMat,
       );
       frontLip.position.set(0, -0.10, -hl - 0.01 - fbPivotZ);
@@ -960,7 +1118,7 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
 
       const grillBezel = new THREE.Mesh(
         track(new THREE.BoxGeometry(bw * 0.61, 0.024, 0.06)),
-        chromeMat,
+        upgradeStage.isMaxed ? caliperMat : chromeMat,
       );
       grillBezel.position.set(0, lowerH * 0.45 - 0.12, -hl - 0.01 - fbPivotZ);
 
@@ -969,6 +1127,17 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
         chromeMat,
       );
       intercooler.position.set(0, lowerH * 0.26 - 0.12, -hl + 0.005 - fbPivotZ);
+
+      if (upgradeStage.hasHighPower) {
+        const pipeElbowGeo = track(new THREE.CylinderGeometry(0.028, 0.028, 0.16, 8));
+        pipeElbowGeo.rotateZ(Math.PI * 0.35);
+        [-bw * 0.26, bw * 0.26].forEach((px) => {
+          const pipe = new THREE.Mesh(pipeElbowGeo, titaniumMat);
+          pipe.position.set(px, lowerH * 0.26 - 0.12, -hl - 0.012 - fbPivotZ);
+          pipe.rotation.z = px < 0 ? 0.9 : -0.9;
+          frontBumperGroup!.add(pipe);
+        });
+      }
 
       // Machined steel chin-splitter tie-rods flanking intercooler
       const tieRodGeo = track(new THREE.CylinderGeometry(0.012, 0.012, 0.17, 6));
@@ -1001,14 +1170,22 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
 
       frontBumperGroup.add(frontLip, frontGrill, grillBezel, intercooler, towHook);
 
-      if (isBossCar) {
+      if (isBossCar || upgradeStage.hasProAero) {
         const canardGeo = track(new THREE.BoxGeometry(0.16, 0.03, 0.26));
         [-bw * 0.51, bw * 0.51].forEach((cx) => {
           const s = cx < 0 ? -1 : 1;
           const canard = new THREE.Mesh(canardGeo, carbonMat);
-          canard.position.set(cx, 0.06, -hl + 0.22 - fbPivotZ);
+          canard.position.set(cx, 0.05, -hl + 0.22 - fbPivotZ);
           canard.rotation.set(0.14, s * 0.22, s * -0.10);
           frontBumperGroup!.add(canard);
+
+          if (upgradeStage.hasFullApexPack) {
+            const upperCanard = new THREE.Mesh(canardGeo, carbonMat);
+            upperCanard.scale.set(0.85, 0.9, 0.85);
+            upperCanard.position.set(cx, 0.15, -hl + 0.26 - fbPivotZ);
+            upperCanard.rotation.set(0.18, s * 0.26, s * -0.12);
+            frontBumperGroup!.add(upperCanard);
+          }
         });
       }
 
@@ -1031,6 +1208,14 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
         fin.position.set(dx, -0.03, hl + 0.01 - rbPivotZ);
         rearBumperGroup!.add(fin);
       });
+      if (upgradeStage.hasFullApexPack) {
+        const spatGeo = track(makeChamferCube(0.12, 0.06, 0.34, 0.01, false));
+        [-bw * 0.49, bw * 0.49].forEach((sx) => {
+          const spat = new THREE.Mesh(spatGeo, carbonMat);
+          spat.position.set(sx, -0.06, hl - 0.05 - rbPivotZ);
+          rearBumperGroup!.add(spat);
+        });
+      }
       const rainLight = new THREE.Mesh(track(new THREE.BoxGeometry(0.11, 0.055, 0.04)), brakeLightMat);
       rainLight.position.set(0, -0.04, hl + 0.09 - rbPivotZ);
       rearBumperGroup.add(rainLight);
@@ -1139,29 +1324,45 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
       spoilerGroup.position.set(0, wingPivotY, wingPivotZ);
       bodyGroup.add(spoilerGroup);
 
-      if (isBossCar) {
-        const wingH = 0.32;
+      if (isBossCar || upgradeStage.hasProAero) {
+        const wingH = upgradeStage.hasFullApexPack ? 0.35 : 0.32;
         const mainWing = new THREE.Mesh(
-          track(makeChamferCube(bw * 1.04, 0.045, 0.32, 0.01, false)),
+          track(makeChamferCube(bw * 1.05, 0.045, 0.32, 0.01, false)),
           carbonMat,
         );
         mainWing.position.set(0, wingH, -0.01);
         mainWing.rotation.x = 0.10;
         const upperFlap = new THREE.Mesh(
-          track(makeChamferCube(bw * 0.96, 0.035, 0.18, 0.01, false)),
+          track(makeChamferCube(bw * 0.98, 0.035, 0.18, 0.01, false)),
           carbonMat,
         );
         upperFlap.position.set(0, wingH + 0.08, 0.04);
         upperFlap.rotation.x = 0.16;
-        const strutGeo = track(new THREE.BoxGeometry(0.04, wingH + 0.04, 0.18));
-        const endplateGeo = track(makeChamferCube(0.04, 0.24, 0.40, 0.01, false));
+        const strutGeo = track(new THREE.BoxGeometry(0.04, wingH + 0.06, 0.18));
+        const endplateGeo = track(makeChamferCube(0.042, 0.25, 0.42, 0.01, false));
+        const trimGeo = upgradeStage.isMaxed
+          ? track(new THREE.BoxGeometry(0.048, 0.038, 0.38))
+          : null;
         [-1, 1].forEach((s) => {
           const st = new THREE.Mesh(strutGeo, carbonMat);
           st.position.set(s * bw * 0.24, wingH * 0.5, -0.04);
           const ep = new THREE.Mesh(endplateGeo, solidPaintMat);
-          ep.position.set(s * bw * 0.52, wingH + 0.02, 0);
+          ep.position.set(s * bw * 0.525, wingH + 0.025, 0);
           spoilerGroup!.add(st, ep);
+          if (trimGeo) {
+            const goldTrim = new THREE.Mesh(trimGeo, caliperMat);
+            goldTrim.position.set(s * bw * 0.528, wingH + 0.125, 0);
+            spoilerGroup!.add(goldTrim);
+          }
         });
+        if (upgradeStage.isMaxed) {
+          const gurneyLip = new THREE.Mesh(
+            track(new THREE.BoxGeometry(bw * 0.98, 0.025, 0.045)),
+            caliperMat,
+          );
+          gurneyLip.position.set(0, wingH + 0.108, 0.12);
+          spoilerGroup.add(gurneyLip);
+        }
         spoilerGroup.add(mainWing, upperFlap);
       } else if (isMuscle) {
         const duck = new THREE.Mesh(
@@ -1207,19 +1408,27 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
     }
   }
 
-  // 8. Twin / Quad Polished Chrome Exhaust Cannons with Dark Soot Bore (+ Side-Exit Rocker Pipes on Muscle)
-  const exhaustOffsets =
-    !lowDetail && (style === 'gtr' || style === 'exotic' || isBossCar)
-      ? [-0.46, -0.32, 0.32, 0.46]
-      : [-0.38, 0.38];
+  // 8. Twin / Quad Polished Chrome or Burnt-Titanium Exhaust Cannons with Dark Soot Bore
+  const useQuadExhaust =
+    !lowDetail && (style === 'gtr' || style === 'exotic' || isBossCar || upgradeStage.hasHighPower);
+  const exhaustOffsets = useQuadExhaust ? [-0.56, -0.44, 0.44, 0.56] : [-0.38, 0.38];
+  const exCenterZ = lowDetail ? hl - 0.05 : hl + 0.03;
+  const exLen = lowDetail ? 0.15 : 0.18;
   exhaustOffsets.forEach((ex) => {
-    const exGeo = new THREE.CylinderGeometry(0.044, 0.044, 0.15, lowDetail ? 8 : 10);
+    const exGeo = new THREE.CylinderGeometry(0.046, 0.046, exLen, lowDetail ? 8 : 10);
     exGeo.rotateX(Math.PI / 2);
-    chromeParts.push({ geo: exGeo, pos: [ex, clearance + 0.09, hl - 0.05] });
+    chromeParts.push({ geo: exGeo, pos: [ex, clearance + 0.09, exCenterZ] });
+    if (!lowDetail && upgradeStage.hasHighPower) {
+      const tipCollarGeo = track(new THREE.CylinderGeometry(0.052, 0.052, 0.05, 10));
+      tipCollarGeo.rotateX(Math.PI / 2);
+      const tipCollar = new THREE.Mesh(tipCollarGeo, titaniumMat);
+      tipCollar.position.set(ex, clearance + 0.09, hl + 0.105);
+      bodyGroup.add(tipCollar);
+    }
     if (!lowDetail) {
-      const boreGeo = new THREE.CylinderGeometry(0.031, 0.031, 0.05, 8);
+      const boreGeo = new THREE.CylinderGeometry(0.034, 0.034, 0.025, 8);
       boreGeo.rotateX(Math.PI / 2);
-      carbonParts.push({ geo: boreGeo, pos: [ex, clearance + 0.09, hl + 0.008] });
+      carbonParts.push({ geo: boreGeo, pos: [ex, clearance + 0.09, hl + 0.12] });
     }
   });
   if (style === 'muscle' && !lowDetail && !isPolice && !isRhino) {
@@ -1398,15 +1607,19 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
       }),
     );
 
-    [-0.38, 0.38].forEach((ex) => {
+    const flameScaleBoost = upgradeStage.hasTwinNos ? 1.18 : 1.0;
+    const flameOffsets = useQuadExhaust ? [-0.56, -0.44, 0.44, 0.56] : [-0.38, 0.38];
+    flameOffsets.forEach((ex) => {
       const flame = new THREE.Mesh(flameGeo, flameMat);
-      flame.position.set(ex, clearance + 0.09, hl + 0.01);
+      flame.position.set(ex, clearance + 0.09, hl + 0.125);
+      flame.scale.setScalar(flameScaleBoost);
       flame.visible = false;
       const core = new THREE.Mesh(coreGeo, coreMat);
-      core.position.set(ex, clearance + 0.09, hl + 0.01);
+      core.position.set(ex, clearance + 0.09, hl + 0.125);
+      core.scale.setScalar(flameScaleBoost);
       core.visible = false;
       const halo = new THREE.Mesh(nosHaloGeo, nosHaloMat);
-      halo.position.set(ex, clearance + 0.12, hl + 0.08);
+      halo.position.set(ex, clearance + 0.12, hl + 0.19);
       halo.visible = false;
       bodyGroup.add(flame, core, halo);
       nosFlames.push(flame);
@@ -1414,7 +1627,7 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
       nosHalos.push(halo);
 
       const bf = new THREE.Mesh(backfireGeo, backfireMat);
-      bf.position.set(ex, clearance + 0.09, hl + 0.015);
+      bf.position.set(ex, clearance + 0.09, hl + 0.13);
       bf.visible = false;
       bodyGroup.add(bf);
       backfireFlames.push(bf);
@@ -1442,8 +1655,9 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
   }
 
   // Four Independent Wheel Hubs (Suspension Travel -> Steer Yaw -> Camber Pivot -> Wheel Spinner)
-  const wheelWidth = isRhino ? 0.34 : isBossCar ? 0.31 : 0.27;
-  const trackHalfX = width * (isBossCar ? 0.48 : 0.45);
+  const wheelWidth = isRhino ? 0.34 : isBossCar || upgradeStage.hasFullApexPack ? 0.31 : 0.27;
+  const trackHalfX =
+    width * (isBossCar ? 0.48 : upgradeStage.hasProAero ? 0.475 : 0.45);
   const wheelFrontLeft = new THREE.Group();
   const wheelFrontRight = new THREE.Group();
   const wheelSpinners: THREE.Group[] = [];
@@ -1469,6 +1683,7 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
       lowDetail,
       Boolean(isRhino),
       track,
+      upgradeStage.tiresLvl >= 5,
     );
     const hub = new THREE.Group();
     hub.position.set(wd.x, wheelRadius, wd.z);
@@ -1519,6 +1734,8 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
     lightbarBlue,
     lightbarHaloRed,
     lightbarHaloBlue,
+    isMaxStage: upgradeStage.isMaxed,
+    upgradeStageAvg: upgradeStage.avgLevel,
     dispose: () => disposables.forEach((d) => d.dispose()),
   };
 }

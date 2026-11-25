@@ -381,13 +381,13 @@ function GameRoot() {
     };
   }, [screen]);
 
-  // Stage PostRaceModal after ~2.4s of live slow-motion celebratory / busted 3D outro camera
+  // Stage PostRaceModal after ~2.95s of live multi-beat celebratory / busted 3D outro cinema
   useEffect(() => {
     if (!raceResult) {
       setOutroRevealReady(false);
       return;
     }
-    const timer = window.setTimeout(() => setOutroRevealReady(true), 2400);
+    const timer = window.setTimeout(() => setOutroRevealReady(true), 2950);
     return () => window.clearTimeout(timer);
   }, [raceResult]);
 
@@ -800,6 +800,7 @@ function GameRoot() {
         <RaceHUD
           telemetry={telemetry}
           mode={activeRaceParams.mode}
+          outroModalOpen={Boolean(raceResult && outroRevealReady)}
           muted={muted}
           musicMuted={musicMuted}
           showDebug={showDebug}
@@ -877,6 +878,7 @@ function GameRoot() {
         <PostRaceModal
           result={raceResult}
           profile={profile}
+          carConfig={activeRaceParams?.playerConfig ?? garageConfigs[profile.selectedCarId]}
           isNewGhostRecord={isNewGhostRecord}
           ghostCopied={ghostCopied}
           onExportGhost={telemetry?.hasBestGhost ? () => void handleExportCurrentGhost() : undefined}

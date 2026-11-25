@@ -1235,58 +1235,100 @@ export const MainMenuGarage: React.FC<Props> = ({
                   )}
 
                   {garageSection === 'performance' && (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      {(
-                        [
-                          { key: 'engineLevel', label: 'Engine Block', sub: 'Top Speed +14 km/h' },
-                          { key: 'turboLevel', label: 'Twin Turbo', sub: 'Acceleration +6' },
-                          { key: 'nitrousLevel', label: 'Nitrous Oxide', sub: 'Capacity & Recharge' },
-                          { key: 'tiresLevel', label: 'Sport Tires', sub: 'Corner Grip +6' },
-                        ] as const
-                      ).map((part) => {
-                        const lvl = activeConfig[part.key];
-                        const maxed = lvl >= MAX_UPGRADE_LEVEL;
-                        const cost = maxed ? 0 : UPGRADE_COST[lvl];
-                        const canAfford = profile.cash >= cost;
+                    <div className="space-y-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono-tabular">
+                        <span className="text-slate-300">
+                          Stage 4+ &amp; Stage 5 upgrades install <strong className="text-amber-300">visible 3D aero, titanium exhausts, twin NOS bottles &amp; underglow</strong>.
+                        </span>
+                        {activeConfig.engineLevel >= MAX_UPGRADE_LEVEL &&
+                          activeConfig.turboLevel >= MAX_UPGRADE_LEVEL &&
+                          activeConfig.nitrousLevel >= MAX_UPGRADE_LEVEL &&
+                          activeConfig.tiresLevel >= MAX_UPGRADE_LEVEL && (
+                            <span className="px-2 py-0.5 nfs-chamfer-sm bg-amber-400 text-black font-bold uppercase tracking-wider">
+                              STAGE 5 APEX · MAX VISUAL KIT ACTIVE
+                            </span>
+                          )}
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        {(
+                          [
+                            {
+                              key: 'engineLevel',
+                              label: 'Engine Block',
+                              sub: 'Top Speed +14 km/h',
+                              visualPerk: 'S4+: Quad Titanium Exhausts',
+                            },
+                            {
+                              key: 'turboLevel',
+                              label: 'Twin Turbo',
+                              sub: 'Acceleration +6',
+                              visualPerk: 'S4+: Exposed Velocity Stacks',
+                            },
+                            {
+                              key: 'nitrousLevel',
+                              label: 'Nitrous Oxide',
+                              sub: 'Capacity & Recharge',
+                              visualPerk: 'S4+: Twin Cyan NOS & Purge',
+                            },
+                            {
+                              key: 'tiresLevel',
+                              label: 'Sport Tires',
+                              sub: 'Corner Grip +6',
+                              visualPerk: 'S4+: GT Wing, Canards & Stance',
+                            },
+                          ] as const
+                        ).map((part) => {
+                          const lvl = activeConfig[part.key];
+                          const maxed = lvl >= MAX_UPGRADE_LEVEL;
+                          const cost = maxed ? 0 : UPGRADE_COST[lvl];
+                          const canAfford = profile.cash >= cost;
 
-                        return (
-                          <div
-                            key={part.key}
-                            className="bg-[#11151E] border border-white/12 border-l-4 border-l-amber-400 nfs-chamfer-sm p-3 flex flex-col justify-between"
-                          >
-                            <div>
-                              <div className="flex items-center justify-between">
-                                <span className="font-display uppercase tracking-wide text-sm font-bold text-white">
-                                  {part.label}
-                                </span>
-                                <Wrench className="w-3.5 h-3.5 text-amber-400" />
-                              </div>
-                              <div className="flex items-center justify-between text-xs mt-0.5">
-                                <span className="text-slate-400">{part.sub}</span>
-                                <span className="font-mono-tabular text-amber-400 font-bold">
-                                  {maxed ? `${MAX_UPGRADE_LEVEL}/${MAX_UPGRADE_LEVEL}` : `S${lvl}→S${lvl + 1}`}
-                                </span>
-                              </div>
-                              <div className="flex gap-1 mt-2.5">
-                                {[1, 2, 3, 4, 5].map((pip) => (
-                                  <div
-                                    key={pip}
-                                    className={`h-1.5 flex-1 ${pip <= lvl ? 'bg-amber-400' : 'bg-white/15'}`}
-                                  />
-                                ))}
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              disabled={maxed || !canAfford}
-                              onClick={() => onUpgradePart(part.key)}
-                              className="mt-3 w-full py-1.5 px-2.5 text-xs font-display uppercase tracking-wider font-bold nfs-chamfer-sm bg-amber-400 hover:bg-amber-300 disabled:bg-white/10 disabled:text-slate-500 text-black transition-colors cursor-pointer"
+                          return (
+                            <div
+                              key={part.key}
+                              className="bg-[#11151E] border border-white/12 border-l-4 border-l-amber-400 nfs-chamfer-sm p-3 flex flex-col justify-between"
                             >
-                              {maxed ? 'Max Stage' : `Install · ${formatCurrency(cost)}`}
-                            </button>
-                          </div>
-                        );
-                      })}
+                              <div>
+                                <div className="flex items-center justify-between">
+                                  <span className="font-display uppercase tracking-wide text-sm font-bold text-white">
+                                    {part.label}
+                                  </span>
+                                  <Wrench className="w-3.5 h-3.5 text-amber-400" />
+                                </div>
+                                <div className="flex items-center justify-between text-xs mt-0.5">
+                                  <span className="text-slate-400">{part.sub}</span>
+                                  <span className="font-mono-tabular text-amber-400 font-bold">
+                                    {maxed ? `${MAX_UPGRADE_LEVEL}/${MAX_UPGRADE_LEVEL}` : `S${lvl}→S${lvl + 1}`}
+                                  </span>
+                                </div>
+                                <div
+                                  className={`text-[10px] font-mono-tabular mt-1 ${
+                                    lvl >= 4 ? 'text-cyan-300 font-semibold' : 'text-slate-500'
+                                  }`}
+                                >
+                                  {lvl >= 4 ? `ACTIVE: ${part.visualPerk}` : part.visualPerk}
+                                </div>
+                                <div className="flex gap-1 mt-2">
+                                  {[1, 2, 3, 4, 5].map((pip) => (
+                                    <div
+                                      key={pip}
+                                      className={`h-1.5 flex-1 ${pip <= lvl ? 'bg-amber-400' : 'bg-white/15'}`}
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={maxed || !canAfford}
+                                onClick={() => onUpgradePart(part.key)}
+                                className="mt-3 w-full py-1.5 px-2.5 text-xs font-display uppercase tracking-wider font-bold nfs-chamfer-sm bg-amber-400 hover:bg-amber-300 disabled:bg-white/10 disabled:text-slate-500 text-black transition-colors cursor-pointer"
+                              >
+                                {maxed ? 'Max Stage' : `Install · ${formatCurrency(cost)}`}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
 

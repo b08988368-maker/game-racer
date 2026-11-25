@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
+  Camera,
   Check,
   CheckCircle2,
   Copy,
@@ -9,6 +10,7 @@ import {
   Settings,
   ShieldAlert,
   Sliders,
+  Sparkles,
   Trophy,
   Wrench,
 } from 'lucide-react';
@@ -19,14 +21,16 @@ import {
   formatCurrency,
   formatTimeMs,
   isTierBossUnlocked,
+  MAX_UPGRADE_LEVEL,
   TOTAL_BLACKLIST_RANKS,
   TRACKS,
 } from '../data/gameData';
-import { CareerProfile, RaceResult } from '../types/game';
+import { CareerProfile, GarageCarConfig, RaceResult } from '../types/game';
 
 interface PostRaceProps {
   result: RaceResult;
   profile: CareerProfile;
+  carConfig?: GarageCarConfig;
   isNewGhostRecord?: boolean;
   ghostCopied?: boolean;
   onExportGhost?: () => void;
@@ -37,12 +41,14 @@ interface PostRaceProps {
 export const PostRaceModal: React.FC<PostRaceProps> = ({
   result,
   profile,
+  carConfig,
   isNewGhostRecord = false,
   ghostCopied = false,
   onExportGhost,
   onRaceAgain,
   onReturnGarage,
 }) => {
+  const [inspectFinishCam, setInspectFinishCam] = useState(false);
   const trackMeta = TRACKS.find((t) => t.id === result.trackId);
   const envLabel = ENVIRONMENTS.find((e) => e.id === result.environment)?.label ?? result.environment;
   const nextRival = BLACKLIST_RIVALS.find((r) => r.rank === TOTAL_BLACKLIST_RANKS - profile.blacklistDefeated);
@@ -54,11 +60,37 @@ export const PostRaceModal: React.FC<PostRaceProps> = ({
   const koLeft = nextRival ? Math.max(0, nextRival.requiredTakedowns - profile.copsTakedowns) : 0;
   const readyForBoss = Boolean(unlock?.unlocked);
 
+  const isMaxedBuild = Boolean(
+    carConfig &&
+      carConfig.engineLevel >= MAX_UPGRADE_LEVEL &&
+      carConfig.turboLevel >= MAX_UPGRADE_LEVEL &&
+      carConfig.nitrousLevel >= MAX_UPGRADE_LEVEL &&
+      carConfig.tiresLevel >= MAX_UPGRADE_LEVEL,
+  );
+
   const isDefeat =
     result.busted || result.knockedOut || result.tollboothExpired || Boolean(result.missionTitle && !result.missionCompleted);
 
+  if (inspectFinishCam) {
+    return (
+      <div className="fixed bottom-6 right-6 z-30 flex items-center gap-2 nfs-anim-slide-up">
+        <button
+          type="button"
+          onClick={() => {
+            soundEngine.triggerUiClick();
+            setInspectFinishCam(false);
+          }}
+          className="px-4 py-2.5 nfs-chamfer-sm bg-amber-400 hover:bg-amber-300 text-black font-display uppercase tracking-wider font-bold text-xs flex items-center gap-2 shadow-2xl cursor-pointer"
+        >
+          <Trophy className="w-4 h-4" />
+          <span>Show Race Results</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center bg-[#06070A]/82 p-4">
+    <div className="fixed inset-0 z-30 flex items-center justify-center bg-[#06070A]/62 p-4">
       <div
         className={`w-full max-w-lg nfs-chamfer nfs-carbon-bg border border-white/18 border-l-4 overflow-hidden shadow-2xl nfs-anim-slide-up ${
           isDefeat ? 'border-l-red-500' : result.won ? 'border-l-amber-400' : 'border-l-slate-400'
@@ -68,8 +100,14 @@ export const PostRaceModal: React.FC<PostRaceProps> = ({
         <div className="p-6 space-y-4">
           <div className="flex items-start justify-between gap-4 nfs-anim-stamp">
             <div>
-              <div className="text-xs font-mono-tabular uppercase tracking-wider text-slate-400">
-                {trackMeta?.name ?? result.trackId} · {envLabel}
+              <div className="flex flex-wrap items-center gap-2 text-xs font-mono-tabular uppercase tracking-wider text-slate-400">
+                <span>{trackMeta?.name ?? result.trackId} · {envLabel}</span>
+                {isMaxedBuild && (
+                  <span className="px-1.5 py-0.5 bg-amber-400/20 border border-amber-400/60 text-amber-300 text-[10px] font-bold flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" />
+                    STAGE 5 APEX
+                  </span>
+                )}
               </div>
               <h2
                 className={`font-display italic uppercase tracking-wide text-3xl font-bold mt-1 ${
@@ -99,20 +137,35 @@ export const PostRaceModal: React.FC<PostRaceProps> = ({
                           : `FINISHED P${result.position}`}
               </h2>
             </div>
-            {isDefeat ? (
-              <ShieldAlert className="w-8 h-8 text-red-400 shrink-0" />
-            ) : (
-              <Trophy className="w-8 h-8 text-amber-400 shrink-0" />
-            )}
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.triggerUiClick();
+                  setInspectFinishCam(true);
+                }}
+                title="Hide card to watch live 3D Finish Cam"
+                className="px-2.5 py-1.5 nfs-chamfer-sm bg-[#141822] hover:bg-[#1E2433] border border-white/20 text-[10px] font-mono-tabular uppercase text-slate-200 flex items-center gap-1.5 cursor-pointer"
+              >
+                <Camera className="w-3.5 h-3.5 text-amber-300" />
+                <span className="hidden sm:inline">Finish Cam</span>
+              </button>
+              {isDefeat ? (
+                <ShieldAlert className="w-8 h-8 text-red-400 shrink-0" />
+              ) : (
+                <Trophy className="w-8 h-8 text-amber-400 shrink-0" />
+              )}
+            </div>
           </div>
 
           {result.missionTitle && (
             <div
-              className={`nfs-chamfer-sm px-3.5 py-2.5 text-xs border border-white/10 border-l-4 space-y-1 ${
+              className={`nfs-chamfer-sm px-3.5 py-2.5 text-xs border border-white/10 border-l-4 space-y-1 nfs-anim-slide-up ${
                 result.missionCompleted
                   ? 'bg-emerald-500/12 border-l-emerald-400 text-emerald-200'
                   : 'bg-red-500/12 border-l-red-500 text-red-200'
               }`}
+              style={{ animationDelay: '70ms' }}
             >
               <div className="flex items-center gap-2">
                 {result.missionCompleted ? (
@@ -134,13 +187,13 @@ export const PostRaceModal: React.FC<PostRaceProps> = ({
           )}
 
           {!result.missionTitle && isDefeat && result.missionFailReason && (
-            <div className="bg-red-500/12 border border-white/10 border-l-4 border-l-red-500 nfs-chamfer-sm px-3.5 py-2 text-xs text-red-200">
+            <div className="bg-red-500/12 border border-white/10 border-l-4 border-l-red-500 nfs-chamfer-sm px-3.5 py-2 text-xs text-red-200 nfs-anim-slide-up" style={{ animationDelay: '70ms' }}>
               {result.missionFailReason}
             </div>
           )}
 
           {result.bossCarAwarded && (
-            <div className="bg-amber-500/14 border border-amber-400/50 border-l-4 border-l-amber-400 nfs-chamfer-sm p-3.5 text-xs space-y-1">
+            <div className="bg-amber-500/14 border border-amber-400/50 border-l-4 border-l-amber-400 nfs-chamfer-sm p-3.5 text-xs space-y-1 nfs-anim-slide-up" style={{ animationDelay: '100ms' }}>
               <div className="flex items-center gap-2 font-display uppercase tracking-wider font-bold text-amber-300 text-sm">
                 <KeyRound className="w-4 h-4 shrink-0" />
                 <span>PINK SLIP SEIZED: {result.bossCarAwarded.name}</span>
@@ -152,7 +205,7 @@ export const PostRaceModal: React.FC<PostRaceProps> = ({
           )}
 
           {result.isNewTrackWin && (
-            <div className="bg-emerald-500/12 border border-white/10 border-l-4 border-l-emerald-400 nfs-chamfer-sm px-3.5 py-2.5 text-xs text-emerald-200 flex items-center gap-2">
+            <div className="bg-emerald-500/12 border border-white/10 border-l-4 border-l-emerald-400 nfs-chamfer-sm px-3.5 py-2.5 text-xs text-emerald-200 flex items-center gap-2 nfs-anim-slide-up" style={{ animationDelay: '120ms' }}>
               <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
               <span>
                 Circuit Cleared! <strong className="text-white">{wonCount} / 10 Circuits Won</strong>
@@ -160,7 +213,7 @@ export const PostRaceModal: React.FC<PostRaceProps> = ({
             </div>
           )}
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-sm">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-sm nfs-anim-slide-up" style={{ animationDelay: '150ms' }}>
             <MetricBox label="Cash Earned" value={formatCurrency(result.cashEarned)} tone="emerald" />
             <MetricBox label="Bounty Added" value={formatCurrency(result.bountyEarned)} tone="amber" />
             {result.mode === 'speedtrap' ? (
@@ -178,7 +231,7 @@ export const PostRaceModal: React.FC<PostRaceProps> = ({
 
           {/* Next Blacklist Boss Unlock Progress */}
           {nextRival ? (
-            <div className="bg-[#0B0D13] border border-white/12 border-l-4 border-l-amber-400 nfs-chamfer-sm px-3.5 py-2.5 text-xs space-y-1">
+            <div className="bg-[#0B0D13] border border-white/12 border-l-4 border-l-amber-400 nfs-chamfer-sm px-3.5 py-2.5 text-xs space-y-1 nfs-anim-slide-up" style={{ animationDelay: '210ms' }}>
               <div className="flex items-center justify-between">
                 <span className="text-slate-400 font-display uppercase tracking-wider font-semibold">
                   Target: <strong className="text-amber-400">#{nextRival.rank} {nextRival.alias}</strong>
@@ -207,13 +260,13 @@ export const PostRaceModal: React.FC<PostRaceProps> = ({
               )}
             </div>
           ) : (
-            <div className="bg-amber-500/12 border border-amber-400/40 nfs-chamfer-sm px-3.5 py-2 text-xs text-amber-200 font-semibold">
+            <div className="bg-amber-500/12 border border-amber-400/40 nfs-chamfer-sm px-3.5 py-2 text-xs text-amber-200 font-semibold nfs-anim-slide-up" style={{ animationDelay: '210ms' }}>
               {TOTAL_BLACKLIST_RANKS}/{TOTAL_BLACKLIST_RANKS} Blacklist Rivals Defeated — You are Rockport’s #1 Most Wanted!
             </div>
           )}
 
           {isNewGhostRecord && (
-            <div className="bg-cyan-500/12 border border-cyan-400/45 border-l-4 border-l-cyan-400 nfs-chamfer-sm px-3.5 py-2 text-xs text-cyan-200 flex items-center justify-between gap-2">
+            <div className="bg-cyan-500/12 border border-cyan-400/45 border-l-4 border-l-cyan-400 nfs-chamfer-sm px-3.5 py-2 text-xs text-cyan-200 flex items-center justify-between gap-2 nfs-anim-slide-up" style={{ animationDelay: '240ms' }}>
               <div className="flex items-center gap-2">
                 <Ghost className="w-4 h-4 text-cyan-300 shrink-0" />
                 <span>
@@ -245,7 +298,7 @@ export const PostRaceModal: React.FC<PostRaceProps> = ({
             </div>
           )}
 
-          <div className="flex items-center gap-3 pt-1">
+          <div className="flex items-center gap-3 pt-1 nfs-anim-slide-up" style={{ animationDelay: '270ms' }}>
             <button
               type="button"
               onClick={() => {

@@ -47,10 +47,10 @@ export interface TuningSliderDef {
 export const FIXED_PHYSICS_DT = 1 / 120;
 
 /** Clamp incoming frame delta so tab switches or hitches never explode physics */
-export const MAX_FRAME_DELTA_SEC = 0.05;
+export const MAX_FRAME_DELTA_SEC = 0.036;
 
-/** Hard cap on physics substeps per render frame to prevent spiral-of-death */
-export const MAX_PHYSICS_SUBSTEPS = 8;
+/** Hard cap on physics substeps per render frame to prevent CPU spiral-of-death */
+export const MAX_PHYSICS_SUBSTEPS = 4;
 
 /** Continuous collision substep displacement threshold (meters) */
 export const CONTINUOUS_STEP_DISTANCE_M = 0.45;

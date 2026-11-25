@@ -1,4 +1,5 @@
 import { TrackId } from '../types/game';
+import { clampAudioValue, stepMusicLookaheadWindow } from './audioSafety';
 import { soundEngine } from './soundEngine';
 
 export interface EaTraxEntry {
@@ -165,6 +166,7 @@ class MusicEngine {
   private noiseBuf: AudioBuffer | null = null;
   private driveShaper: WaveShaperNode | null = null;
   private masterBus: DynamicsCompressorNode | null = null;
+  private streamStallTimer: number | null = null;
 
   public subscribe(cb: (label: string) => void): () => void {
     this.listeners.add(cb);
@@ -284,6 +286,7 @@ class MusicEngine {
     this.mode = 'stopped';
     this.paused = false;
     this.pursuitActive = false;
+    this.clearStreamStallTimer();
     this.stopSynthLoop();
     if (this.audioEl) {
       this.audioEl.pause();
@@ -318,22 +321,51 @@ class MusicEngine {
     window.addEventListener('keydown', resumeAudio, { once: true });
   }
 
+  private clearStreamStallTimer() {
+    if (this.streamStallTimer !== null) {
+      window.clearTimeout(this.streamStallTimer);
+      this.streamStallTimer = null;
+    }
+  }
+
+  private armStreamStallFallback() {
+    if (this.streamStallTimer !== null || !this.running || this.paused) return;
+    this.streamStallTimer = window.setTimeout(() => {
+      this.streamStallTimer = null;
+      if (this.running && !this.paused && !this.synthActive) {
+        const entry = EA_TRAX_PLAYLIST[this.currentIdx];
+        if (entry?.kind === 'stream' && this.audioEl && (this.audioEl.readyState < 3 || this.audioEl.paused)) {
+          this.activateSynthLoop();
+        }
+      }
+    }, 2600);
+  }
+
   private ensureAudioElement(): HTMLAudioElement {
     if (!this.audioEl) {
       const el = new Audio();
       el.preload = 'auto';
       el.addEventListener('ended', () => {
+        this.clearStreamStallTimer();
         if (this.running) {
           this.nextTrack();
         }
       });
       el.addEventListener('playing', () => {
+        this.clearStreamStallTimer();
         // Real MP3 started cleanly — turn off fallback synth if it was running
         if (this.synthActive && EA_TRAX_PLAYLIST[this.currentIdx]?.kind === 'stream') {
           this.stopSynthLoop();
         }
       });
+      el.addEventListener('waiting', () => {
+        this.armStreamStallFallback();
+      });
+      el.addEventListener('stalled', () => {
+        this.armStreamStallFallback();
+      });
       el.addEventListener('error', () => {
+        this.clearStreamStallTimer();
         if (this.running) {
           this.activateSynthLoop();
         }
@@ -351,13 +383,13 @@ class MusicEngine {
       } else {
         this.audioEl.muted = false;
         const targetVol = this.paused
-          ? 0.14
+          ? 0.12
           : this.mode === 'menu'
-            ? 0.42
+            ? 0.36
             : this.pursuitActive
-              ? Math.min(0.82, 0.62 + this.heatLevel * 0.04)
-              : 0.58;
-        this.audioEl.volume = targetVol;
+              ? Math.min(0.56, 0.44 + this.heatLevel * 0.024)
+              : 0.46;
+        this.audioEl.volume = clampAudioValue(targetVol, 0.4, 0, 0.6);
       }
     }
     const ctx = soundEngine.getAudioContext();
@@ -368,11 +400,11 @@ class MusicEngine {
         : this.paused
           ? 0.09
           : this.mode === 'menu'
-            ? 0.32
+            ? 0.28
             : this.pursuitActive
-              ? Math.min(0.62, 0.46 + this.heatLevel * 0.03)
-              : 0.48;
-      dest.gain.setTargetAtTime(targetGain, ctx.currentTime, 0.08);
+              ? Math.min(0.52, 0.4 + this.heatLevel * 0.022)
+              : 0.42;
+      dest.gain.setTargetAtTime(clampAudioValue(targetGain, 0, 0, 0.6), ctx.currentTime, 0.08);
     }
   }
 
@@ -423,7 +455,7 @@ class MusicEngine {
       const comp = ctx.createDynamicsCompressor();
       comp.threshold.value = -16;
       comp.knee.value = 12;
-      comp.ratio.value = 6;
+      comp.ratio.value = 5.0;
       comp.attack.value = 0.004;
       comp.release.value = 0.14;
       comp.connect(dest);
@@ -431,8 +463,8 @@ class MusicEngine {
     }
     if (!this.driveShaper || this.driveShaper.context !== ctx) {
       const shaper = ctx.createWaveShaper();
-      shaper.curve = makeDistortionCurve(36);
-      shaper.oversample = '2x';
+      shaper.curve = makeDistortionCurve(32);
+      shaper.oversample = 'none';
       shaper.connect(this.masterBus);
       this.driveShaper = shaper;
     }
@@ -462,6 +494,23 @@ class MusicEngine {
     }
   }
 
+  private cleanupSynthNodes(endSource: AudioScheduledSourceNode, nodes: AudioNode[], lifetimeMs: number) {
+    let done = false;
+    const disconnectAll = () => {
+      if (done) return;
+      done = true;
+      for (let i = 0; i < nodes.length; i++) {
+        try {
+          nodes[i].disconnect();
+        } catch {
+          // ignore
+        }
+      }
+    };
+    endSource.onended = disconnectAll;
+    window.setTimeout(disconnectAll, lifetimeMs + 90);
+  }
+
   private scheduleSynthStep() {
     if (!this.running || !this.synthActive || this.paused || this.musicMuted || soundEngine.isMuted()) return;
     const ctx = soundEngine.getAudioContext();
@@ -475,36 +524,38 @@ class MusicEngine {
     const entry = EA_TRAX_PLAYLIST[this.currentIdx] ?? EA_TRAX_PLAYLIST[0];
     const bpm = isMenuGroove ? 112 : entry.bpm + (this.pursuitActive ? this.heatLevel * 2 : 0);
     const stepDur = 60 / bpm / 4;
-    if (this.synthNextTime < ctx.currentTime - 0.25) {
-      this.synthNextTime = ctx.currentTime + 0.03;
-    }
+    const { startTime, maxSteps } = stepMusicLookaheadWindow(this.synthNextTime, ctx.currentTime, stepDur, 3);
+    this.synthNextTime = startTime;
 
     const noiseBuf = this.ensureNoiseBuffer(ctx);
     const bassSeq = entry.bassPattern ?? [36, 0, 36, 39, 36, 0, 41, 43, 36, 0, 36, 46, 43, 41, 39, 0];
     const leadSeq = entry.leadPattern ?? [60, 0, 63, 0, 67, 0, 65, 63, 60, 0, 70, 0, 67, 63, 65, 0];
 
-    while (this.synthNextTime < ctx.currentTime + 0.14) {
+    let stepsScheduled = 0;
+    while (this.synthNextTime < ctx.currentTime + 0.14 && stepsScheduled < maxSteps) {
+      stepsScheduled++;
       const s = this.synthStep % 16;
       const bar = Math.floor(this.synthStep / 16) % 4;
       const t = this.synthNextTime;
 
-      // 1. Punchy 808 Sub Kick (Phonk / Electronic-Rock Drive)
+      // 1. Punchy 808 Sub Kick
       const kickHit = s === 0 || s === 3 || s === 6 || s === 10 || (this.pursuitActive && s === 14);
       if (kickHit) {
         const osc = ctx.createOscillator();
         const g = ctx.createGain();
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(148, t);
+        osc.frequency.setValueAtTime(144, t);
         osc.frequency.exponentialRampToValueAtTime(44, t + 0.095);
-        g.gain.setValueAtTime(isMenuGroove ? 0.3 : 0.42, t);
+        g.gain.setValueAtTime(isMenuGroove ? 0.26 : 0.34, t);
         g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
         osc.connect(g);
         g.connect(bus);
         osc.start(t);
         osc.stop(t + 0.19);
+        this.cleanupSynthNodes(osc, [osc, g], 260);
       }
 
-      // 2. Crisp Trap/Rock Snare + Layered Clap
+      // 2. Crisp Snare
       const snareHit = s === 4 || s === 12 || (!isMenuGroove && bar === 3 && s === 15);
       if (snareHit) {
         const ghost = s === 15 ? 0.52 : 1.0;
@@ -512,31 +563,33 @@ class MusicEngine {
         src.buffer = noiseBuf;
         const bp = ctx.createBiquadFilter();
         bp.type = 'bandpass';
-        bp.frequency.value = 2150;
+        bp.frequency.value = 1950;
         bp.Q.value = 0.75;
         const ng = ctx.createGain();
-        ng.gain.setValueAtTime((isMenuGroove ? 0.16 : 0.28) * ghost, t);
+        ng.gain.setValueAtTime((isMenuGroove ? 0.13 : 0.22) * ghost, t);
         ng.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
         src.connect(bp);
         bp.connect(ng);
         ng.connect(bus);
         src.start(t);
         src.stop(t + 0.14);
+        this.cleanupSynthNodes(src, [src, bp, ng], 220);
 
         const body = ctx.createOscillator();
         body.type = 'triangle';
-        body.frequency.setValueAtTime(225, t);
+        body.frequency.setValueAtTime(220, t);
         body.frequency.exponentialRampToValueAtTime(118, t + 0.065);
         const bg = ctx.createGain();
-        bg.gain.setValueAtTime(0.18 * ghost, t);
+        bg.gain.setValueAtTime(0.14 * ghost, t);
         bg.gain.exponentialRampToValueAtTime(0.001, t + 0.085);
         body.connect(bg);
         bg.connect(bus);
         body.start(t);
         body.stop(t + 0.09);
+        this.cleanupSynthNodes(body, [body, bg], 180);
       }
 
-      // 3. Driving Hi-Hats + 32nd-note Phonk Rolls on Bar Turnaround
+      // 3. Driving Hi-Hats
       const isRoll = !isMenuGroove && bar === 3 && (s === 13 || s === 14);
       const hatRepeats = isRoll ? 2 : 1;
       for (let r = 0; r < hatRepeats; r++) {
@@ -547,15 +600,16 @@ class MusicEngine {
         src.buffer = noiseBuf;
         const hp = ctx.createBiquadFilter();
         hp.type = 'highpass';
-        hp.frequency.value = 7200;
+        hp.frequency.value = 6400;
         const hg = ctx.createGain();
-        hg.gain.setValueAtTime((isMenuGroove ? 0.035 : 0.065) * accent, ht);
+        hg.gain.setValueAtTime((isMenuGroove ? 0.028 : 0.05) * accent, ht);
         hg.gain.exponentialRampToValueAtTime(0.001, ht + (openHat ? 0.08 : 0.032));
         src.connect(hp);
         hp.connect(hg);
         hg.connect(bus);
         src.start(ht);
         src.stop(ht + 0.09);
+        this.cleanupSynthNodes(src, [src, hp, hg], 180);
       }
 
       // 4. Overdriven Distorted Bass + Sub Anchor
@@ -572,12 +626,12 @@ class MusicEngine {
         osc.frequency.setValueAtTime(freq, t);
         sub.frequency.setValueAtTime(freq * 0.5, t);
         lp.type = 'lowpass';
-        const cutoff = isMenuGroove ? 640 : this.pursuitActive ? 1150 + this.heatLevel * 140 : 960;
-        lp.frequency.setValueAtTime(cutoff * 1.6, t);
+        const cutoff = isMenuGroove ? 640 : this.pursuitActive ? 1100 + this.heatLevel * 120 : 920;
+        lp.frequency.setValueAtTime(cutoff * 1.5, t);
         lp.frequency.exponentialRampToValueAtTime(cutoff * 0.45, t + stepDur * 1.3);
-        lp.Q.value = 2.6;
+        lp.Q.value = 2.0;
         g.gain.setValueAtTime(0.002, t);
-        g.gain.linearRampToValueAtTime(isMenuGroove ? 0.14 : 0.22, t + 0.008);
+        g.gain.linearRampToValueAtTime(isMenuGroove ? 0.12 : 0.19, t + 0.008);
         g.gain.exponentialRampToValueAtTime(0.001, t + stepDur * 1.4);
         osc.connect(lp);
         lp.connect(g);
@@ -587,9 +641,10 @@ class MusicEngine {
         sub.start(t);
         osc.stop(t + stepDur * 1.48);
         sub.stop(t + stepDur * 1.48);
+        this.cleanupSynthNodes(osc, [osc, sub, lp, g], Math.ceil(stepDur * 1500) + 120);
       }
 
-      // 5. Saturated Phonk Cowbell / Overdriven Guitar Power-Chord Lead
+      // 5. Saturated Phonk Cowbell / Power-Chord Lead
       const leadMidi = leadSeq[s];
       if (leadMidi > 0 && (!isMenuGroove || bar % 2 === 1)) {
         const transpose = bar === 3 && s >= 8 ? 3 : 0;
@@ -604,9 +659,9 @@ class MusicEngine {
         o1.frequency.setValueAtTime(f1, t);
         o2.frequency.setValueAtTime(f2, t);
         bp.type = 'bandpass';
-        bp.frequency.setValueAtTime(isMenuGroove ? 1100 : 1850 + (this.pursuitActive ? this.heatLevel * 200 : 0), t);
-        bp.Q.value = 1.4;
-        const amp = isMenuGroove ? 0.055 : this.pursuitActive ? 0.105 : 0.085;
+        bp.frequency.setValueAtTime(isMenuGroove ? 1050 : 1650 + (this.pursuitActive ? this.heatLevel * 160 : 0), t);
+        bp.Q.value = 1.3;
+        const amp = isMenuGroove ? 0.045 : this.pursuitActive ? 0.085 : 0.07;
         lg.gain.setValueAtTime(0.001, t);
         lg.gain.linearRampToValueAtTime(amp, t + 0.008);
         lg.gain.exponentialRampToValueAtTime(0.001, t + stepDur * 1.65);
@@ -618,6 +673,7 @@ class MusicEngine {
         o2.start(t);
         o1.stop(t + stepDur * 1.75);
         o2.stop(t + stepDur * 1.75);
+        this.cleanupSynthNodes(o1, [o1, o2, bp, lg], Math.ceil(stepDur * 1750) + 120);
       }
 
       this.synthNextTime += stepDur;

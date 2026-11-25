@@ -42,6 +42,7 @@ import { RaceMode, RaceTelemetry } from '../types/game';
 interface Props {
   telemetry: RaceTelemetry;
   mode: RaceMode;
+  outroModalOpen?: boolean;
   muted: boolean;
   musicMuted: boolean;
   showDebug?: boolean;
@@ -71,6 +72,7 @@ interface Props {
 export const RaceHUD: React.FC<Props> = ({
   telemetry,
   mode,
+  outroModalOpen = false,
   muted,
   musicMuted,
   showDebug = false,
@@ -332,40 +334,60 @@ export const RaceHUD: React.FC<Props> = ({
           )}
 
           {telemetry.cinematicPhase === 'outro' && (
-            <div className="fixed top-20 inset-x-0 z-20 flex justify-center px-4 pointer-events-none">
-              <div
-                className={`px-8 py-3.5 nfs-chamfer nfs-carbon-bg border border-white/25 border-l-4 shadow-2xl nfs-anim-stamp text-center ${
-                  telemetry.outroOutcome === 'win'
-                    ? 'border-l-amber-400'
-                    : telemetry.outroOutcome === 'busted'
-                      ? 'border-l-red-500'
-                      : 'border-l-slate-400'
-                }`}
-              >
+            <>
+              <div className="fixed top-20 inset-x-0 z-20 flex justify-center px-4 pointer-events-none">
                 <div
-                  className={`font-display italic uppercase text-3xl sm:text-5xl font-black tracking-wider ${
+                  className={`px-9 py-4 nfs-chamfer nfs-carbon-bg border border-white/25 border-l-4 shadow-2xl nfs-anim-stamp text-center ${
                     telemetry.outroOutcome === 'win'
-                      ? 'text-amber-400'
+                      ? 'border-l-amber-400'
                       : telemetry.outroOutcome === 'busted'
-                        ? 'text-red-500'
-                        : 'text-white'
+                        ? 'border-l-red-500'
+                        : 'border-l-slate-400'
                   }`}
                 >
-                  {telemetry.outroOutcome === 'win'
-                    ? 'VICTORY'
-                    : telemetry.outroOutcome === 'busted'
-                      ? 'BUSTED BY RPD'
-                      : 'EVENT COMPLETE'}
-                </div>
-                <div className="text-[11px] font-mono-tabular uppercase tracking-widest text-slate-300 mt-1 font-bold">
-                  {telemetry.outroOutcome === 'win'
-                    ? 'STREETS OWNED // VICTORY BURNOUT'
-                    : telemetry.outroOutcome === 'busted'
-                      ? 'CONTAINED BY ROCKPORT PD'
-                      : 'PHOTO FINISH // CHECK RESULTS'}
+                  <div className="text-[10px] font-mono-tabular uppercase tracking-[0.28em] text-slate-300 font-bold mb-1">
+                    {telemetry.outroOutcome === 'win'
+                      ? `P${telemetry.position} FINISH · ${formatTimeMs(telemetry.totalRaceTimeMs)}`
+                      : telemetry.outroOutcome === 'busted'
+                        ? `HEAT LEVEL ${telemetry.heatLevel} · LOCKDOWN`
+                        : `P${telemetry.position}/${telemetry.totalRacers} · ${formatTimeMs(telemetry.totalRaceTimeMs)}`}
+                  </div>
+                  <div
+                    className={`font-display italic uppercase text-4xl sm:text-5xl font-black tracking-wider leading-none ${
+                      telemetry.outroOutcome === 'win'
+                        ? 'text-amber-400'
+                        : telemetry.outroOutcome === 'busted'
+                          ? 'text-red-500'
+                          : 'text-white'
+                    }`}
+                  >
+                    {telemetry.outroOutcome === 'win'
+                      ? '1ST PLACE VICTORY'
+                      : telemetry.outroOutcome === 'busted'
+                        ? 'BUSTED BY RPD'
+                        : 'FINISH CROSSED'}
+                  </div>
+                  <div className="text-[11px] font-mono-tabular uppercase tracking-widest text-amber-200/90 mt-1.5 font-bold">
+                    {telemetry.outroOutcome === 'win'
+                      ? 'ROCKPORT MOST WANTED // VICTORY SHOWCASE'
+                      : telemetry.outroOutcome === 'busted'
+                        ? 'SUSPECT IMMOBILIZED // UNITS CONVERGING'
+                        : 'PHOTO FINISH // CALCULATING PAYOUT'}
+                  </div>
                 </div>
               </div>
-            </div>
+              {!outroModalOpen && (
+                <div className="fixed bottom-4 sm:bottom-6 inset-x-0 z-20 flex justify-center px-4 pointer-events-none">
+                  <div className="text-[10px] font-mono-tabular uppercase tracking-[0.25em] text-amber-300/85 font-bold nfs-anim-slide-up">
+                    {telemetry.outroOutcome === 'win'
+                      ? 'LIVE FINISH REPLAY · PREPARING PAYOUT SHEET'
+                      : telemetry.outroOutcome === 'busted'
+                        ? 'RPD PERIMETER LOCKDOWN · PREPARING REPORT'
+                        : 'STANDINGS LOCKED · PREPARING RESULTS'}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </>
       )}

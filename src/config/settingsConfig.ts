@@ -58,12 +58,12 @@ export const GRAPHICS_QUALITY_PRESETS: Record<GraphicsQuality, GraphicsQualitySp
   medium: {
     id: 'medium',
     label: 'Medium',
-    description: '1.25x scale, dynamic shadows & bloom enabled.',
+    description: '1.25x scale, dynamic shadows on, crisp bloom-free rendering for smooth 60 FPS.',
     pixelRatioCap: 1.25,
     shadowsEnabled: true,
-    bloomEnabled: true,
-    rainDensityScale: 0.78,
-    particleRateScale: 0.85,
+    bloomEnabled: false,
+    rainDensityScale: 0.72,
+    particleRateScale: 0.8,
   },
   high: {
     id: 'high',
@@ -186,7 +186,7 @@ export function getDefaultDriverSettings(aeLookEnabled = false): PersistedDriver
     policeEnabled: true,
     showGhost: true,
     skipCountdownOnRestart: false,
-    graphicsQuality: 'high',
+    graphicsQuality: 'medium',
     touchControlsMode: 'auto',
     controlBindings: getDefaultControlBindings(aeLookEnabled),
   };
@@ -204,7 +204,7 @@ export function loadDriverSettings(aeLookEnabled = false): PersistedDriverSettin
     const quality: GraphicsQuality =
       parsed.graphicsQuality && parsed.graphicsQuality in GRAPHICS_QUALITY_PRESETS
         ? parsed.graphicsQuality
-        : 'high';
+        : 'medium';
     const touchMode: TouchControlsMode =
       parsed.touchControlsMode === 'auto' || parsed.touchControlsMode === 'always' || parsed.touchControlsMode === 'off'
         ? parsed.touchControlsMode

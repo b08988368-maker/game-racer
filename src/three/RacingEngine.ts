@@ -83,6 +83,7 @@ import {
   stepAiRacerPhysics,
 } from './aiDriver';
 import { applyCarVisualDamage, buildCarMesh, CarVisualHandles } from './carBuilder';
+import { computeOutroDirective } from './outroDirector';
 import {
   buildGhostCarMesh,
   exportGhostShareCode,
@@ -185,6 +186,8 @@ interface CopEntity {
   patrolling?: boolean;
   aiHitCooldown?: number;
   flashPhase: number;
+  slopePitch: number;
+  bankAngle: number;
 }
 
 interface SpikeStripEntity {
@@ -206,6 +209,8 @@ interface TrafficEntity {
   knockLatVel: number;
   nearMissCooldown: number;
   hitCooldown: number;
+  slopePitch: number;
+  bankAngle: number;
 }
 
 interface Particle {
@@ -276,7 +281,7 @@ export class RacingEngine {
   private composer: EffectComposer | null = null;
   private composerRt: THREE.WebGLRenderTarget | null = null;
   private bloomPass: UnrealBloomPass | null = null;
-  private bloomEnabled = true;
+  private bloomEnabled = GRAPHICS_QUALITY_PRESETS.medium.bloomEnabled;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
   private raceEnvMaps: Record<Exclude<EnvironmentId, 'auto'>, THREE.Texture>;
@@ -314,6 +319,7 @@ export class RacingEngine {
   private clock = new THREE.Clock();
   private frameId = 0;
   private garageOrbitAngle = 0.78;
+  private garageCamAngle = 0.78;
   private garageDragActive = false;
   private garageLastPointerX = 0;
   private garageCameraPreset: GarageCameraPreset = 'orbit';
@@ -398,7 +404,8 @@ export class RacingEngine {
   private handlingMode: HandlingMode = 'balanced';
   private assists: AssistSettings = { ...HANDLING_PRESETS.balanced.defaultAssists };
   private tuning: PhysicsTuningParams = { ...HANDLING_PRESETS.balanced.tuning };
-  private graphicsQuality: GraphicsQuality = 'high';
+  private graphicsQuality: GraphicsQuality = 'medium';
+  private lastStreakNosColor: boolean | null = null;
   private controlBindings: ControlBindings = getDefaultControlBindings(false);
   private physicsAccumulator = 0;
   private lastPhysicsMs = 0;
@@ -618,10 +625,12 @@ export class RacingEngine {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.06;
-    this.currentPixelRatio = this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 1.5);
+    this.currentPixelRatio = this.isSoftwareGl
+      ? 1
+      : Math.min(window.devicePixelRatio, GRAPHICS_QUALITY_PRESETS.medium.pixelRatioCap);
     this.renderer.setPixelRatio(this.currentPixelRatio);
-    this.renderer.shadowMap.enabled = !this.isSoftwareGl;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.enabled = !this.isSoftwareGl && GRAPHICS_QUALITY_PRESETS.medium.shadowsEnabled;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.setSize(initW, initH);
 
     this.renderer.domElement.style.width = '100%';
@@ -671,12 +680,12 @@ export class RacingEngine {
 
     this.sunLight = new THREE.DirectionalLight('#FFE0A6', 2.45);
     this.sunLight.position.set(65, 58, -45);
-    this.sunLight.castShadow = !this.isSoftwareGl;
-    this.sunLight.shadow.mapSize.width = 1024;
-    this.sunLight.shadow.mapSize.height = 1024;
+    this.sunLight.castShadow = !this.isSoftwareGl && GRAPHICS_QUALITY_PRESETS.medium.shadowsEnabled;
+    this.sunLight.shadow.mapSize.width = 768;
+    this.sunLight.shadow.mapSize.height = 768;
     this.sunLight.shadow.camera.near = 5;
-    this.sunLight.shadow.camera.far = 220;
-    const d = 50;
+    this.sunLight.shadow.camera.far = 200;
+    const d = 42;
     this.sunLight.shadow.camera.left = -d;
     this.sunLight.shadow.camera.right = d;
     this.sunLight.shadow.camera.top = d;
@@ -903,7 +912,9 @@ export class RacingEngine {
       this.composer.setPixelRatio(this.currentPixelRatio);
       this.composer.setSize(initW, initH);
       this.composer.addPass(new RenderPass(this.scene, this.camera));
-      this.bloomPass = new UnrealBloomPass(new THREE.Vector2(initW, initH), 0.20, 0.28, 0.92);
+      const bloomW = Math.max(1, Math.floor(initW * 0.5));
+      const bloomH = Math.max(1, Math.floor(initH * 0.5));
+      this.bloomPass = new UnrealBloomPass(new THREE.Vector2(bloomW, bloomH), 0.20, 0.28, 0.92);
       this.composer.addPass(this.bloomPass);
       this.composer.addPass(new OutputPass());
       this.renderer.compile(this.scene, this.camera);
@@ -1308,6 +1319,7 @@ export class RacingEngine {
   }
 
   public showGarageCar(spec: CarSpec, config: GarageCarConfig) {
+    const wasInGarage = this.mode === 'garage';
     this.clearRaceEntities();
     this.clearSpeedStreaks();
     this.mode = 'garage';
@@ -1359,21 +1371,25 @@ export class RacingEngine {
       shadowTexture: this.shadowTexture,
       maxAnisotropy: this.maxAnisotropy,
       isSoftwareGl: this.isSoftwareGl,
+      upgradeLevels: config,
     });
     this.garageCar.root.position.set(0, 0.032, 0);
     this.scene.add(this.garageCar.root);
 
     this.sunLight.position.set(12, 16, 12);
     this.sunLight.target.position.set(0, 0.7, 0);
-    this.camera.fov = 44;
-    this.camera.updateProjectionMatrix();
-    this.garageCamDist = 7.6;
-    this.garageCamHeight = 2.25;
-    this.garageCamLookY = 0.78;
-    const snapX = Math.sin(this.garageOrbitAngle) * this.garageCamDist;
-    const snapZ = Math.cos(this.garageOrbitAngle) * this.garageCamDist;
-    this.camera.position.set(snapX, this.garageCamHeight, snapZ);
-    this.camera.lookAt(0, this.garageCamLookY, 0);
+    if (!wasInGarage) {
+      this.camera.fov = 44;
+      this.camera.updateProjectionMatrix();
+      this.garageCamDist = 7.6;
+      this.garageCamHeight = 2.25;
+      this.garageCamLookY = 0.78;
+      this.garageCamAngle = this.garageOrbitAngle;
+      const snapX = Math.sin(this.garageCamAngle) * this.garageCamDist;
+      const snapZ = Math.cos(this.garageCamAngle) * this.garageCamDist;
+      this.camera.position.set(snapX, this.garageCamHeight, snapZ);
+      this.camera.lookAt(0, this.garageCamLookY, 0);
+    }
     this.updateGarage(0.016);
     if (!this.isSoftwareGl && this.composer && this.bloomEnabled) {
       this.composer.render();
@@ -1586,6 +1602,7 @@ export class RacingEngine {
       maxAnisotropy: this.maxAnisotropy,
       isSoftwareGl: this.isSoftwareGl,
       isPlayer: true,
+      upgradeLevels: params.playerConfig,
     });
     const laneGridX = Math.min(3.1, this.track.roadHalfWidth * 0.28);
     const playerLane = isPackRace ? (playerBackRow ? laneGridX : -laneGridX) : -laneGridX;
@@ -1657,24 +1674,6 @@ export class RacingEngine {
 
     if (params.mode === 'blacklist' && params.rival) {
       const rivalSpec = CARS.find((c) => c.id === params.rival!.carId) ?? CARS[1];
-      const rivalVisual = buildCarMesh({
-        spec: rivalSpec,
-        paintHex: params.rival.paintHex,
-        livery: params.rival.livery,
-        rimStyle: 'black',
-        shadowTexture: this.shadowTexture,
-        maxAnisotropy: this.maxAnisotropy,
-        isSoftwareGl: this.isSoftwareGl,
-      });
-      const bossSampleIdx = (startSampleIdx + 2) % this.track.samples.length;
-      const bossStart = this.track.samples[bossSampleIdx];
-      const bossHeading = Math.atan2(-bossStart.tangent.x, -bossStart.tangent.z);
-      const rPos = bossStart.point.clone().addScaledVector(bossStart.right, laneGridX);
-      rPos.y += ROAD_SURFACE_OFFSET + laneGridX * Math.sin(bossStart.bankAngle);
-      rivalVisual.root.position.copy(rPos);
-      rivalVisual.root.rotation.y = bossHeading;
-      this.scene.add(rivalVisual.root);
-
       const bossInitialSkill = clampSkillForDifficulty(
         raceDiff,
         this.adaptiveAiState.skills[raceDiff] + 0.02,
@@ -1693,6 +1692,24 @@ export class RacingEngine {
         params.trackId,
         bossInitialSkill,
       );
+      const rivalVisual = buildCarMesh({
+        spec: rivalSpec,
+        paintHex: params.rival.paintHex,
+        livery: params.rival.livery,
+        rimStyle: 'black',
+        shadowTexture: this.shadowTexture,
+        maxAnisotropy: this.maxAnisotropy,
+        isSoftwareGl: this.isSoftwareGl,
+        upgradeLevels: bossBrain.simConfig,
+      });
+      const bossSampleIdx = (startSampleIdx + 2) % this.track.samples.length;
+      const bossStart = this.track.samples[bossSampleIdx];
+      const bossHeading = Math.atan2(-bossStart.tangent.x, -bossStart.tangent.z);
+      const rPos = bossStart.point.clone().addScaledVector(bossStart.right, laneGridX);
+      rPos.y += ROAD_SURFACE_OFFSET + laneGridX * Math.sin(bossStart.bankAngle);
+      rivalVisual.root.position.copy(rPos);
+      rivalVisual.root.rotation.y = bossHeading;
+      this.scene.add(rivalVisual.root);
 
       this.racers.push({
         id: 'rival_boss',
@@ -1772,22 +1789,6 @@ export class RacingEngine {
       aiPool.forEach((r, i) => {
         const s = this.track!.samples[offsets[i].idx];
         const aiSpec = CARS.find((c) => c.id === r.carId) ?? CARS[0];
-        const aiVisual = buildCarMesh({
-          spec: aiSpec,
-          paintHex: r.paintHex,
-          livery: r.livery,
-          rimStyle: 'chrome',
-          shadowTexture: this.shadowTexture,
-          maxAnisotropy: this.maxAnisotropy,
-          isSoftwareGl: this.isSoftwareGl,
-        });
-        const aPos = s.point.clone().addScaledVector(s.right, offsets[i].lane);
-        aPos.y += ROAD_SURFACE_OFFSET + offsets[i].lane * Math.sin(s.bankAngle);
-        const aHead = Math.atan2(-s.tangent.x, -s.tangent.z);
-        aiVisual.root.position.copy(aPos);
-        aiVisual.root.rotation.y = aHead;
-        this.scene.add(aiVisual.root);
-
         const slotSkillJitter = i === 0 ? 0.02 : i === 1 ? 0 : -0.02;
         const aiInitialSkill = clampSkillForDifficulty(
           raceDiff,
@@ -1807,6 +1808,22 @@ export class RacingEngine {
           params.trackId,
           aiInitialSkill,
         );
+        const aiVisual = buildCarMesh({
+          spec: aiSpec,
+          paintHex: r.paintHex,
+          livery: r.livery,
+          rimStyle: 'chrome',
+          shadowTexture: this.shadowTexture,
+          maxAnisotropy: this.maxAnisotropy,
+          isSoftwareGl: this.isSoftwareGl,
+          upgradeLevels: aiBrain.simConfig,
+        });
+        const aPos = s.point.clone().addScaledVector(s.right, offsets[i].lane);
+        aPos.y += ROAD_SURFACE_OFFSET + offsets[i].lane * Math.sin(s.bankAngle);
+        const aHead = Math.atan2(-s.tangent.x, -s.tangent.z);
+        aiVisual.root.position.copy(aPos);
+        aiVisual.root.rotation.y = aHead;
+        this.scene.add(aiVisual.root);
 
         this.racers.push({
           id: `ai_${i}`,
@@ -1983,6 +2000,8 @@ export class RacingEngine {
         knockLatVel: 0,
         nearMissCooldown: 0,
         hitCooldown: 0,
+        slopePitch: s.slopePitch,
+        bankAngle: s.bankAngle,
       });
     }
   }
@@ -2049,6 +2068,8 @@ export class RacingEngine {
       patrolling,
       aiHitCooldown: 0,
       flashPhase: Math.random() * 6,
+      slopePitch: s.slopePitch,
+      bankAngle: s.bankAngle,
     });
   }
 
@@ -2285,9 +2306,9 @@ export class RacingEngine {
 
   public setGarageCameraPreset(preset: GarageCameraPreset) {
     this.garageCameraPreset = preset;
-    if (preset === 'front') this.garageOrbitAngle = 0.28;
+    if (preset === 'front') this.garageOrbitAngle = Math.PI + 0.34;
     else if (preset === 'side') this.garageOrbitAngle = Math.PI * 0.5;
-    else if (preset === 'rear') this.garageOrbitAngle = Math.PI + 0.34;
+    else if (preset === 'rear') this.garageOrbitAngle = 0.34;
   }
 
   public skipIntro() {
@@ -2772,6 +2793,8 @@ export class RacingEngine {
         p.maxAge = maxAge;
         p.size = size;
         p.color.set(colorHex);
+        this.particleMesh.setColorAt(i, p.color);
+        if (this.particleMesh.instanceColor) this.particleMesh.instanceColor.needsUpdate = true;
         return;
       }
     }
@@ -2818,6 +2841,8 @@ export class RacingEngine {
         d.age = 0;
         d.maxAge = 2.6;
         d.color.set(colorHex);
+        this.debrisMesh.setColorAt(i, d.color);
+        if (this.debrisMesh.instanceColor) this.debrisMesh.instanceColor.needsUpdate = true;
         return;
       }
     }
@@ -2856,11 +2881,9 @@ export class RacingEngine {
       _dummy.scale.set(d.scale.x * fade, d.scale.y * fade, d.scale.z * fade);
       _dummy.updateMatrix();
       this.debrisMesh.setMatrixAt(i, _dummy.matrix);
-      this.debrisMesh.setColorAt(i, d.color);
     }
     if (dirty) {
       this.debrisMesh.instanceMatrix.needsUpdate = true;
-      if (this.debrisMesh.instanceColor) this.debrisMesh.instanceColor.needsUpdate = true;
     }
   }
 
@@ -3005,20 +3028,20 @@ export class RacingEngine {
     if (!this.isSoftwareGl && this.mode === 'race' && !this.paused && rawDelta > 0) {
       this.perfFrameAccumMs += rawDelta * 1000;
       this.perfFrameSamples++;
-      if (this.perfFrameSamples >= 35) {
+      if (this.perfFrameSamples >= 18) {
         const avgMs = this.perfFrameAccumMs / this.perfFrameSamples;
         this.perfFrameAccumMs = 0;
         this.perfFrameSamples = 0;
-        if (avgMs > 18.5) {
-          if (this.currentPixelRatio > 1.0) {
+        if (avgMs > 17.5) {
+          if (this.bloomEnabled) {
+            this.bloomEnabled = false;
+          } else if (this.currentPixelRatio > 1.0) {
             this.currentPixelRatio = Math.max(1.0, Number((this.currentPixelRatio - 0.25).toFixed(2)));
             this.renderer.setPixelRatio(this.currentPixelRatio);
             this.composer?.setPixelRatio(this.currentPixelRatio);
           } else if (this.renderer.shadowMap.enabled) {
             this.renderer.shadowMap.enabled = false;
             this.sunLight.castShadow = false;
-          } else if (this.bloomEnabled) {
-            this.bloomEnabled = false;
           }
         }
       }
@@ -3087,11 +3110,18 @@ export class RacingEngine {
     this.garageCamHeight = THREE.MathUtils.damp(this.garageCamHeight, targetHeight, 6.5, dt);
     this.garageCamLookY = THREE.MathUtils.damp(this.garageCamLookY, targetLookY, 6.5, dt);
 
-    const targetX = Math.sin(this.garageOrbitAngle) * this.garageCamDist;
-    const targetZ = Math.cos(this.garageOrbitAngle) * this.garageCamDist;
-    this.camera.position.x = THREE.MathUtils.damp(this.camera.position.x, targetX, 7.5, dt);
-    this.camera.position.y = THREE.MathUtils.damp(this.camera.position.y, this.garageCamHeight, 7.5, dt);
-    this.camera.position.z = THREE.MathUtils.damp(this.camera.position.z, targetZ, 7.5, dt);
+    if (this.garageCameraPreset === 'orbit') {
+      this.garageCamAngle = this.garageOrbitAngle;
+    } else {
+      let angleDiff = this.garageOrbitAngle - this.garageCamAngle;
+      while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+      while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+      this.garageCamAngle += angleDiff * (1 - Math.exp(-7.5 * dt));
+    }
+
+    const targetX = Math.sin(this.garageCamAngle) * this.garageCamDist;
+    const targetZ = Math.cos(this.garageCamAngle) * this.garageCamDist;
+    this.camera.position.set(targetX, this.garageCamHeight, targetZ);
     this.camera.lookAt(0, this.garageCamLookY, 0);
   }
 
@@ -3103,24 +3133,31 @@ export class RacingEngine {
     this.track.updateAnimations(nowSec, countdownActiveInt, this.introTimer > 0);
     this.updateWeatherAndAtmosphere(rawDt);
 
-    // 1. Intense Outro Cinematic (Victory Power-Slide Donut / Busted RPD Surround / Defeat)
+    // 1. Multi-Beat Cinematic Ending Sequence (3-Beat Victory Blast+Power-Slide+Pyrotechnics / Chopper-Drop Busted / Rival Flyby)
     if (this.outroActive) {
       this.outroTimer += rawDt;
-      const slowScale = this.outroOutcome === 'busted' ? 0.16 : 0.44;
-      const slowDt = rawDt * slowScale;
+      const outcome = this.outroOutcome ?? 'loss';
+      const dir = computeOutroDirective(outcome, this.outroTimer);
+      const slowDt = rawDt * dir.slowScale;
       const p = this.player;
 
-      if (this.outroOutcome === 'win') {
-        // Celebratory victory power-slide donut arc with full NOS flames & billowing tire smoke
-        const winSlideSpd = Math.max(18, Math.min(34, Math.abs(p.forwardSpeed) * 0.72));
-        p.forwardSpeed = THREE.MathUtils.damp(p.forwardSpeed, winSlideSpd, 2.2, slowDt);
-        p.heading += slowDt * 2.35;
-        const fwdX = -Math.sin(p.heading);
-        const fwdZ = -Math.cos(p.heading);
-        const rightX = Math.cos(p.heading);
-        const rightZ = -Math.sin(p.heading);
-        p.pos.x += (fwdX * p.forwardSpeed * 0.78 + rightX * 8.5) * slowDt;
-        p.pos.z += (fwdZ * p.forwardSpeed * 0.78 + rightZ * 8.5) * slowDt;
+      const fwdX = -Math.sin(p.heading);
+      const fwdZ = -Math.cos(p.heading);
+      const rightX = Math.cos(p.heading);
+      const rightZ = -Math.sin(p.heading);
+
+      if (outcome === 'win') {
+        // Beat 1: Finish-line NOS rocket burst -> Beat 2/3: Controlled victory power-slide donut
+        const winSlideSpd = Math.max(20, Math.min(44, Math.abs(p.forwardSpeed) * dir.targetSpeedFactor));
+        p.forwardSpeed = THREE.MathUtils.damp(p.forwardSpeed, winSlideSpd, 2.4, slowDt);
+        p.heading += slowDt * dir.spinRate;
+        const nFwdX = -Math.sin(p.heading);
+        const nFwdZ = -Math.cos(p.heading);
+        const nRightX = Math.cos(p.heading);
+        const nRightZ = -Math.sin(p.heading);
+        const lateralDriftPush = dir.beat === 1 ? 2.5 : 8.8;
+        p.pos.x += (nFwdX * p.forwardSpeed * 0.78 + nRightX * lateralDriftPush) * slowDt;
+        p.pos.z += (nFwdZ * p.forwardSpeed * 0.78 + nRightZ * lateralDriftPush) * slowDt;
 
         const pInfo = this.track.getClosestTrackInfo(p.pos.x, p.pos.z, p.trackIdx, p.pos.y);
         p.trackIdx = pInfo.sample.index;
@@ -3134,45 +3171,73 @@ export class RacingEngine {
         p.pos.y = pInfo.elevationY + ROAD_SURFACE_OFFSET;
         p.visual.root.position.copy(p.pos);
         p.visual.root.rotation.set(pInfo.slopePitch, p.heading, -pInfo.bankAngle, 'YXZ');
-        p.visual.bodyGroup.rotation.y = 0.28;
-        p.visual.bodyGroup.rotation.z = -0.045;
+        p.visual.bodyGroup.rotation.y = THREE.MathUtils.damp(p.visual.bodyGroup.rotation.y, dir.driftYawOffset, 6, rawDt);
+        p.visual.bodyGroup.rotation.z = THREE.MathUtils.damp(p.visual.bodyGroup.rotation.z, dir.beat === 1 ? -0.02 : -0.055, 6, rawDt);
+        p.visual.wheelFrontLeft.rotation.y = THREE.MathUtils.damp(p.visual.wheelFrontLeft.rotation.y, dir.counterSteerAngle, 8, rawDt);
+        p.visual.wheelFrontRight.rotation.y = THREE.MathUtils.damp(p.visual.wheelFrontRight.rotation.y, dir.counterSteerAngle, 8, rawDt);
+
         const spin = (p.forwardSpeed * slowDt) / 0.36;
         for (let k = 0; k < p.visual.wheelSpinners.length; k++) {
           p.visual.wheelSpinners[k].rotation.x -= spin;
         }
         for (let k = 0; k < p.visual.nosFlames.length; k++) {
           const f = p.visual.nosFlames[k];
-          f.visible = true;
-          f.scale.set(1.1 + Math.random() * 0.25, 1.1 + Math.random() * 0.25, 1.0 + Math.random() * 0.9);
+          f.visible = dir.nosBurst;
+          if (dir.nosBurst) f.scale.set(1.15 + Math.random() * 0.28, 1.15 + Math.random() * 0.28, 1.05 + Math.random() * 0.95);
         }
         for (let k = 0; k < p.visual.nosCores.length; k++) {
           const c = p.visual.nosCores[k];
-          c.visible = true;
-          c.scale.set(1.0, 1.0, 0.85 + Math.random() * 0.65);
+          c.visible = dir.nosBurst;
+          if (dir.nosBurst) c.scale.set(1.05, 1.05, 0.9 + Math.random() * 0.7);
         }
         for (let k = 0; k < p.visual.nosHalos.length; k++) {
           const h = p.visual.nosHalos[k];
-          h.visible = true;
-          h.scale.setScalar(1.0 + Math.random() * 0.45);
+          h.visible = dir.nosBurst;
+          if (dir.nosBurst) h.scale.setScalar(1.05 + Math.random() * 0.5);
+        }
+        for (let k = 0; k < p.visual.backfireFlames.length; k++) {
+          const bf = p.visual.backfireFlames[k];
+          bf.visible = dir.backfirePulse;
+          if (dir.backfirePulse) bf.scale.set(1.1, 1.1, 0.9 + Math.random() * 0.7);
         }
 
-        // Billowing rear tire smoke + victory exhaust sparks
-        const rearX = p.pos.x - fwdX * 1.45;
-        const rearZ = p.pos.z - fwdZ * 1.45;
-        for (const side of [-0.95, 0.95]) {
-          _v1.set(rearX + rightX * side, p.pos.y + 0.22, rearZ + rightZ * side);
-          _v2.set((Math.random() - 0.5) * 3.5, 1.6 + Math.random() * 1.4, (Math.random() - 0.5) * 3.5);
-          this.spawnParticle(_v1, _v2, '#E2E8F0', 1.15, 0.62);
+        // Billowing rear tire smoke & exhaust embers
+        const rearX = p.pos.x - nFwdX * 1.45;
+        const rearZ = p.pos.z - nFwdZ * 1.45;
+        if (Math.random() < dir.smokeIntensity) {
+          for (const side of [-0.95, 0.95]) {
+            _v1.set(rearX + nRightX * side, p.pos.y + 0.22, rearZ + nRightZ * side);
+            _v2.set((Math.random() - 0.5) * 4.0, 1.7 + Math.random() * 1.5, (Math.random() - 0.5) * 4.0);
+            this.spawnParticle(_v1, _v2, '#E2E8F0', 1.2, 0.65);
+          }
         }
-        if (Math.random() < 0.72) {
-          _v1.set(rearX - fwdX * 0.55, p.pos.y + 0.42, rearZ - fwdZ * 0.55);
-          _v2.set(-fwdX * 10 + (Math.random() - 0.5) * 4, 1.5 + Math.random() * 2.2, -fwdZ * 10 + (Math.random() - 0.5) * 4);
-          this.spawnParticle(_v1, _v2, Math.random() > 0.45 ? '#38BDF8' : '#F59E0B', 0.78, 0.45);
+        if (dir.nosBurst && Math.random() < 0.78) {
+          _v1.set(rearX - nFwdX * 0.55, p.pos.y + 0.42, rearZ - nFwdZ * 0.55);
+          _v2.set(-nFwdX * 11 + (Math.random() - 0.5) * 4, 1.6 + Math.random() * 2.2, -nFwdZ * 11 + (Math.random() - 0.5) * 4);
+          this.spawnParticle(_v1, _v2, Math.random() > 0.42 ? '#38BDF8' : '#F59E0B', 0.82, 0.46);
         }
-      } else if (this.outroOutcome === 'loss') {
-        p.forwardSpeed *= 1 - slowDt * 0.35;
-        const fwdX = -Math.sin(p.heading);
-        const fwdZ = -Math.cos(p.heading);
+
+        // Celebratory Gold & Plasma-Cyan Pyrotechnic Spark Fountains flanking the car
+        if (dir.fireworkIntensity > 0 && Math.random() < dir.fireworkIntensity * 0.88) {
+          for (const pySide of [-4.2, 4.2]) {
+            const ang = Math.random() * Math.PI * 2;
+            const sparkHex =
+              Math.random() < 0.46 ? '#F59E0B' : Math.random() < 0.75 ? '#38BDF8' : '#FEF08A';
+            _v1.set(
+              p.pos.x + nRightX * pySide + (Math.random() - 0.5) * 1.2,
+              p.pos.y + 0.35,
+              p.pos.z + nRightZ * pySide + (Math.random() - 0.5) * 1.2,
+            );
+            _v2.set(
+              Math.cos(ang) * (2.5 + Math.random() * 3.5),
+              7.5 + Math.random() * 6.5,
+              Math.sin(ang) * (2.5 + Math.random() * 3.5),
+            );
+            this.spawnParticle(_v1, _v2, sparkHex, 0.95, 0.95);
+          }
+        }
+      } else if (outcome === 'loss') {
+        p.forwardSpeed = THREE.MathUtils.damp(p.forwardSpeed, Math.max(8, Math.abs(p.forwardSpeed) * dir.targetSpeedFactor), 1.4, slowDt);
         p.pos.x += fwdX * p.forwardSpeed * slowDt;
         p.pos.z += fwdZ * p.forwardSpeed * slowDt;
         const pInfo = this.track.getClosestTrackInfo(p.pos.x, p.pos.z, p.trackIdx, p.pos.y);
@@ -3189,24 +3254,51 @@ export class RacingEngine {
         for (let k = 0; k < p.visual.wheelSpinners.length; k++) {
           p.visual.wheelSpinners[k].rotation.x -= spin;
         }
-      } else if (this.outroOutcome === 'busted') {
-        // Busted: surviving RPD interceptors aggressively box inward around the player car
+        for (let k = 0; k < p.visual.nosFlames.length; k++) p.visual.nosFlames[k].visible = false;
+        for (let k = 0; k < p.visual.nosCores.length; k++) p.visual.nosCores[k].visible = false;
+        for (let k = 0; k < p.visual.nosHalos.length; k++) p.visual.nosHalos[k].visible = false;
+        p.visual.brakeLightMat.emissiveIntensity = 4.2;
+      } else {
+        // Busted: surviving RPD interceptors aggressively box inward around the immobilized suspect
+        for (let k = 0; k < p.visual.nosFlames.length; k++) p.visual.nosFlames[k].visible = false;
+        for (let k = 0; k < p.visual.nosCores.length; k++) p.visual.nosCores[k].visible = false;
+        for (let k = 0; k < p.visual.nosHalos.length; k++) p.visual.nosHalos[k].visible = false;
+        p.visual.wheelFrontLeft.rotation.y = THREE.MathUtils.damp(p.visual.wheelFrontLeft.rotation.y, dir.counterSteerAngle, 6, rawDt);
+        p.visual.wheelFrontRight.rotation.y = THREE.MathUtils.damp(p.visual.wheelFrontRight.rotation.y, dir.counterSteerAngle, 6, rawDt);
+        p.visual.brakeLightMat.emissiveIntensity = Math.sin(this.outroTimer * 14) > 0 ? 4.8 : 0.8;
+
         for (let ci = 0; ci < this.cops.length; ci++) {
           const cop = this.cops[ci];
           if (cop.wrecked) continue;
           const dx = p.pos.x - cop.pos.x;
           const dz = p.pos.z - cop.pos.z;
           const dist = Math.hypot(dx, dz);
-          if (dist > 5.2 && dist < 85) {
+          if (dist > 4.6 && dist < 85) {
             const nx = dx / dist;
             const nz = dz / dist;
-            cop.pos.x += nx * Math.min(dist - 5.2, 16 * rawDt);
-            cop.pos.z += nz * Math.min(dist - 5.2, 16 * rawDt);
+            cop.pos.x += nx * Math.min(dist - 4.6, 18 * rawDt);
+            cop.pos.z += nz * Math.min(dist - 4.6, 18 * rawDt);
             cop.heading = Math.atan2(-nx, -nz);
             cop.visual.root.position.copy(cop.pos);
             cop.visual.root.rotation.y = cop.heading;
           }
         }
+        // Radiator / pinned tire steam plume rising from busted hood
+        if (Math.random() < dir.smokeIntensity * 0.72) {
+          _v1.set(p.pos.x + fwdX * 1.15 + (Math.random() - 0.5) * 0.8, p.pos.y + 0.75, p.pos.z + fwdZ * 1.15 + (Math.random() - 0.5) * 0.8);
+          _v2.set((Math.random() - 0.5) * 1.2, 2.2 + Math.random() * 1.6, (Math.random() - 0.5) * 1.2);
+          this.spawnParticle(_v1, _v2, '#CBD5E1', 0.95, 0.78);
+        }
+      }
+
+      // Brake rotor thermal glow during outro slide / braking
+      for (let k = 0; k < p.visual.rotorGlowMats.length; k++) {
+        p.visual.rotorGlowMats[k].emissiveIntensity = THREE.MathUtils.damp(
+          p.visual.rotorGlowMats[k].emissiveIntensity,
+          dir.rotorGlow * 2.6,
+          6,
+          rawDt,
+        );
       }
 
       for (let i = 0; i < this.racers.length; i++) {
@@ -3215,11 +3307,11 @@ export class RacingEngine {
       }
       for (let ci = 0; ci < this.cops.length; ci++) {
         const cop = this.cops[ci];
-        cop.flashPhase += rawDt * (this.outroOutcome === 'busted' ? 20 : 12);
+        cop.flashPhase += rawDt * (outcome === 'busted' ? 24 : 12);
         const alt = Math.sin(cop.flashPhase) > 0;
         if (cop.visual.lightbarRed && cop.visual.lightbarBlue) {
-          cop.visual.lightbarRed.emissiveIntensity = alt ? 5.8 : 0.18;
-          cop.visual.lightbarBlue.emissiveIntensity = alt ? 0.18 : 5.8;
+          cop.visual.lightbarRed.emissiveIntensity = alt ? 6.2 : 0.18;
+          cop.visual.lightbarBlue.emissiveIntensity = alt ? 0.18 : 6.2;
         }
         if (cop.visual.lightbarHaloRed && cop.visual.lightbarHaloBlue) {
           cop.visual.lightbarHaloRed.visible = !cop.wrecked && alt;
@@ -3227,23 +3319,33 @@ export class RacingEngine {
         }
       }
 
-      const orbitAngle = p.heading + 0.72 + this.outroTimer * (this.outroOutcome === 'win' ? 0.78 : 0.56);
-      const orbitDist = this.outroOutcome === 'busted' ? 6.5 : this.outroOutcome === 'win' ? 5.75 : 5.4;
-      const camX = p.pos.x + Math.sin(orbitAngle) * orbitDist;
-      const camZ = p.pos.z + Math.cos(orbitAngle) * orbitDist;
-      const camY = p.pos.y + (this.outroOutcome === 'busted' ? 2.15 : 1.52);
-      this.camera.position.lerp(_v1.set(camX, camY, camZ), Math.min(1, rawDt * 6.0));
-      this.camera.lookAt(p.pos.x, p.pos.y + 0.78, p.pos.z);
-      if (this.outroOutcome === 'busted') {
-        this.camera.rotation.z += 0.055;
+      const orbitAngle = p.heading + dir.orbitAngleOffset;
+      const camX = p.pos.x + Math.sin(orbitAngle) * dir.camDist;
+      const camZ = p.pos.z + Math.cos(orbitAngle) * dir.camDist;
+      const camY = p.pos.y + dir.camHeight;
+      if (dir.cameraCutSnap) {
+        this.camera.position.set(camX, camY, camZ);
+      } else {
+        this.camera.position.lerp(_v1.set(camX, camY, camZ), Math.min(1, rawDt * 7.5));
       }
-      if (Math.abs(this.camera.fov - 52) > 0.2) {
-        this.camera.fov = THREE.MathUtils.damp(this.camera.fov, 52, 5, rawDt);
+      const lookFwdX = -Math.sin(p.heading);
+      const lookFwdZ = -Math.cos(p.heading);
+      this.camera.lookAt(
+        p.pos.x + lookFwdX * dir.lookAheadBias,
+        p.pos.y + dir.lookYOffset,
+        p.pos.z + lookFwdZ * dir.lookAheadBias,
+      );
+      if (Math.abs(dir.camRoll) > 0.0005) {
+        this.camera.rotation.z += dir.camRoll;
+      }
+      if (Math.abs(this.camera.fov - dir.camFov) > 0.15) {
+        this.camera.fov = THREE.MathUtils.damp(this.camera.fov, dir.camFov, 7, rawDt);
         this.camera.updateProjectionMatrix();
       }
       this.sunLight.position.set(p.pos.x + 65, p.pos.y + 58, p.pos.z - 45);
       this.sunLight.target.position.copy(p.pos);
       if (this.skyDomeMesh) this.skyDomeMesh.position.set(p.pos.x, p.pos.y * 0.2, p.pos.z);
+      this.updateSpeedStreaks(rawDt, dir.nosBurst);
       this.updateParticles(rawDt);
       this.updateDebris(rawDt);
       this.updateRain(rawDt);
@@ -3628,6 +3730,8 @@ export class RacingEngine {
     const alpha = THREE.MathUtils.clamp(this.physicsAccumulator / FIXED_PHYSICS_DT, 0, 1);
     const dtRender = rawDt * timeScale;
     this.applyInterpolatedVisualsAndAudio(alpha, dtRender, rawDt, timeScale);
+    this.syncTrafficAndPoliceVisuals(dtRender, rawDt);
+    this.updateTrackVisuals(dtRender);
 
     if (this.heliGroup) {
       const heliAllowed =
@@ -4395,10 +4499,8 @@ export class RacingEngine {
         t.knockLatVel *= -0.35;
       }
 
-      t.visual.root.position.copy(t.pos);
-      t.visual.root.rotation.set(info.slopePitch, t.heading, -info.bankAngle, 'YXZ');
-      const spin = (t.speed * dt) / 0.35;
-      t.visual.wheelSpinners.forEach((w) => (w.rotation.x -= spin));
+      t.slopePitch = info.slopePitch;
+      t.bankAngle = info.bankAngle;
 
       // Check 2-circle / 3-circle (truck) collisions against BOTH Player AND AI Opponents
       const tCircles = t.isTruck ? [-1.85, 0, 1.85] : [-1.15, 1.15];
@@ -4964,7 +5066,6 @@ export class RacingEngine {
             r.pos.z -= scHit.tangent.x * -outerSide * sEx;
           }
           r.pos.y = Math.max(r.pos.y, scHit.elevationY + ROAD_SURFACE_OFFSET);
-          r.visual.root.position.copy(r.pos);
           continue;
         }
       }
@@ -4986,7 +5087,6 @@ export class RacingEngine {
         r.pos.z -= info.sample.right.z * sign * excess;
       }
       r.pos.y = Math.max(r.pos.y, info.elevationY + ROAD_SURFACE_OFFSET);
-      r.visual.root.position.copy(r.pos);
     }
   }
 
@@ -5120,11 +5220,10 @@ export class RacingEngine {
     }
   }
 
-  private updateTrackInteractions(dt: number) {
-    if (!this.track || !this.player) return;
-    const p = this.player;
+  private updateTrackVisuals(dt: number) {
+    if (!this.track) return;
 
-    // Animate & respawn smashed shortcut barricade planks
+    // Animate & respawn smashed shortcut barricade planks once per render frame
     for (let i = 0; i < this.track.shortcuts.length; i++) {
       const sc = this.track.shortcuts[i];
       for (let j = 0; j < sc.planks.length; j++) {
@@ -5145,7 +5244,59 @@ export class RacingEngine {
       }
     }
 
-    // Smashable Water Barrels
+    // Animate & respawn smashed water barrels once per render frame
+    for (let i = 0; i < this.track.smashables.length; i++) {
+      const sm = this.track.smashables[i];
+      if (sm.hit) {
+        sm.vel.y -= 18 * dt;
+        sm.pos.addScaledVector(sm.vel, dt);
+        sm.mesh.position.copy(sm.pos);
+        sm.mesh.rotation.x += sm.rotVel.x * dt;
+        sm.mesh.rotation.y += sm.rotVel.y * dt;
+        sm.mesh.rotation.z += sm.rotVel.z * dt;
+        sm.respawnTimer -= dt;
+        if (sm.respawnTimer <= 0) {
+          sm.hit = false;
+          sm.pos.copy(sm.homePos);
+          sm.mesh.position.copy(sm.homePos);
+          sm.mesh.rotation.set(0, 0, 0);
+        }
+      }
+    }
+
+    // Fade speed trap camera strobe once per render frame
+    for (let tIdx = 0; tIdx < this.track.speedTraps.length; tIdx++) {
+      const trapMat = this.track.speedTraps[tIdx].flashMesh.material as THREE.MeshStandardMaterial;
+      if (trapMat.emissiveIntensity > 2.0) {
+        trapMat.emissiveIntensity = Math.max(2.0, trapMat.emissiveIntensity - dt * 14);
+      }
+    }
+
+    // Animate triggered pursuit breaker collapse once per render frame
+    for (let i = 0; i < this.track.pursuitBreakers.length; i++) {
+      const pb = this.track.pursuitBreakers[i];
+      if (pb.triggered) {
+        if (pb.collapseAnim < 1) {
+          pb.collapseAnim = Math.min(1, pb.collapseAnim + dt * 3.2);
+          pb.group.rotation.z = pb.collapseAnim * 1.45;
+          pb.group.position.y = pb.position.y - pb.collapseAnim * 1.2;
+        }
+        pb.respawnTimer -= dt;
+        if (pb.respawnTimer <= 0) {
+          pb.triggered = false;
+          pb.collapseAnim = 0;
+          pb.group.rotation.z = 0;
+          pb.group.position.y = pb.position.y;
+        }
+      }
+    }
+  }
+
+  private updateTrackInteractions(_dt: number) {
+    if (!this.track || !this.player) return;
+    const p = this.player;
+
+    // Smashable Water Barrels (collision check in physics step)
     for (let i = 0; i < this.track.smashables.length; i++) {
       const sm = this.track.smashables[i];
       if (!sm.hit) {
@@ -5164,20 +5315,6 @@ export class RacingEngine {
           this.nitrous = Math.min(100, this.nitrous + 6);
           this.pushCallout('SMASH BONUS! +$300 BOUNTY · NOS +6%', 'amber');
         }
-      } else {
-        sm.vel.y -= 18 * dt;
-        sm.pos.addScaledVector(sm.vel, dt);
-        sm.mesh.position.copy(sm.pos);
-        sm.mesh.rotation.x += sm.rotVel.x * dt;
-        sm.mesh.rotation.y += sm.rotVel.y * dt;
-        sm.mesh.rotation.z += sm.rotVel.z * dt;
-        sm.respawnTimer -= dt;
-        if (sm.respawnTimer <= 0) {
-          sm.hit = false;
-          sm.pos.copy(sm.homePos);
-          sm.mesh.position.copy(sm.homePos);
-          sm.mesh.rotation.set(0, 0, 0);
-        }
       }
     }
 
@@ -5185,9 +5322,6 @@ export class RacingEngine {
     for (let tIdx = 0; tIdx < this.track.speedTraps.length; tIdx++) {
       const trap = this.track.speedTraps[tIdx];
       const trapMat = trap.flashMesh.material as THREE.MeshStandardMaterial;
-      if (trapMat.emissiveIntensity > 2.0) {
-        trapMat.emissiveIntensity = Math.max(2.0, trapMat.emissiveIntensity - dt * 14);
-      }
 
       for (let rIdx = 0; rIdx < this.racers.length; rIdx++) {
         const r = this.racers[rIdx];
@@ -5234,20 +5368,7 @@ export class RacingEngine {
     }
 
     for (const pb of this.track.pursuitBreakers) {
-      if (pb.triggered) {
-        if (pb.collapseAnim < 1) {
-          pb.collapseAnim = Math.min(1, pb.collapseAnim + dt * 3.2);
-          pb.group.rotation.z = pb.collapseAnim * 1.45;
-          pb.group.position.y = pb.position.y - pb.collapseAnim * 1.2;
-        }
-        pb.respawnTimer -= dt;
-        if (pb.respawnTimer <= 0) {
-          pb.triggered = false;
-          pb.collapseAnim = 0;
-          pb.group.rotation.z = 0;
-          pb.group.position.y = pb.position.y;
-        }
-      } else if (p.pos.distanceToSquared(pb.position) < 6.8 * 6.8) {
+      if (!pb.triggered && p.pos.distanceToSquared(pb.position) < 6.8 * 6.8) {
         pb.triggered = true;
         pb.respawnTimer = 24;
         this.camShake = 0.45;
@@ -5322,16 +5443,6 @@ export class RacingEngine {
       for (let i = 0; i < this.cops.length; i++) {
         const cop = this.cops[i];
         if (cop.wrecked) continue;
-        cop.flashPhase += rawDt * 10;
-        const alt = Math.sin(cop.flashPhase) > 0;
-        if (cop.visual.lightbarRed && cop.visual.lightbarBlue) {
-          cop.visual.lightbarRed.emissiveIntensity = alt ? 4.2 : 0.35;
-          cop.visual.lightbarBlue.emissiveIntensity = alt ? 0.35 : 4.2;
-        }
-        if (cop.visual.lightbarHaloRed && cop.visual.lightbarHaloBlue) {
-          cop.visual.lightbarHaloRed.visible = alt;
-          cop.visual.lightbarHaloBlue.visible = !alt;
-        }
 
         const aheadIdx = (cop.trackIdx + 7) % this.track.samples.length;
         const aheadS = this.track.samples[aheadIdx];
@@ -5357,10 +5468,8 @@ export class RacingEngine {
           cop.pos.z -= cInfo.sample.right.z * sign * ex;
         }
         cop.pos.y = cInfo.elevationY + ROAD_SURFACE_OFFSET;
-        cop.visual.root.position.copy(cop.pos);
-        cop.visual.root.rotation.set(cInfo.slopePitch, cop.heading, -cInfo.bankAngle, 'YXZ');
-        const cSpin = (cop.speed * dt) / 0.36;
-        cop.visual.wheelSpinners.forEach((w) => (w.rotation.x -= cSpin));
+        cop.slopePitch = cInfo.slopePitch;
+        cop.bankAngle = cInfo.bankAngle;
 
         // Any speeding racer (> 132 km/h within 56m) OR physical bump (< 3.0m) triggers pack pursuit!
         for (let r = 0; r < this.racers.length; r++) {
@@ -5541,16 +5650,6 @@ export class RacingEngine {
       if (cop.hitStunTimer > 0) {
         cop.hitStunTimer = Math.max(0, cop.hitStunTimer - dt);
       }
-      cop.flashPhase += rawDt * 18;
-      const alt = Math.sin(cop.flashPhase) > 0;
-      if (cop.visual.lightbarRed && cop.visual.lightbarBlue) {
-        cop.visual.lightbarRed.emissiveIntensity = alt ? 5.2 : 0.25;
-        cop.visual.lightbarBlue.emissiveIntensity = alt ? 0.25 : 5.2;
-      }
-      if (cop.visual.lightbarHaloRed && cop.visual.lightbarHaloBlue) {
-        cop.visual.lightbarHaloRed.visible = !cop.wrecked && alt;
-        cop.visual.lightbarHaloBlue.visible = !cop.wrecked && !alt;
-      }
 
       if (cop.wrecked) {
         cop.wreckTimer -= dt;
@@ -5559,8 +5658,6 @@ export class RacingEngine {
         cop.pos.x += cop.vx * dt;
         cop.pos.z += cop.vz * dt;
         cop.speed = Math.hypot(cop.vx, cop.vz);
-        cop.visual.root.position.copy(cop.pos);
-        cop.visual.bodyGroup.rotation.z = 0.18;
         if (Math.random() < 0.3) {
           _v1.set(cop.pos.x, cop.pos.y + 0.8, cop.pos.z);
           _v2.set(0, 2.5, 0);
@@ -5731,7 +5828,8 @@ export class RacingEngine {
             }
           }
           cop.pos.y = copScHit.elevationY + ROAD_SURFACE_OFFSET;
-          cop.visual.root.rotation.set(copScHit.slopePitch, cop.heading, 0, 'YXZ');
+          cop.slopePitch = copScHit.slopePitch;
+          cop.bankAngle = 0;
         } else {
           cop.pos.y = cInfo.elevationY + ROAD_SURFACE_OFFSET;
           const maxLat = this.track.barrierHalfWidth - 1.2;
@@ -5748,12 +5846,14 @@ export class RacingEngine {
               cop.vz -= nz * vn * 1.25;
             }
           }
-          cop.visual.root.rotation.set(cInfo.slopePitch, cop.heading, -cInfo.bankAngle, 'YXZ');
+          cop.slopePitch = cInfo.slopePitch;
+          cop.bankAngle = cInfo.bankAngle;
         }
       } else {
         const rbInfo = this.track.getClosestTrackInfo(cop.pos.x, cop.pos.z, cop.trackIdx, cop.pos.y);
         cop.pos.y = rbInfo.elevationY + ROAD_SURFACE_OFFSET;
-        cop.visual.root.rotation.set(0, cop.heading, 0);
+        cop.slopePitch = 0;
+        cop.bankAngle = 0;
 
         if (!cop.roadblockBreached && distToPlayer < 16 && Math.abs(p.forwardSpeed) * 3.6 > 85) {
           for (const other of this.cops) {
@@ -5933,10 +6033,6 @@ export class RacingEngine {
           }
         }
       }
-
-      cop.visual.root.position.copy(cop.pos);
-      const cSpin = (cop.speed * dt) / 0.36;
-      cop.visual.wheelSpinners.forEach((w) => (w.rotation.x -= cSpin));
     }
 
     // Honest Line-of-Sight check: tunnel occlusion, cooldown bay cover, Heat 4+ helicopter lock
@@ -6546,6 +6642,8 @@ export class RacingEngine {
             st.heading = p.heading;
             st.age = 0;
             st.maxAge = nosActive ? 0.19 : 0.26;
+            this.speedStreakMesh.setColorAt(i, _color.set(nosActive ? '#38BDF8' : '#FEF3C7'));
+            if (this.speedStreakMesh.instanceColor) this.speedStreakMesh.instanceColor.needsUpdate = true;
             break;
           }
         }
@@ -6555,7 +6653,12 @@ export class RacingEngine {
     }
 
     let dirty = false;
-    const streakColor = nosActive ? '#38BDF8' : '#FEF3C7';
+    let colorDirty = false;
+    const modeChanged = this.lastStreakNosColor !== nosActive;
+    if (modeChanged) {
+      this.lastStreakNosColor = nosActive;
+      _color.set(nosActive ? '#38BDF8' : '#FEF3C7');
+    }
     for (let i = 0; i < this.speedStreakCount; i++) {
       const st = this.speedStreaks[i];
       if (!st.active) continue;
@@ -6578,11 +6681,55 @@ export class RacingEngine {
       _dummy.scale.set(1, 1, 0.7 + life * 0.8);
       _dummy.updateMatrix();
       this.speedStreakMesh.setMatrixAt(i, _dummy.matrix);
-      this.speedStreakMesh.setColorAt(i, _color.set(streakColor));
+      if (modeChanged) {
+        this.speedStreakMesh.setColorAt(i, _color);
+        colorDirty = true;
+      }
     }
     if (dirty) {
       this.speedStreakMesh.instanceMatrix.needsUpdate = true;
-      if (this.speedStreakMesh.instanceColor) this.speedStreakMesh.instanceColor.needsUpdate = true;
+      if (colorDirty && this.speedStreakMesh.instanceColor) this.speedStreakMesh.instanceColor.needsUpdate = true;
+    }
+  }
+
+  private syncTrafficAndPoliceVisuals(dtRender: number, rawDt: number) {
+    for (let i = 0; i < this.traffic.length; i++) {
+      const t = this.traffic[i];
+      t.visual.root.position.copy(t.pos);
+      t.visual.root.rotation.set(t.slopePitch, t.heading, -t.bankAngle, 'YXZ');
+      const spin = (t.speed * dtRender) / 0.35;
+      for (let wi = 0; wi < t.visual.wheelSpinners.length; wi++) {
+        t.visual.wheelSpinners[wi].rotation.x -= spin;
+      }
+    }
+
+    const isPursuitPhase = this.pursuitState !== 'none';
+    const flashRate = isPursuitPhase ? 18 : 10;
+    const activeIntensity = isPursuitPhase ? 5.2 : 4.2;
+    const dimIntensity = isPursuitPhase ? 0.25 : 0.35;
+
+    for (let i = 0; i < this.cops.length; i++) {
+      const cop = this.cops[i];
+      cop.flashPhase += rawDt * flashRate;
+      const alt = Math.sin(cop.flashPhase) > 0;
+      if (cop.visual.lightbarRed && cop.visual.lightbarBlue) {
+        cop.visual.lightbarRed.emissiveIntensity = alt ? activeIntensity : dimIntensity;
+        cop.visual.lightbarBlue.emissiveIntensity = alt ? dimIntensity : activeIntensity;
+      }
+      if (cop.visual.lightbarHaloRed && cop.visual.lightbarHaloBlue) {
+        cop.visual.lightbarHaloRed.visible = !cop.wrecked && alt;
+        cop.visual.lightbarHaloBlue.visible = !cop.wrecked && !alt;
+      }
+      cop.visual.root.position.copy(cop.pos);
+      if (cop.wrecked) {
+        cop.visual.bodyGroup.rotation.z = 0.18;
+      } else {
+        cop.visual.root.rotation.set(cop.slopePitch, cop.heading, -cop.bankAngle, 'YXZ');
+      }
+      const cSpin = (cop.speed * dtRender) / 0.36;
+      for (let wi = 0; wi < cop.visual.wheelSpinners.length; wi++) {
+        cop.visual.wheelSpinners[wi].rotation.x -= cSpin;
+      }
     }
   }
 
@@ -6637,11 +6784,9 @@ export class RacingEngine {
       _dummy.scale.setScalar(p.size * t);
       _dummy.updateMatrix();
       this.particleMesh.setMatrixAt(i, _dummy.matrix);
-      this.particleMesh.setColorAt(i, p.color);
     }
     if (dirty) {
       this.particleMesh.instanceMatrix.needsUpdate = true;
-      if (this.particleMesh.instanceColor) this.particleMesh.instanceColor.needsUpdate = true;
     }
   }
 
@@ -7134,7 +7279,7 @@ export class RacingEngine {
       this.composer.setSize(w, h);
     }
     if (this.bloomPass) {
-      this.bloomPass.resolution.set(w, h);
+      this.bloomPass.resolution.set(Math.max(1, Math.floor(w * 0.5)), Math.max(1, Math.floor(h * 0.5)));
     }
     if (this.isSoftwareGl) {
       this.renderer.render(this.scene, this.camera);
