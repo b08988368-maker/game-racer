@@ -753,6 +753,7 @@ export function createCarPaintLiveryTexture(
   paintHex: string,
   livery: LiveryStyle,
   maxAnisotropy: number,
+  secondaryHex = '#F8FAFC',
 ): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
@@ -763,12 +764,100 @@ export function createCarPaintLiveryTexture(
   ctx.fillRect(0, 0, 512, 512);
 
   if (livery === 'stripes') {
-    ctx.fillStyle = '#F8FAFC';
-    ctx.fillRect(208, 0, 36, 512);
-    ctx.fillRect(268, 0, 36, 512);
+    ctx.fillStyle = secondaryHex;
+    ctx.fillRect(204, 0, 40, 512);
+    ctx.fillRect(268, 0, 40, 512);
     ctx.fillStyle = '#0F172A';
-    ctx.fillRect(200, 0, 8, 512);
-    ctx.fillRect(304, 0, 8, 512);
+    ctx.fillRect(196, 0, 8, 512);
+    ctx.fillRect(308, 0, 8, 512);
+  } else if (livery === 'two_tone') {
+    // Aggressive front-hood + roof + rear-deck two-tone split with razor pin-stripe
+    ctx.fillStyle = secondaryHex;
+    ctx.beginPath();
+    ctx.moveTo(116, 0);
+    ctx.lineTo(396, 0);
+    ctx.lineTo(348, 512);
+    ctx.lineTo(164, 512);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#090D16';
+    ctx.fillRect(108, 0, 10, 512);
+    ctx.fillRect(394, 0, 10, 512);
+
+    // Side speed wedge
+    ctx.fillStyle = secondaryHex;
+    ctx.beginPath();
+    ctx.moveTo(0, 210);
+    ctx.lineTo(118, 290);
+    ctx.lineTo(74, 512);
+    ctx.lineTo(0, 512);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(512, 210);
+    ctx.lineTo(394, 290);
+    ctx.lineTo(438, 512);
+    ctx.lineTo(512, 512);
+    ctx.closePath();
+    ctx.fill();
+  } else if (livery === 'cyber_hex') {
+    // High-contrast Nightdrive geometric hex mesh + neon diagonal slash stripes
+    ctx.fillStyle = '#090D16';
+    ctx.beginPath();
+    ctx.moveTo(0, 118);
+    ctx.lineTo(512, 240);
+    ctx.lineTo(512, 512);
+    ctx.lineTo(0, 512);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+    ctx.lineWidth = 3;
+    const step = 42;
+    for (let y = 120; y < 520; y += step) {
+      for (let x = 0; x < 520; x += step) {
+        const ox = ((y / step) % 2) * (step * 0.5);
+        ctx.strokeRect(x + ox - 12, y - 12, 24, 24);
+      }
+    }
+
+    // Dual razor neon stripes
+    ctx.strokeStyle = secondaryHex;
+    ctx.lineWidth = 14;
+    ctx.beginPath();
+    ctx.moveTo(0, 128);
+    ctx.lineTo(512, 250);
+    ctx.stroke();
+
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(0, 152);
+    ctx.lineTo(512, 274);
+    ctx.stroke();
+  } else if (livery === 'drift_camo') {
+    // Angular Urban Drift Camouflage shards
+    const shards: [number, number, number, number, number, number, string][] = [
+      [0, 30, 190, 95, 70, 210, '#0F172A'],
+      [340, 20, 512, 110, 405, 240, '#0F172A'],
+      [140, 145, 320, 185, 225, 310, secondaryHex],
+      [0, 250, 165, 330, 60, 470, secondaryHex],
+      [365, 255, 512, 345, 445, 485, secondaryHex],
+      [180, 340, 355, 395, 265, 512, '#0F172A'],
+      [60, 90, 180, 150, 115, 235, '#1E293B'],
+      [330, 140, 475, 210, 390, 295, '#1E293B'],
+    ];
+    for (let i = 0; i < shards.length; i++) {
+      const [x1, y1, x2, y2, x3, y3, col] = shards[i];
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.lineTo(x3, y3);
+      ctx.closePath();
+      ctx.fill();
+    }
   } else if (livery === 'most_wanted') {
     // Iconic metallic silver + dual-tone royal/navy razor flanks + crisp silver pinstripes
     ctx.fillStyle = '#1E3A8A';
@@ -836,8 +925,8 @@ export function createCarPaintLiveryTexture(
       }
     }
 
-    // Crisp gold/amber metallic edge pinstripe
-    ctx.fillStyle = '#F59E0B';
+    // Crisp accent metallic edge pinstripe
+    ctx.fillStyle = secondaryHex === '#F8FAFC' ? '#F59E0B' : secondaryHex;
     ctx.fillRect(148, 0, 8, 512);
     ctx.fillRect(356, 0, 8, 512);
 
@@ -859,7 +948,7 @@ export function createCarPaintLiveryTexture(
     ctx.closePath();
     ctx.fill();
 
-    ctx.fillStyle = '#F59E0B';
+    ctx.fillStyle = secondaryHex === '#F8FAFC' ? '#F59E0B' : secondaryHex;
     ctx.beginPath();
     ctx.moveTo(0, 148);
     ctx.lineTo(132, 256);

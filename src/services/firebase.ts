@@ -11,6 +11,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocFromServer,
   getDocs,
   getFirestore,
   limit,
@@ -18,12 +19,14 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  where,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 import {
   getDefaultCarConfig,
   getDefaultCareerProfile,
   MAX_UPGRADE_LEVEL,
+  normalizeCarConfig,
   TOTAL_BLACKLIST_RANKS,
 } from '../data/gameData';
 import { CareerProfile, EngineSoundProfile, GarageCarConfig, LeaderboardEntry } from '../types/game';
@@ -32,6 +35,17 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
+
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error('Please check your Firebase configuration.');
+    }
+  }
+}
+void testConnection();
 
 export enum OperationType {
   CREATE = 'create',
@@ -179,24 +193,17 @@ export async function loadCloudCareer(
   const garage: Record<string, GarageCarConfig> = {};
   const garagePath = `users/${uid}/garage`;
   try {
-    const garageSnap = await getDocs(collection(db, 'users', uid, 'garage'));
+    const garageSnap = await getDocs(
+      query(collection(db, 'users', uid, 'garage'), where('ownerId', '==', uid)),
+    );
     garageSnap.forEach((docSnap) => {
-      const g = docSnap.data();
+      const g = docSnap.data() as Partial<GarageCarConfig>;
       const carId = docSnap.id;
+      const normalized = normalizeCarConfig(g, carId, uid);
       garage[carId] = {
+        ...normalized,
         ownerId: uid,
         carId,
-        engineLevel: clampInt(Number(g.engineLevel ?? 1), 1, MAX_UPGRADE_LEVEL),
-        turboLevel: clampInt(Number(g.turboLevel ?? 1), 1, MAX_UPGRADE_LEVEL),
-        nitrousLevel: clampInt(Number(g.nitrousLevel ?? 1), 1, MAX_UPGRADE_LEVEL),
-        tiresLevel: clampInt(Number(g.tiresLevel ?? 1), 1, MAX_UPGRADE_LEVEL),
-        paintHex: /^#[0-9a-fA-F]{6}$/.test(String(g.paintHex)) ? String(g.paintHex) : '#E11D48',
-        livery: ['clean', 'stripes', 'most_wanted', 'boss_carbon'].includes(String(g.livery))
-          ? (String(g.livery) as GarageCarConfig['livery'])
-          : 'clean',
-        rimStyle: ['chrome', 'black', 'gold', 'bronze'].includes(String(g.rimStyle))
-          ? (String(g.rimStyle) as GarageCarConfig['rimStyle'])
-          : 'chrome',
         engineSound: sanitizeEngineSound(g.engineSound),
       };
     });
@@ -252,22 +259,36 @@ export async function saveCloudCareer(profile: CareerProfile): Promise<void> {
 
 export async function saveCloudCarConfig(uid: string, config: GarageCarConfig): Promise<void> {
   if (!auth.currentUser || auth.currentUser.uid !== uid) return;
-  const path = `users/${uid}/garage/${config.carId}`;
+  const safe = normalizeCarConfig(config, config.carId, uid);
+  const path = `users/${uid}/garage/${safe.carId}`;
   const payload = {
     ownerId: uid,
-    carId: config.carId.slice(0, 32),
-    engineLevel: clampInt(config.engineLevel, 1, MAX_UPGRADE_LEVEL),
-    turboLevel: clampInt(config.turboLevel, 1, MAX_UPGRADE_LEVEL),
-    nitrousLevel: clampInt(config.nitrousLevel, 1, MAX_UPGRADE_LEVEL),
-    tiresLevel: clampInt(config.tiresLevel, 1, MAX_UPGRADE_LEVEL),
-    paintHex: /^#[0-9a-fA-F]{6}$/.test(config.paintHex) ? config.paintHex : '#E11D48',
-    livery: config.livery,
-    rimStyle: config.rimStyle,
-    engineSound: sanitizeEngineSound(config.engineSound),
+    carId: safe.carId.slice(0, 32),
+    engineLevel: clampInt(safe.engineLevel, 1, MAX_UPGRADE_LEVEL),
+    turboLevel: clampInt(safe.turboLevel, 1, MAX_UPGRADE_LEVEL),
+    nitrousLevel: clampInt(safe.nitrousLevel, 1, MAX_UPGRADE_LEVEL),
+    tiresLevel: clampInt(safe.tiresLevel, 1, MAX_UPGRADE_LEVEL),
+    paintHex: safe.paintHex,
+    secondaryHex: safe.secondaryHex ?? '#F8FAFC',
+    paintFinish: safe.paintFinish ?? 'metallic',
+    livery: safe.livery,
+    bodyKit: safe.bodyKit ?? 'stock',
+    spoilerStyle: safe.spoilerStyle ?? 'auto',
+    hoodStyle: safe.hoodStyle ?? 'stock',
+    exhaustStyle: safe.exhaustStyle ?? 'dual',
+    rimStyle: safe.rimStyle,
+    rimDesign: safe.rimDesign ?? 'five_spoke',
+    caliperHex: safe.caliperHex ?? '#EF4444',
+    windowTint: safe.windowTint ?? 'dark',
+    headlightTint: safe.headlightTint ?? 'xenon',
+    underglowHex: safe.underglowHex ?? 'none',
+    stanceHeight: safe.stanceHeight ?? 0,
+    camberDeg: safe.camberDeg ?? 0,
+    engineSound: sanitizeEngineSound(safe.engineSound),
     updatedAt: serverTimestamp(),
   };
   try {
-    await setDoc(doc(db, 'users', uid, 'garage', config.carId), payload);
+    await setDoc(doc(db, 'users', uid, 'garage', safe.carId), payload);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -304,6 +325,7 @@ export async function fetchRapSheetLeaderboard(): Promise<LeaderboardEntry[]> {
   try {
     const q = query(
       collection(db, 'leaderboard'),
+      where('totalBounty', '>=', 0),
       orderBy('totalBounty', 'desc'),
       limit(15),
     );

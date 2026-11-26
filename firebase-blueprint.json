@@ -100,13 +100,70 @@
           "maxLength": 7,
           "pattern": "^#[0-9a-fA-F]{6}$"
         },
+        "secondaryHex": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "paintFinish": {
+          "type": "string",
+          "enum": ["gloss", "metallic", "matte", "pearl", "chrome"]
+        },
         "livery": {
           "type": "string",
-          "enum": ["clean", "stripes", "most_wanted", "boss_carbon"]
+          "enum": ["clean", "stripes", "most_wanted", "boss_carbon", "two_tone", "cyber_hex", "drift_camo"]
+        },
+        "bodyKit": {
+          "type": "string",
+          "enum": ["stock", "street", "widebody", "gt_race"]
+        },
+        "spoilerStyle": {
+          "type": "string",
+          "enum": ["auto", "none", "lip", "ducktail", "gt_wing", "chassis_mount"]
+        },
+        "hoodStyle": {
+          "type": "string",
+          "enum": ["stock", "vented", "carbon", "twin_intake"]
+        },
+        "exhaustStyle": {
+          "type": "string",
+          "enum": ["dual", "quad", "titanium"]
         },
         "rimStyle": {
           "type": "string",
-          "enum": ["chrome", "black", "gold", "bronze"]
+          "enum": ["chrome", "black", "gold", "bronze", "gunmetal", "white"]
+        },
+        "rimDesign": {
+          "type": "string",
+          "enum": ["five_spoke", "y_split", "turbofan", "deep_dish"]
+        },
+        "caliperHex": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "windowTint": {
+          "type": "string",
+          "enum": ["light", "dark", "limo", "amber_mirror"]
+        },
+        "headlightTint": {
+          "type": "string",
+          "enum": ["xenon", "ice_blue", "yellow_gt", "crimson"]
+        },
+        "underglowHex": {
+          "type": "string"
+        },
+        "stanceHeight": {
+          "type": "number"
+        },
+        "camberDeg": {
+          "type": "number"
+        },
+        "engineSound": {
+          "type": "string",
+          "enum": ["auto", "i4_turbo", "v6_twin_turbo", "v8_muscle", "v10_screamer", "v12_hyper", "rotary_brap", "flat6_gt", "electric_whine"]
         },
         "updatedAt": {
           "type": "string",

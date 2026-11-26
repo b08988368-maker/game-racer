@@ -653,21 +653,23 @@ export function stepVehiclePhysics(
   const leftAvgComp = (dyn.wheels[0].compression + dyn.wheels[2].compression) * 0.5;
   const rightAvgComp = (dyn.wheels[1].compression + dyn.wheels[3].compression) * 0.5;
 
-  const shiftPitchKick = dyn.shiftDipTimer > 0 ? 0.022 : 0;
-  const suspPitch = (frontAvgComp - rearAvgComp) * -0.115 + shiftPitchKick;
-  const suspRoll = (leftAvgComp - rightAvgComp) * 0.128;
-  const downforceSink = inp.airborne ? 0 : Math.min(0.056, (avgComp - 0.42) * 0.082 + (absSpeed / 90) * 0.032 * tuning.aeroDownforce);
-  dyn.heaveOffset = THREE.MathUtils.damp(dyn.heaveOffset, downforceSink, 14, inp.rawDt);
+  const shiftPitchKick = dyn.shiftDipTimer > 0 ? 0.014 : 0;
+  const suspPitch = (frontAvgComp - rearAvgComp) * -0.048 + shiftPitchKick;
+  const suspRoll = (leftAvgComp - rightAvgComp) * 0.046;
+  const downforceSink = inp.airborne
+    ? 0
+    : THREE.MathUtils.clamp((avgComp - 0.42) * 0.028 + (absSpeed / 90) * 0.020 * tuning.aeroDownforce, -0.008, 0.030);
+  dyn.heaveOffset = THREE.MathUtils.damp(dyn.heaveOffset, downforceSink, 16, inp.rawDt);
 
   out.forwardSpeed = nextFwd;
   out.lateralSpeed = nextLat;
   out.yawRate = yawRate;
   out.heaveOffset = dyn.heaveOffset;
-  out.targetPitch = THREE.MathUtils.clamp(suspPitch, -0.095, 0.095);
+  out.targetPitch = THREE.MathUtils.clamp(suspPitch, -0.042, 0.042);
   out.targetRoll = THREE.MathUtils.clamp(
-    suspRoll - inp.rawSteerInput * Math.min(1, absSpeed / 30) * 0.032,
-    -0.11,
-    0.11,
+    suspRoll - inp.rawSteerInput * Math.min(1, absSpeed / 30) * 0.014,
+    -0.044,
+    0.044,
   );
   out.wheelspinIntensity = wheelspinIntensity;
   out.surface = centerSurface;

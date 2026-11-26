@@ -13,7 +13,7 @@
 4. **UID Mutation on Update**: Update `/users/{uid}` changing `uid` to `'attacker'`.
 5. **Client Timestamp Forgery**: Create `/users/{uid}` with `updatedAt` set to a client-supplied past/future timestamp instead of `request.time`.
 6. **Negative Cash / Bounty Poisoning**: Update `/users/{uid}` with `cash: -5000` or `totalBounty: -100`.
-7. **Unbounded Array / Resource Exhaustion**: Update `/users/{uid}` with `ownedCarIds` containing 25 items (`> 20`) or `completedMissionIds` containing 65 items (`> 60`).
+7. **Unbounded Array / Resource Exhaustion**: Update `/users/{uid}` with `ownedCarIds` containing 45 items (`> 40`) or `completedMissionIds` containing 105 items (`> 100`).
 8. **Orphaned Garage Car**: Create `/users/{uid}/garage/cobalt_gt` before parent `/users/{uid}` exists.
 9. **Path ID Poisoning**: Attempt `get` or `create` on `/users/{uid}/garage/bad$id..123` violating `^[a-zA-Z0-9_\-]+$`.
 10. **Invalid Paint Hex / Livery Enum**: Update `/users/{uid}/garage/cobalt_gt` with `paintHex: 'red'` or `livery: 'hacked'`.

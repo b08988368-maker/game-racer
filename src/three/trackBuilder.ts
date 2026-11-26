@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { EnvironmentId, TrackId } from '../types/game';
+import { EnvironmentId, TrackId, TrackObstacleCollider } from '../types/game';
 import {
   AsphaltVariant,
   createAsphaltNormalTexture,
@@ -142,6 +142,7 @@ export interface BuiltTrack {
   smashables: SmashableProp[];
   tollbooths: TollboothGate[];
   shortcuts: TrackShortcut[];
+  obstacles: TrackObstacleCollider[];
   tunnelRanges: { startIdx: number; endIdx: number }[];
   minimapPath: { x: number; z: number }[];
   getClosestTrackInfo: (
@@ -862,18 +863,18 @@ export function buildGarageShowroom(maxAnisotropy: number): {
   group.add(innerRing);
 
   const steelMat = track(new THREE.MeshStandardMaterial({ color: '#272D3B', roughness: 0.34, metalness: 0.86 }));
-  const rollerMat = track(new THREE.MeshStandardMaterial({ color: '#94A3B8', roughness: 0.22, metalness: 0.92 }));
-  const railGeo = track(new THREE.BoxGeometry(0.48, 0.035, 5.2));
-  const rollerGeo = track(new THREE.CylinderGeometry(0.11, 0.11, 0.56, 12));
+  const rollerMat = track(new THREE.MeshStandardMaterial({ color: '#64748B', roughness: 0.28, metalness: 0.86 }));
+  const railGeo = track(new THREE.BoxGeometry(0.40, 0.018, 4.8));
+  const rollerGeo = track(new THREE.CylinderGeometry(0.065, 0.065, 0.36, 12));
   rollerGeo.rotateZ(Math.PI / 2);
 
-  [-0.95, 0.95].forEach((rx) => {
+  [-0.92, 0.92].forEach((rx) => {
     const rail = new THREE.Mesh(railGeo, steelMat);
-    rail.position.set(rx, 0.02, 0);
+    rail.position.set(rx, 0.024, 0);
     group.add(rail);
-    [-1.42, -1.26, 1.26, 1.42].forEach((rz) => {
+    [-1.40, -1.25, 1.25, 1.40].forEach((rz) => {
       const roller = new THREE.Mesh(rollerGeo, rollerMat);
-      roller.position.set(rx, 0.03, rz);
+      roller.position.set(rx, -0.025, rz);
       group.add(roller);
     });
   });
@@ -1117,6 +1118,18 @@ export function buildTrack(
   const reserveIdx = (idx: number) => {
     occupiedFeatureIndices.push(idx);
   };
+  const obstacles: TrackObstacleCollider[] = [];
+  const addObstacle = (
+    x: number,
+    y: number,
+    z: number,
+    radius: number,
+    height: number,
+    kind: TrackObstacleCollider['kind'],
+    breakerId?: number,
+  ) => {
+    obstacles.push({ x, y, z, radius, height, kind, breakerId });
+  };
 
   const shortcutDefs = getShortcutDefs(trackId);
   const shortcutPortalIndices: number[] = [];
@@ -1347,11 +1360,14 @@ export function buildTrack(
     advGantry.position.copy(advS.point);
     advGantry.rotation.y = Math.atan2(-advS.tangent.x, -advS.tangent.z);
     const postX = def.side * (barrierHalfWidth + 0.85);
+    const advPostWX = advS.point.x + advS.right.x * postX;
+    const advPostWZ = advS.point.z + advS.right.z * postX;
     advGantryPosts.push({
-      x: advS.point.x + advS.right.x * postX,
-      z: advS.point.z + advS.right.z * postX,
+      x: advPostWX,
+      z: advPostWZ,
       r: 3.5,
     });
+    addObstacle(advPostWX, advS.point.y, advPostWZ, 0.85, 10.6, 'pillar');
     const advPost = new THREE.Mesh(track(new THREE.BoxGeometry(0.76, 10.6, 0.76)), steelMat);
     advPost.position.set(postX, 3.8, 0);
     const armLen = roadHalfWidth * 1.15;
@@ -1752,6 +1768,7 @@ export function buildTrack(
         const dome = new THREE.Mesh(entryDomeGeo, shortcutGlowMat);
         dome.position.set(px, py + 4.95, pz);
         group.add(pylon, dome);
+        addObstacle(px, py, pz, 0.65, 5.5, 'pylon');
       } else if (eOrd === 1) {
         const pyLat = def.side * (barrierHalfWidth + 0.75);
         const px = es.point.x + es.right.x * pyLat;
@@ -1762,6 +1779,7 @@ export function buildTrack(
         const dome = new THREE.Mesh(entryDomeGeo, shortcutGlowMat);
         dome.position.set(px, py + 6.95, pz);
         group.add(tallPylon, dome);
+        addObstacle(px, py, pz, 0.75, 7.2, 'pylon');
 
         // Mounted cleanly overhead (bottom edge y + 4.425m) so vehicles & wings never clip the gore sign
         const goreSignG = new THREE.Group();
@@ -1819,6 +1837,10 @@ export function buildTrack(
       apGlow.position.set(0, 5.18, 0);
       scArch.add(apL, apR, apTop, apGlow);
       group.add(scArch);
+      const archRightX = -midScTan.z;
+      const archRightZ = midScTan.x;
+      addObstacle(midScPt.x - archRightX * (scHalfW + 0.15), midScPt.y, midScPt.z - archRightZ * (scHalfW + 0.15), 0.6, 5.6, 'pillar');
+      addObstacle(midScPt.x + archRightX * (scHalfW + 0.15), midScPt.y, midScPt.z + archRightZ * (scHalfW + 0.15), 0.6, 5.6, 'pillar');
     }
 
     const planks: ShortcutGatePlank[] = [];
@@ -1844,6 +1866,10 @@ export function buildTrack(
       post1.position.set(-scHalfW - 0.3, 2.8, 0);
       const post2 = new THREE.Mesh(postGeo, shortcutCurbMat);
       post2.position.set(scHalfW + 0.3, 2.8, 0);
+      const gRightX = -endSpec.tan.z;
+      const gRightZ = endSpec.tan.x;
+      addObstacle(endSpec.pt.x - gRightX * (scHalfW + 0.3), endSpec.pt.y, endSpec.pt.z - gRightZ * (scHalfW + 0.3), 0.6, 5.6, 'pillar');
+      addObstacle(endSpec.pt.x + gRightX * (scHalfW + 0.3), endSpec.pt.y, endSpec.pt.z + gRightZ * (scHalfW + 0.3), 0.6, 5.6, 'pillar');
 
       const beaconBar = new THREE.Mesh(beaconBarGeo, shortcutGlowMat);
       beaconBar.position.set(0, 5.4, 0);
@@ -2915,6 +2941,7 @@ export function buildTrack(
         const colTop = s.point.y - 1.4;
         const colBot = Math.min(groundY - 2.4, hasHarborBay ? -7.2 : -3.5);
         const colH = Math.max(4, colTop - colBot);
+        addObstacle(colX, colBot, colZ, 1.85, colH, 'pillar');
         dummy.position.set(colX, colBot + colH * 0.5, colZ);
         dummy.rotation.set(0, yaw, 0);
         dummy.scale.set(1, colH, 1);
@@ -2956,6 +2983,7 @@ export function buildTrack(
         const colTop = s.point.y - 1.4;
         const colBot = Math.min(groundY - 2.2, -3.5);
         const colH = Math.max(4, colTop - colBot);
+        addObstacle(colX, colBot, colZ, 1.85, colH, 'pillar');
         dummy.position.set(colX, colBot + colH * 0.5, colZ);
         dummy.rotation.set(0, yaw, 0);
         dummy.scale.set(1, colH, 1);
@@ -3282,6 +3310,8 @@ export function buildTrack(
       portBeacon.position.set(0, tunHeight + 0.05, 1.62);
 
       pg.add(portL, portR, wingL, wingR, portTop, portBeacon);
+      addObstacle(ps.point.x - ps.right.x * (tunSpan + 0.45), ps.point.y - 1.2, ps.point.z - ps.right.z * (tunSpan + 0.45), 1.35, tunHeight + 3.2, 'monument');
+      addObstacle(ps.point.x + ps.right.x * (tunSpan + 0.45), ps.point.y - 1.2, ps.point.z + ps.right.z * (tunSpan + 0.45), 1.35, tunHeight + 3.2, 'monument');
 
       // Rugged rock massif boulders flanking tunnel portal mouths (strictly outside co-planar streets, shortcuts & underpasses)
       if (trackId !== 'downtown_labyrinth' && trackId !== 'silverton_pass') {
@@ -3381,6 +3411,8 @@ export function buildTrack(
       const latX = barrierHalfWidth + 1.5;
       placedStructures.push({ x: s.point.x - s.right.x * latX, z: s.point.z - s.right.z * latX, r: 4.5 });
       placedStructures.push({ x: s.point.x + s.right.x * latX, z: s.point.z + s.right.z * latX, r: 4.5 });
+      addObstacle(s.point.x - s.right.x * latX, s.point.y - 12, s.point.z - s.right.z * latX, 1.55, 56, 'monument');
+      addObstacle(s.point.x + s.right.x * latX, s.point.y - 12, s.point.z + s.right.z * latX, 1.55, 56, 'monument');
 
       const lL = new THREE.Mesh(towerLegGeo, steelMat);
       lL.position.set(-latX, 13, 0);
@@ -3810,16 +3842,14 @@ export function buildTrack(
     const ovIdx = resolveClearIdx(0.72, 10);
     reserveIdx(ovIdx);
     const ovS = samples[ovIdx];
-    placedStructures.push({
-      x: ovS.point.x - ovS.right.x * (barrierHalfWidth + 1.2),
-      z: ovS.point.z - ovS.right.z * (barrierHalfWidth + 1.2),
-      r: 3.0,
-    });
-    placedStructures.push({
-      x: ovS.point.x + ovS.right.x * (barrierHalfWidth + 1.2),
-      z: ovS.point.z + ovS.right.z * (barrierHalfWidth + 1.2),
-      r: 3.0,
-    });
+    const ovLX = ovS.point.x - ovS.right.x * (barrierHalfWidth + 1.2);
+    const ovLZ = ovS.point.z - ovS.right.z * (barrierHalfWidth + 1.2);
+    const ovRX = ovS.point.x + ovS.right.x * (barrierHalfWidth + 1.2);
+    const ovRZ = ovS.point.z + ovS.right.z * (barrierHalfWidth + 1.2);
+    placedStructures.push({ x: ovLX, z: ovLZ, r: 3.0 });
+    placedStructures.push({ x: ovRX, z: ovRZ, r: 3.0 });
+    addObstacle(ovLX, ovS.point.y - 1.5, ovLZ, 1.05, 13, 'pillar');
+    addObstacle(ovRX, ovS.point.y - 1.5, ovRZ, 1.05, 13, 'pillar');
     const ovG = new THREE.Group();
     ovG.position.copy(ovS.point);
     ovG.rotation.y = Math.atan2(-ovS.tangent.x, -ovS.tangent.z);
@@ -3948,16 +3978,14 @@ export function buildTrack(
       const pIdx = resolveClearIdx(prog, 8);
       reserveIdx(pIdx);
       const s = samples[pIdx];
-      placedStructures.push({
-        x: s.point.x - s.right.x * (barrierHalfWidth + 1.1),
-        z: s.point.z - s.right.z * (barrierHalfWidth + 1.1),
-        r: 3.0,
-      });
-      placedStructures.push({
-        x: s.point.x + s.right.x * (barrierHalfWidth + 1.1),
-        z: s.point.z + s.right.z * (barrierHalfWidth + 1.1),
-        r: 3.0,
-      });
+      const spLX = s.point.x - s.right.x * (barrierHalfWidth + 1.1);
+      const spLZ = s.point.z - s.right.z * (barrierHalfWidth + 1.1);
+      const spRX = s.point.x + s.right.x * (barrierHalfWidth + 1.1);
+      const spRZ = s.point.z + s.right.z * (barrierHalfWidth + 1.1);
+      placedStructures.push({ x: spLX, z: spLZ, r: 3.0 });
+      placedStructures.push({ x: spRX, z: spRZ, r: 3.0 });
+      addObstacle(spLX, s.point.y - 1.5, spLZ, 1.05, 15, 'pillar');
+      addObstacle(spRX, s.point.y - 1.5, spRZ, 1.05, 15, 'pillar');
       const pg = new THREE.Group();
       pg.position.copy(s.point);
       pg.rotation.y = Math.atan2(-s.tangent.x, -s.tangent.z);
@@ -4022,6 +4050,8 @@ export function buildTrack(
           r: 12,
         });
       }
+      addObstacle(s.point.x - s.right.x * (barrierHalfWidth + 1.5), s.point.y - 4, s.point.z - s.right.z * (barrierHalfWidth + 1.5), 1.35, 16, 'pillar');
+      addObstacle(s.point.x + s.right.x * (barrierHalfWidth + 1.5), s.point.y - 4, s.point.z + s.right.z * (barrierHalfWidth + 1.5), 1.35, 16, 'pillar');
       const mg = new THREE.Group();
       mg.position.copy(s.point);
       mg.rotation.y = Math.atan2(-s.tangent.x, -s.tangent.z);
@@ -4078,16 +4108,14 @@ export function buildTrack(
       const aIdx = resolveClearIdx(prog, 8);
       reserveIdx(aIdx);
       const s = samples[aIdx];
-      placedStructures.push({
-        x: s.point.x - s.right.x * (barrierHalfWidth + 0.3),
-        z: s.point.z - s.right.z * (barrierHalfWidth + 0.3),
-        r: 3.2,
-      });
-      placedStructures.push({
-        x: s.point.x + s.right.x * (barrierHalfWidth + 0.3),
-        z: s.point.z + s.right.z * (barrierHalfWidth + 0.3),
-        r: 3.2,
-      });
+      const hLX = s.point.x - s.right.x * (barrierHalfWidth + 0.3);
+      const hLZ = s.point.z - s.right.z * (barrierHalfWidth + 0.3);
+      const hRX = s.point.x + s.right.x * (barrierHalfWidth + 0.3);
+      const hRZ = s.point.z + s.right.z * (barrierHalfWidth + 0.3);
+      placedStructures.push({ x: hLX, z: hLZ, r: 3.2 });
+      placedStructures.push({ x: hRX, z: hRZ, r: 3.2 });
+      addObstacle(hLX, s.point.y - 1.5, hLZ, 0.9, 13, 'monument');
+      addObstacle(hRX, s.point.y - 1.5, hRZ, 0.9, 13, 'monument');
       const ag = new THREE.Group();
       ag.position.copy(s.point);
       ag.rotation.y = Math.atan2(-s.tangent.x, -s.tangent.z);
@@ -4116,16 +4144,14 @@ export function buildTrack(
       const aIdx = resolveClearIdx(prog, 8);
       reserveIdx(aIdx);
       const s = samples[aIdx];
-      placedStructures.push({
-        x: s.point.x - s.right.x * (barrierHalfWidth + 0.3),
-        z: s.point.z - s.right.z * (barrierHalfWidth + 0.3),
-        r: 3.2,
-      });
-      placedStructures.push({
-        x: s.point.x + s.right.x * (barrierHalfWidth + 0.3),
-        z: s.point.z + s.right.z * (barrierHalfWidth + 0.3),
-        r: 3.2,
-      });
+      const cLX = s.point.x - s.right.x * (barrierHalfWidth + 0.3);
+      const cLZ = s.point.z - s.right.z * (barrierHalfWidth + 0.3);
+      const cRX = s.point.x + s.right.x * (barrierHalfWidth + 0.3);
+      const cRZ = s.point.z + s.right.z * (barrierHalfWidth + 0.3);
+      placedStructures.push({ x: cLX, z: cLZ, r: 3.2 });
+      placedStructures.push({ x: cRX, z: cRZ, r: 3.2 });
+      addObstacle(cLX, s.point.y - 1.5, cLZ, 0.9, 13, 'monument');
+      addObstacle(cRX, s.point.y - 1.5, cRZ, 0.9, 13, 'monument');
       const archG = new THREE.Group();
       archG.position.copy(s.point);
       archG.rotation.y = Math.atan2(-s.tangent.x, -s.tangent.z);
@@ -4222,6 +4248,8 @@ export function buildTrack(
   pLeft.position.set(-barrierHalfWidth - 0.3, 4.5, 0);
   const pRight = new THREE.Mesh(pillarGeo, steelMat);
   pRight.position.set(barrierHalfWidth + 0.3, 4.5, 0);
+  addObstacle(startSample.point.x - startSample.right.x * (barrierHalfWidth + 0.3), startSample.point.y, startSample.point.z - startSample.right.z * (barrierHalfWidth + 0.3), 0.85, 9.5, 'pillar');
+  addObstacle(startSample.point.x + startSample.right.x * (barrierHalfWidth + 0.3), startSample.point.y, startSample.point.z + startSample.right.z * (barrierHalfWidth + 0.3), 0.85, 9.5, 'pillar');
 
   const trussGeo = track(new THREE.BoxGeometry(barrierHalfWidth * 2 + 2.4, 2.4, 1.2));
   const bannerTex = track(createStartBannerTexture(maxAnisotropy));
@@ -4326,6 +4354,8 @@ export function buildTrack(
     pL.position.set(-barrierHalfWidth - 0.3, 4.5, 0);
     const pR = new THREE.Mesh(pillarGeo, steelMat);
     pR.position.set(barrierHalfWidth + 0.3, 4.5, 0);
+    addObstacle(s.point.x - s.right.x * (barrierHalfWidth + 0.3), s.point.y, s.point.z - s.right.z * (barrierHalfWidth + 0.3), 0.85, 9.5, 'pillar');
+    addObstacle(s.point.x + s.right.x * (barrierHalfWidth + 0.3), s.point.y, s.point.z + s.right.z * (barrierHalfWidth + 0.3), 0.85, 9.5, 'pillar');
     const beam = new THREE.Mesh(hwBeamGeo, steelMat);
     beam.position.set(0, 8.2, 0);
 
@@ -4362,6 +4392,7 @@ export function buildTrack(
     const bbZ = s.point.z + s.right.z * side * (barrierHalfWidth + 7.2);
     if (!tryPlaceStructure(bbX, bbZ, 8, barrierHalfWidth + 5.5, 2.0)) return;
     reserveIdx(sIdx);
+    addObstacle(bbX, s.point.y, bbZ, 0.85, 9.0, 'pillar');
     const bb = new THREE.Group();
     bb.position.set(bbX, s.point.y, bbZ);
     bb.rotation.y = Math.atan2(-s.tangent.x, -s.tangent.z) + (side === 1 ? -0.35 : 0.35);
@@ -4392,6 +4423,8 @@ export function buildTrack(
     postL.position.set(-barrierHalfWidth, 2.9, 0);
     const postR = new THREE.Mesh(trapPostGeo, steelMat);
     postR.position.set(barrierHalfWidth, 2.9, 0);
+    addObstacle(s.point.x - s.right.x * barrierHalfWidth, s.point.y, s.point.z - s.right.z * barrierHalfWidth, 0.5, 6.0, 'pillar');
+    addObstacle(s.point.x + s.right.x * barrierHalfWidth, s.point.y, s.point.z + s.right.z * barrierHalfWidth, 0.5, 6.0, 'pillar');
 
     const flashMat = track(
       new THREE.MeshStandardMaterial({
@@ -4459,6 +4492,10 @@ export function buildTrack(
     boothL.position.set(-barrierHalfWidth - 1.25, 1.7, 0);
     const boothR = new THREE.Mesh(kioskGeo, steelMat);
     boothR.position.set(barrierHalfWidth + 1.25, 1.7, 0);
+    addObstacle(s.point.x - s.right.x * barrierHalfWidth, s.point.y, s.point.z - s.right.z * barrierHalfWidth, 0.78, 7.0, 'kiosk');
+    addObstacle(s.point.x + s.right.x * barrierHalfWidth, s.point.y, s.point.z + s.right.z * barrierHalfWidth, 0.78, 7.0, 'kiosk');
+    addObstacle(s.point.x - s.right.x * (barrierHalfWidth + 1.25), s.point.y, s.point.z - s.right.z * (barrierHalfWidth + 1.25), 1.15, 4.0, 'kiosk');
+    addObstacle(s.point.x + s.right.x * (barrierHalfWidth + 1.25), s.point.y, s.point.z + s.right.z * (barrierHalfWidth + 1.25), 1.15, 4.0, 'kiosk');
     const roof = new THREE.Mesh(tollRoofGeo, steelMat);
     roof.position.set(0, 6.9, 0);
     const beacon = new THREE.Mesh(tollBeaconGeo, bMat);
@@ -4547,8 +4584,8 @@ export function buildTrack(
   rampBaseGeo.rotateY(Math.PI / 2);
 
   const rampRailStripGeo = track(new THREE.BoxGeometry(0.2, 0.2, rampLen * 0.96));
-  const rampPylonGeo = track(new THREE.BoxGeometry(0.38, 4.8, 0.38));
-  const rampArchBarGeo = track(new THREE.BoxGeometry(rampHalfW * 2 + 0.9, 0.4, 0.44));
+  const rampSkirtGeo = track(new THREE.BoxGeometry(0.24, 0.34, rampLen + 0.2));
+  const rampLipBeamGeo = track(new THREE.BoxGeometry(rampHalfW * 2 + 0.28, 0.18, 0.32));
   const landingPadGeo = track(new THREE.PlaneGeometry(rampHalfW * 2.0, 7.5));
   landingPadGeo.rotateX(-Math.PI / 2);
   const landingPadMat = track(
@@ -4593,22 +4630,22 @@ export function buildTrack(
     rampMesh.receiveShadow = true;
     rampGroup.add(rampMesh);
 
-    // Side glowing LED guide rails along the concave kicker slope
+    const accentMat = idx % 2 === 0 ? rampNeonMat : rampAmberGlowMat;
+    // Low flush armored side skirts + LED guide rails so adjacent lanes stay 100% open and obstacle-free
     [-rampHalfW + 0.12, rampHalfW - 0.12].forEach((rx) => {
-      const strip = new THREE.Mesh(rampRailStripGeo, idx % 2 === 0 ? rampNeonMat : rampAmberGlowMat);
+      const strip = new THREE.Mesh(rampRailStripGeo, accentMat);
       strip.position.set(rx, rampHeight * 0.46 + 0.14, -rampLen * 0.5);
       strip.rotation.x = Math.atan2(rampHeight, rampLen);
       rampGroup.add(strip);
     });
-
-    // Twin illuminated jump gate pylons & overhead crossbar at the launch lip
-    const pL = new THREE.Mesh(rampPylonGeo, steelMat);
-    pL.position.set(-rampHalfW - 0.22, 2.4, -rampLen + 0.35);
-    const pR = new THREE.Mesh(rampPylonGeo, steelMat);
-    pR.position.set(rampHalfW + 0.22, 2.4, -rampLen + 0.35);
-    const archBar = new THREE.Mesh(rampArchBarGeo, idx % 2 === 0 ? rampNeonMat : rampAmberGlowMat);
-    archBar.position.set(0, 4.7, -rampLen + 0.35);
-    rampGroup.add(pL, pR, archBar);
+    [-rampHalfW - 0.12, rampHalfW + 0.12].forEach((sx) => {
+      const skirt = new THREE.Mesh(rampSkirtGeo, steelMat);
+      skirt.position.set(sx, 0.17, -rampLen * 0.5);
+      rampGroup.add(skirt);
+    });
+    const lipGlow = new THREE.Mesh(rampLipBeamGeo, accentMat);
+    lipGlow.position.set(0, rampHeight - 0.04, -rampLen + 0.12);
+    rampGroup.add(lipGlow);
 
     group.add(rampGroup);
 
@@ -4724,6 +4761,8 @@ export function buildTrack(
 
     bGroup.add(leg1, leg2, tank, ring, beaconTop, floorRing);
     group.add(bGroup);
+    addObstacle(pos.x + s.tangent.x * 1.2, pos.y, pos.z + s.tangent.z * 1.2, 0.55, 6.2, 'pillar', i);
+    addObstacle(pos.x - s.tangent.x * 1.2, pos.y, pos.z - s.tangent.z * 1.2, 0.55, 6.2, 'pillar', i);
 
     pursuitBreakers.push({
       id: i,
@@ -4803,6 +4842,8 @@ export function buildTrack(
     glowBar.position.set(0, 7.22, 0);
     ag.add(lLeg, rLeg, topBar, glowBar);
     group.add(ag);
+    addObstacle(as.point.x - as.right.x * (barrierHalfWidth + 0.35), as.point.y, as.point.z - as.right.z * (barrierHalfWidth + 0.35), 0.52, 8.0, 'pillar');
+    addObstacle(as.point.x + as.right.x * (barrierHalfWidth + 0.35), as.point.y, as.point.z + as.right.z * (barrierHalfWidth + 0.35), 0.52, 8.0, 'pillar');
   });
 
   // Reflective Roadside Safety Cones / Delineator Bollards along shoulders
@@ -6508,6 +6549,7 @@ export function buildTrack(
     smashables,
     tollbooths,
     shortcuts,
+    obstacles,
     tunnelRanges: tunnelConfigs.map((tc) => ({ startIdx: tc.startIdx, endIdx: tc.startIdx + tc.len })),
     minimapPath,
     getClosestTrackInfo,

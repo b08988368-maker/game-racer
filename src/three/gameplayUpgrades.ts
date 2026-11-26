@@ -57,7 +57,7 @@ export function computeRampDeckHeight(alongM: number, lengthM: number, heightM: 
 
 /**
  * Computes controlled arcade vertical launch velocity when hitting a ramp lip.
- * Produces a punchy ~0.45s to 0.72s arc (~2.5m-3.8m peak height) that lands inside the road.
+ * Produces a snappy, weighty ~0.40s to 0.64s arc (~2.1m-3.25m peak height) that lands inside the road.
  */
 export function computeRampLaunchVerticalVel({
   forwardSpeedMs,
@@ -65,19 +65,18 @@ export function computeRampLaunchVerticalVel({
   nosActive,
 }: RampLaunchInput): number {
   const safeSpeed = Math.max(0, forwardSpeedMs);
-  const slopeImpulse = safeSpeed * Math.sin(launchAngleRad) * 0.78;
-  const lipKick = safeSpeed * 0.04 + (nosActive ? 1.35 : 0.55);
-  return Math.min(11.6, Math.max(5.4, slopeImpulse + lipKick));
+  const slopeImpulse = safeSpeed * Math.sin(launchAngleRad) * 0.70;
+  const lipKick = safeSpeed * 0.032 + (nosActive ? 1.1 : 0.45);
+  return Math.min(9.85, Math.max(5.45, slopeImpulse + lipKick));
 }
 
 /**
- * Subtle high-speed aerodynamic lift while keeping AIR_GRAVITY_MPS2 authoritative so
- * cars arc cleanly onto the landing pad without floating over barriers.
+ * Firm downward gravity scaling so cars track a planted, weighty parabolic trajectory onto the landing pad.
  */
 export function computeAirGravityScale(forwardSpeedMs: number, nosActive: boolean): number {
   const speedRatio = Math.min(1, Math.max(0, forwardSpeedMs) / 90);
-  const nosLift = nosActive ? 0.04 : 0;
-  return Math.max(0.82, 0.96 - speedRatio * 0.1 - nosLift);
+  const nosLift = nosActive ? 0.03 : 0;
+  return Math.max(0.86, 0.95 - speedRatio * 0.06 - nosLift);
 }
 
 /**

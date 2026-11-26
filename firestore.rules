@@ -109,8 +109,11 @@ service cloud.firestore {
         ])
         && data.keys().hasOnly([
           'ownerId', 'carId', 'engineLevel', 'turboLevel',
-          'nitrousLevel', 'tiresLevel', 'paintHex', 'livery',
-          'rimStyle', 'engineSound', 'updatedAt'
+          'nitrousLevel', 'tiresLevel', 'paintHex', 'secondaryHex',
+          'paintFinish', 'livery', 'bodyKit', 'spoilerStyle',
+          'hoodStyle', 'exhaustStyle', 'rimStyle', 'rimDesign',
+          'caliperHex', 'windowTint', 'headlightTint', 'underglowHex',
+          'stanceHeight', 'camberDeg', 'engineSound', 'updatedAt'
         ])
         && data.ownerId is string
         && data.ownerId == request.auth.uid
@@ -132,10 +135,67 @@ service cloud.firestore {
         && data.paintHex is string
         && data.paintHex.size() == 7
         && data.paintHex.matches('^#[0-9a-fA-F]{6}$')
+        && (!('secondaryHex' in data) || (
+          data.secondaryHex is string
+          && data.secondaryHex.size() == 7
+          && data.secondaryHex.matches('^#[0-9a-fA-F]{6}$')
+        ))
+        && (!('paintFinish' in data) || (
+          data.paintFinish is string
+          && data.paintFinish in ['gloss', 'metallic', 'matte', 'pearl', 'chrome']
+        ))
         && data.livery is string
-        && data.livery in ['clean', 'stripes', 'most_wanted', 'boss_carbon']
+        && data.livery in [
+          'clean', 'stripes', 'most_wanted', 'boss_carbon',
+          'two_tone', 'cyber_hex', 'drift_camo'
+        ]
+        && (!('bodyKit' in data) || (
+          data.bodyKit is string
+          && data.bodyKit in ['stock', 'street', 'widebody', 'gt_race']
+        ))
+        && (!('spoilerStyle' in data) || (
+          data.spoilerStyle is string
+          && data.spoilerStyle in ['auto', 'none', 'lip', 'ducktail', 'gt_wing', 'chassis_mount']
+        ))
+        && (!('hoodStyle' in data) || (
+          data.hoodStyle is string
+          && data.hoodStyle in ['stock', 'vented', 'carbon', 'twin_intake']
+        ))
+        && (!('exhaustStyle' in data) || (
+          data.exhaustStyle is string
+          && data.exhaustStyle in ['dual', 'quad', 'titanium']
+        ))
         && data.rimStyle is string
-        && data.rimStyle in ['chrome', 'black', 'gold', 'bronze']
+        && data.rimStyle in ['chrome', 'black', 'gold', 'bronze', 'gunmetal', 'white']
+        && (!('rimDesign' in data) || (
+          data.rimDesign is string
+          && data.rimDesign in ['five_spoke', 'y_split', 'turbofan', 'deep_dish']
+        ))
+        && (!('caliperHex' in data) || (
+          data.caliperHex is string
+          && data.caliperHex.size() == 7
+          && data.caliperHex.matches('^#[0-9a-fA-F]{6}$')
+        ))
+        && (!('windowTint' in data) || (
+          data.windowTint is string
+          && data.windowTint in ['light', 'dark', 'limo', 'amber_mirror']
+        ))
+        && (!('headlightTint' in data) || (
+          data.headlightTint is string
+          && data.headlightTint in ['xenon', 'ice_blue', 'yellow_gt', 'crimson']
+        ))
+        && (!('underglowHex' in data) || (
+          data.underglowHex is string
+          && (data.underglowHex == 'none' || (
+            data.underglowHex.size() == 7 && data.underglowHex.matches('^#[0-9a-fA-F]{6}$')
+          ))
+        ))
+        && (!('stanceHeight' in data) || (
+          data.stanceHeight is int && data.stanceHeight >= -1 && data.stanceHeight <= 1
+        ))
+        && (!('camberDeg' in data) || (
+          data.camberDeg is int && data.camberDeg >= 0 && data.camberDeg <= 6
+        ))
         && (!('engineSound' in data) || (
           data.engineSound is string
           && data.engineSound in [
@@ -220,7 +280,11 @@ service cloud.firestore {
           && incoming().carId == existing().carId
           && incoming().diff(existing()).affectedKeys().hasOnly([
             'engineLevel', 'turboLevel', 'nitrousLevel', 'tiresLevel',
-            'paintHex', 'livery', 'rimStyle', 'engineSound', 'updatedAt'
+            'paintHex', 'secondaryHex', 'paintFinish', 'livery',
+            'bodyKit', 'spoilerStyle', 'hoodStyle', 'exhaustStyle',
+            'rimStyle', 'rimDesign', 'caliperHex', 'windowTint',
+            'headlightTint', 'underglowHex', 'stanceHeight', 'camberDeg',
+            'engineSound', 'updatedAt'
           ]);
         allow delete: if false;
       }

@@ -31,6 +31,7 @@ import {
   getDefaultCareerProfile,
   isTierBossUnlocked,
   MAX_UPGRADE_LEVEL,
+  normalizeCarConfig,
   TOTAL_BLACKLIST_RANKS,
   UPGRADE_COST,
 } from './data/gameData';
@@ -99,7 +100,19 @@ function loadLocalCareer(): CareerProfile {
 function loadLocalGarage(): Record<string, GarageCarConfig> {
   try {
     const raw = localStorage.getItem(LOCAL_GARAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, Partial<GarageCarConfig>>;
+      const hydrated: Record<string, GarageCarConfig> = {};
+      if (parsed && typeof parsed === 'object') {
+        for (const [carId, entry] of Object.entries(parsed)) {
+          hydrated[carId] = normalizeCarConfig(entry, carId, entry?.ownerId || 'guest');
+        }
+      }
+      if (!hydrated.cobalt_gt) {
+        hydrated.cobalt_gt = getDefaultCarConfig('cobalt_gt');
+      }
+      return hydrated;
+    }
   } catch {
     // ignore
   }
@@ -300,7 +313,7 @@ function GameRoot() {
     engineRef.current = engine;
 
     const spec = CARS.find((c) => c.id === profileRef.current.selectedCarId) ?? CARS[0];
-    const cfg = garageConfigs[spec.id] ?? getDefaultCarConfig(spec.id, profileRef.current.uid);
+    const cfg = normalizeCarConfig(garageConfigs[spec.id], spec.id, profileRef.current.uid);
 
     if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('autostart') === '1') {
       const autoParams: RaceStartParams = {
@@ -365,7 +378,7 @@ function GameRoot() {
   useEffect(() => {
     if (screen !== 'menu' || !engineRef.current) return;
     const spec = CARS.find((c) => c.id === profile.selectedCarId) ?? CARS[0];
-    const cfg = garageConfigs[spec.id] ?? getDefaultCarConfig(spec.id, profile.uid);
+    const cfg = normalizeCarConfig(garageConfigs[spec.id], spec.id, profile.uid);
     engineRef.current.showGarageCar(spec, cfg);
   }, [screen, profile.selectedCarId, profile.uid, garageConfigs]);
 
@@ -652,10 +665,10 @@ function GameRoot() {
 
   const handleSelectCar = (carId: string) => {
     if (!profile.ownedCarIds.includes(carId)) return;
-    const nextGarage = { ...garageConfigs };
-    if (!nextGarage[carId]) {
-      nextGarage[carId] = getDefaultCarConfig(carId, profile.uid);
-    }
+    const nextGarage = {
+      ...garageConfigs,
+      [carId]: normalizeCarConfig(garageConfigs[carId], carId, profile.uid),
+    };
     const nextProfile = { ...profile, selectedCarId: carId };
     setGarageConfigs(nextGarage);
     setProfile(nextProfile);
@@ -686,7 +699,7 @@ function GameRoot() {
 
   const handleUpgradePart = (part: 'engineLevel' | 'turboLevel' | 'nitrousLevel' | 'tiresLevel') => {
     const carId = profile.selectedCarId;
-    const curCfg = garageConfigs[carId] ?? getDefaultCarConfig(carId, profile.uid);
+    const curCfg = normalizeCarConfig(garageConfigs[carId], carId, profile.uid);
     const curLvl = curCfg[part];
     if (curLvl >= MAX_UPGRADE_LEVEL) return;
     const cost = UPGRADE_COST[curLvl];
@@ -704,12 +717,10 @@ function GameRoot() {
     if (authUser) void saveCloudCarConfig(authUser.uid, nextCfg);
   };
 
-  const handleCustomizeCar = (
-    patch: Partial<Pick<GarageCarConfig, 'paintHex' | 'livery' | 'rimStyle' | 'engineSound'>>,
-  ) => {
+  const handleCustomizeCar = (patch: Partial<GarageCarConfig>) => {
     const carId = profile.selectedCarId;
-    const curCfg = garageConfigs[carId] ?? getDefaultCarConfig(carId, profile.uid);
-    const nextCfg: GarageCarConfig = { ...curCfg, ...patch };
+    const curCfg = normalizeCarConfig(garageConfigs[carId], carId, profile.uid);
+    const nextCfg: GarageCarConfig = normalizeCarConfig({ ...curCfg, ...patch }, carId, profile.uid);
     const nextGarage = { ...garageConfigs, [carId]: nextCfg };
 
     setGarageConfigs(nextGarage);
@@ -742,7 +753,7 @@ function GameRoot() {
     }
     soundEngine.init();
     const spec = CARS.find((c) => c.id === profile.selectedCarId) ?? CARS[0];
-    const cfg = garageConfigs[spec.id] ?? getDefaultCarConfig(spec.id, profile.uid);
+    const cfg = normalizeCarConfig(garageConfigs[spec.id], spec.id, profile.uid);
     const isMandatoryPursuit =
       mode === 'pursuit' ||
       mission?.type === 'pursuit_milestone' ||
@@ -775,7 +786,7 @@ function GameRoot() {
     setDynoTelemetry(null);
     setScreen('menu');
     const spec = CARS.find((c) => c.id === profile.selectedCarId) ?? CARS[0];
-    const cfg = garageConfigs[spec.id] ?? getDefaultCarConfig(spec.id, profile.uid);
+    const cfg = normalizeCarConfig(garageConfigs[spec.id], spec.id, profile.uid);
     engineRef.current?.setGarageDynoMode(false);
     engineRef.current?.showGarageCar(spec, cfg);
     soundEngine.init();

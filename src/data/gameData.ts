@@ -1,13 +1,21 @@
 import {
   BlacklistRival,
+  BodyKitStyle,
   CareerProfile,
   CarSpec,
   EnvironmentId,
+  ExhaustStyle,
   GarageCarConfig,
+  HeadlightTintStyle,
+  HoodStyle,
   LiveryStyle,
   MissionDefinition,
+  PaintFinish,
+  RimDesign,
   RimStyle,
+  SpoilerStyle,
   TrackMetadata,
+  WindowTintStyle,
 } from '../types/game';
 
 export const TOTAL_BLACKLIST_RANKS = 15;
@@ -3015,26 +3023,139 @@ export const PAINT_SWATCHES: { name: string; hex: string }[] = [
   { name: 'Pearl White', hex: '#F8FAFC' },
   { name: 'Emerald Racing', hex: '#059669' },
   { name: 'Sunset Copper', hex: '#C2410C' },
+  { name: 'Electric Cyan', hex: '#06B6D4' },
+  { name: 'Midnight Violet', hex: '#7C3AED' },
+  { name: 'Acid Lime', hex: '#84CC16' },
+  { name: 'Bayside Teal', hex: '#0F766E' },
+  { name: 'Solar Yellow', hex: '#FACC15' },
+  { name: 'Nardo Grey', hex: '#64748B' },
+];
+
+export const SECONDARY_SWATCHES: { name: string; hex: string }[] = [
+  { name: 'Ice White', hex: '#F8FAFC' },
+  { name: 'Carbon Black', hex: '#0F172A' },
+  { name: 'Rockport Gold', hex: '#F59E0B' },
+  { name: 'Neon Cyan', hex: '#38BDF8' },
+  { name: 'Apex Crimson', hex: '#EF4444' },
+  { name: 'Royal Cobalt', hex: '#1D4ED8' },
+  { name: 'Toxic Lime', hex: '#A3E635' },
+  { name: 'Titanium Silver', hex: '#94A3B8' },
+];
+
+export const PAINT_FINISH_OPTIONS: { id: PaintFinish; label: string }[] = [
+  { id: 'metallic', label: 'Metallic Flake' },
+  { id: 'gloss', label: 'Deep Gloss' },
+  { id: 'pearl', label: 'Pearl Shift' },
+  { id: 'matte', label: 'Stealth Matte' },
+  { id: 'chrome', label: 'Mirror Chrome' },
 ];
 
 export const LIVERY_OPTIONS: { id: LiveryStyle; label: string }[] = [
-  { id: 'clean', label: 'Factory Gloss' },
-  { id: 'stripes', label: 'Twin Rally Stripes' },
+  { id: 'clean', label: 'Factory Clean' },
+  { id: 'stripes', label: 'Twin Stripes' },
   { id: 'most_wanted', label: 'Most Wanted GTR' },
-  { id: 'boss_carbon', label: 'Blacklist Carbon Aero' },
+  { id: 'boss_carbon', label: 'Carbon Aero' },
+  { id: 'two_tone', label: 'Two-Tone Split' },
+  { id: 'cyber_hex', label: 'Nightdrive Hex' },
+  { id: 'drift_camo', label: 'Urban Drift Camo' },
+];
+
+export const BODY_KIT_OPTIONS: { id: BodyKitStyle; label: string }[] = [
+  { id: 'stock', label: 'Factory Aero' },
+  { id: 'street', label: 'Street Splitter' },
+  { id: 'widebody', label: 'Widebody Flares' },
+  { id: 'gt_race', label: 'GT3 Track Spec' },
+];
+
+export const SPOILER_OPTIONS: { id: SpoilerStyle; label: string }[] = [
+  { id: 'auto', label: 'Spec Default' },
+  { id: 'none', label: 'Wing Delete' },
+  { id: 'lip', label: 'Carbon Lip' },
+  { id: 'ducktail', label: 'Aero Ducktail' },
+  { id: 'gt_wing', label: 'GT Carbon Wing' },
+  { id: 'chassis_mount', label: 'Chassis Swan-Neck' },
+];
+
+export const HOOD_OPTIONS: { id: HoodStyle; label: string }[] = [
+  { id: 'stock', label: 'Factory Hood' },
+  { id: 'vented', label: 'Heat Extractors' },
+  { id: 'carbon', label: 'Forged Carbon' },
+  { id: 'twin_intake', label: 'Twin-Turbo Scoop' },
+];
+
+export const EXHAUST_OPTIONS: { id: ExhaustStyle; label: string }[] = [
+  { id: 'dual', label: 'Dual Bore' },
+  { id: 'quad', label: 'Quad Racing' },
+  { id: 'titanium', label: 'Burnt Titanium' },
+];
+
+export const RIM_DESIGN_OPTIONS: { id: RimDesign; label: string }[] = [
+  { id: 'y_split', label: 'Split Y-Mesh' },
+  { id: 'five_spoke', label: 'Forged 5-Spoke' },
+  { id: 'deep_dish', label: 'Deep Dish Drift' },
+  { id: 'turbofan', label: 'Aero Turbofan' },
 ];
 
 export const RIM_OPTIONS: { id: RimStyle; label: string; colorHex: string }[] = [
-  { id: 'chrome', label: 'Brushed Chrome', colorHex: '#CBD5E1' },
+  { id: 'chrome', label: 'Chrome Alloy', colorHex: '#CBD5E1' },
   { id: 'black', label: 'Matte Black', colorHex: '#18181B' },
   { id: 'gold', label: 'BBS Gold', colorHex: '#EAB308' },
   { id: 'bronze', label: 'Forged Bronze', colorHex: '#92400E' },
+  { id: 'gunmetal', label: 'Satin Gunmetal', colorHex: '#475569' },
+  { id: 'white', label: 'Rally White', colorHex: '#F8FAFC' },
+];
+
+export const CALIPER_SWATCHES: { name: string; hex: string }[] = [
+  { name: 'Brembo Red', hex: '#EF4444' },
+  { name: 'PCCB Gold', hex: '#F59E0B' },
+  { name: 'Acid Lime', hex: '#84CC16' },
+  { name: 'Nitro Cyan', hex: '#06B6D4' },
+  { name: 'Factory Silver', hex: '#94A3B8' },
+];
+
+export const WINDOW_TINT_OPTIONS: { id: WindowTintStyle; label: string }[] = [
+  { id: 'light', label: 'Light Smoke' },
+  { id: 'dark', label: 'Midnight Dark' },
+  { id: 'limo', label: 'Limo Blackout' },
+  { id: 'amber_mirror', label: 'Iridescent Tint' },
+];
+
+export const HEADLIGHT_TINT_OPTIONS: { id: HeadlightTintStyle; label: string; colorHex: string }[] = [
+  { id: 'xenon', label: '6000K Xenon', colorHex: '#F8FAFC' },
+  { id: 'ice_blue', label: 'Ice Laser Blue', colorHex: '#38BDF8' },
+  { id: 'yellow_gt', label: 'GT Endurance Yellow', colorHex: '#FACC15' },
+  { id: 'crimson', label: 'Demon Crimson', colorHex: '#EF4444' },
+];
+
+export const UNDERGLOW_SWATCHES: { name: string; hex: string }[] = [
+  { name: 'Off', hex: 'none' },
+  { name: 'Nitro Cyan', hex: '#06B6D4' },
+  { name: 'Rockport Amber', hex: '#F59E0B' },
+  { name: 'Crimson Red', hex: '#EF4444' },
+  { name: 'Violet Pulse', hex: '#A855F7' },
+  { name: 'Acid Green', hex: '#84CC16' },
+  { name: 'Pure Ice', hex: '#F8FAFC' },
+];
+
+export const STANCE_OPTIONS: { value: number; label: string }[] = [
+  { value: -1, label: 'Slammed' },
+  { value: 0, label: 'Street' },
+  { value: 1, label: 'Track Clear' },
+];
+
+export const CAMBER_OPTIONS: { value: number; label: string }[] = [
+  { value: 0, label: '0° Grip' },
+  { value: 2, label: '-2° Street' },
+  { value: 4, label: '-4° Drift' },
+  { value: 6, label: '-6° Stance' },
 ];
 
 export const UPGRADE_COST = [0, 6000, 14000, 28000, 52000];
 
 export function getDefaultCarConfig(carId: string, ownerId = 'guest'): GarageCarConfig {
   const spec = CARS.find((c) => c.id === carId) ?? CARS[0];
+  const defaultBodyKit: BodyKitStyle =
+    spec.aeroKit === 'boss_gt' ? 'gt_race' : spec.aeroKit === 'widebody' ? 'widebody' : 'stock';
   return {
     ownerId,
     carId: spec.id,
@@ -3043,8 +3164,89 @@ export function getDefaultCarConfig(carId: string, ownerId = 'guest'): GarageCar
     nitrousLevel: spec.bossOnly ? 2 : 1,
     tiresLevel: spec.bossOnly ? 2 : 1,
     paintHex: spec.defaultPaint,
+    secondaryHex: spec.bossOnly ? '#F59E0B' : '#F8FAFC',
+    paintFinish: spec.bossOnly ? 'pearl' : 'metallic',
     livery: spec.defaultLivery,
+    bodyKit: defaultBodyKit,
+    spoilerStyle: 'auto',
+    hoodStyle: spec.bossOnly ? 'carbon' : 'stock',
+    exhaustStyle: spec.bodyStyle === 'exotic' || spec.bossOnly ? 'quad' : 'dual',
     rimStyle: spec.bossOnly ? 'gold' : 'chrome',
+    rimDesign: spec.bodyStyle === 'exotic' || spec.bodyStyle === 'gtr' ? 'y_split' : 'five_spoke',
+    caliperHex: spec.bossOnly ? '#F59E0B' : '#EF4444',
+    windowTint: 'dark',
+    headlightTint: spec.bossOnly ? 'ice_blue' : 'xenon',
+    underglowHex: 'none',
+    stanceHeight: 0,
+    camberDeg: 0,
+  };
+}
+
+/**
+ * Safely hydrates legacy localStorage / Firestore car configs without losing
+ * any existing upgrade levels, paint, livery, rims, or career progress.
+ */
+export function normalizeCarConfig(
+  raw: Partial<GarageCarConfig> | undefined | null,
+  carId: string,
+  ownerId = 'guest',
+): GarageCarConfig {
+  const def = getDefaultCarConfig(carId, ownerId);
+  if (!raw) return def;
+  const validHex = (val: unknown, fallback: string) =>
+    typeof val === 'string' && /^#[0-9a-fA-F]{6}$/.test(val) ? val : fallback;
+  const clampLvl = (val: unknown, fallback: number) =>
+    typeof val === 'number' && Number.isFinite(val)
+      ? Math.max(1, Math.min(MAX_UPGRADE_LEVEL, Math.round(val)))
+      : fallback;
+
+  return {
+    ...def,
+    ...raw,
+    ownerId: typeof raw.ownerId === 'string' && raw.ownerId ? raw.ownerId : def.ownerId,
+    carId: def.carId,
+    engineLevel: clampLvl(raw.engineLevel, def.engineLevel),
+    turboLevel: clampLvl(raw.turboLevel, def.turboLevel),
+    nitrousLevel: clampLvl(raw.nitrousLevel, def.nitrousLevel),
+    tiresLevel: clampLvl(raw.tiresLevel, def.tiresLevel),
+    paintHex: validHex(raw.paintHex, def.paintHex),
+    secondaryHex: validHex(raw.secondaryHex, def.secondaryHex ?? '#F8FAFC'),
+    paintFinish: PAINT_FINISH_OPTIONS.some((o) => o.id === raw.paintFinish)
+      ? raw.paintFinish
+      : def.paintFinish,
+    livery: LIVERY_OPTIONS.some((o) => o.id === raw.livery) ? raw.livery! : def.livery,
+    bodyKit: BODY_KIT_OPTIONS.some((o) => o.id === raw.bodyKit) ? raw.bodyKit : def.bodyKit,
+    spoilerStyle: SPOILER_OPTIONS.some((o) => o.id === raw.spoilerStyle)
+      ? raw.spoilerStyle
+      : def.spoilerStyle,
+    hoodStyle: HOOD_OPTIONS.some((o) => o.id === raw.hoodStyle) ? raw.hoodStyle : def.hoodStyle,
+    exhaustStyle: EXHAUST_OPTIONS.some((o) => o.id === raw.exhaustStyle)
+      ? raw.exhaustStyle
+      : def.exhaustStyle,
+    rimStyle: RIM_OPTIONS.some((o) => o.id === raw.rimStyle) ? raw.rimStyle! : def.rimStyle,
+    rimDesign: RIM_DESIGN_OPTIONS.some((o) => o.id === raw.rimDesign)
+      ? raw.rimDesign
+      : def.rimDesign,
+    caliperHex: validHex(raw.caliperHex, def.caliperHex ?? '#EF4444'),
+    windowTint: WINDOW_TINT_OPTIONS.some((o) => o.id === raw.windowTint)
+      ? raw.windowTint
+      : def.windowTint,
+    headlightTint: HEADLIGHT_TINT_OPTIONS.some((o) => o.id === raw.headlightTint)
+      ? raw.headlightTint
+      : def.headlightTint,
+    underglowHex:
+      raw.underglowHex === 'none'
+        ? 'none'
+        : validHex(raw.underglowHex, def.underglowHex ?? 'none'),
+    stanceHeight:
+      typeof raw.stanceHeight === 'number' && Number.isFinite(raw.stanceHeight)
+        ? Math.max(-1, Math.min(1, Math.round(raw.stanceHeight)))
+        : def.stanceHeight,
+    camberDeg:
+      typeof raw.camberDeg === 'number' && Number.isFinite(raw.camberDeg)
+        ? Math.max(0, Math.min(6, Math.round(raw.camberDeg)))
+        : def.camberDeg,
+    engineSound: raw.engineSound ?? 'auto',
   };
 }
 

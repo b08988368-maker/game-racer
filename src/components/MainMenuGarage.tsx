@@ -32,41 +32,63 @@ import { EA_TRAX_PLAYLIST } from '../audio/musicEngine';
 import { soundEngine } from '../audio/soundEngine';
 import {
   BLACKLIST_RIVALS,
+  BODY_KIT_OPTIONS,
+  CALIPER_SWATCHES,
+  CAMBER_OPTIONS,
   CARS,
   computeEffectiveStats,
   ENVIRONMENTS,
+  EXHAUST_OPTIONS,
   formatCurrency,
   formatTimeMs,
   getMissionsForTier,
+  HEADLIGHT_TINT_OPTIONS,
+  HOOD_OPTIONS,
   isTierBossUnlocked,
   LIVERY_OPTIONS,
   MAX_UPGRADE_LEVEL,
   NFS_MISSIONS,
+  normalizeCarConfig,
+  PAINT_FINISH_OPTIONS,
   PAINT_SWATCHES,
   resolveMissionRaceMode,
+  RIM_DESIGN_OPTIONS,
   RIM_OPTIONS,
+  SECONDARY_SWATCHES,
+  SPOILER_OPTIONS,
+  STANCE_OPTIONS,
   TOTAL_BLACKLIST_RANKS,
   TRACKS,
+  UNDERGLOW_SWATCHES,
   UPGRADE_COST,
+  WINDOW_TINT_OPTIONS,
 } from '../data/gameData';
 import { ENGINE_SOUND_PROFILES, resolveCarEngineProfile } from '../three/gameplayUpgrades';
 import { getTrackMinimapPoints } from '../three/trackBuilder';
 import {
   BlacklistRival,
+  BodyKitStyle,
   CareerProfile,
   EngineSoundProfile,
   EnvironmentId,
+  ExhaustStyle,
   GarageCameraPreset,
   GarageCarConfig,
   GarageDynoTelemetry,
+  HeadlightTintStyle,
+  HoodStyle,
   LeaderboardEntry,
   LiveryStyle,
   MissionDefinition,
   MissionType,
+  PaintFinish,
   RaceMode,
+  RimDesign,
   RimStyle,
+  SpoilerStyle,
   TrackDifficulty,
   TrackId,
+  WindowTintStyle,
 } from '../types/game';
 
 export type MenuTab = 'missions' | 'race' | 'blacklist' | 'garage' | 'rapsheet';
@@ -101,9 +123,7 @@ interface Props {
   onSelectCar: (carId: string) => void;
   onBuyCar: (carId: string) => void;
   onUpgradePart: (part: 'engineLevel' | 'turboLevel' | 'nitrousLevel' | 'tiresLevel') => void;
-  onCustomizeCar: (
-    patch: Partial<Pick<GarageCarConfig, 'paintHex' | 'livery' | 'rimStyle' | 'engineSound'>>,
-  ) => void;
+  onCustomizeCar: (patch: Partial<GarageCarConfig>) => void;
   onStartRace: (
     mode: RaceMode,
     trackId: TrackId,
@@ -153,6 +173,7 @@ export const MainMenuGarage: React.FC<Props> = ({
   const [selectedEnv, setSelectedEnv] = useState<EnvironmentId>('auto');
   const [patrolsEnabled, setPatrolsEnabled] = useState(true);
   const [garageSection, setGarageSection] = useState<'vehicles' | 'performance' | 'visuals'>('vehicles');
+  const [visualSubTab, setVisualSubTab] = useState<'paint' | 'body' | 'wheels' | 'lights'>('paint');
   const [focusedMissionId, setFocusedMissionId] = useState<string | null>(null);
   const [traxPickerOpen, setTraxPickerOpen] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
@@ -192,8 +213,8 @@ export const MainMenuGarage: React.FC<Props> = ({
   };
 
   const activeSpec = CARS.find((c) => c.id === profile.selectedCarId) ?? CARS[0];
-  const activeConfig = garageConfigs[activeSpec.id];
-  const stats = activeConfig ? computeEffectiveStats(activeSpec, activeConfig) : null;
+  const activeConfig = normalizeCarConfig(garageConfigs[activeSpec.id], activeSpec.id, profile.uid);
+  const stats = computeEffectiveStats(activeSpec, activeConfig);
 
   // 15 Blacklist Rivals: #15 -> #1. blacklistDefeated = 0..15.
   const currentRank = Math.max(1, TOTAL_BLACKLIST_RANKS + 1 - profile.blacklistDefeated);
@@ -1383,7 +1404,7 @@ export const MainMenuGarage: React.FC<Props> = ({
                         [
                           { id: 'vehicles', label: 'Showroom & Pink Slips' },
                           { id: 'performance', label: 'Performance' },
-                          { id: 'visuals', label: 'Paint & Vinyl' },
+                          { id: 'visuals', label: 'Customize Car' },
                         ] as const
                       ).map((sec) => (
                         <button
@@ -1708,76 +1729,496 @@ export const MainMenuGarage: React.FC<Props> = ({
                   })()}
 
                   {garageSection === 'visuals' && (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="space-y-2">
-                        <div className="text-xs font-display uppercase tracking-wider font-bold text-slate-300">
-                          Metallic Paint
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {PAINT_SWATCHES.map((sw) => (
+                    <div className="space-y-3">
+                      {/* 4-Subtab Customization Bar */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-white/10">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {(
+                            [
+                              { id: 'paint', label: 'Paint & Livery' },
+                              { id: 'body', label: 'Body & Aero' },
+                              { id: 'wheels', label: 'Wheels & Stance' },
+                              { id: 'lights', label: 'Lights & Neon' },
+                            ] as const
+                          ).map((sub) => (
                             <button
-                              key={sw.hex}
+                              key={sub.id}
                               type="button"
-                              title={sw.name}
-                              onClick={() => onCustomizeCar({ paintHex: sw.hex })}
-                              className={`w-8 h-8 nfs-chamfer-sm border-2 transition-transform cursor-pointer ${
-                                activeConfig.paintHex.toLowerCase() === sw.hex.toLowerCase()
-                                  ? 'border-amber-400 scale-110'
-                                  : 'border-white/25 hover:scale-105'
-                              }`}
-                              style={{ backgroundColor: sw.hex }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <div className="text-xs font-display uppercase tracking-wider font-bold text-slate-300">
-                          Body Livery
-                        </div>
-                        <div className="grid grid-cols-2 gap-1.5">
-                          {LIVERY_OPTIONS.map((lv) => (
-                            <button
-                              key={lv.id}
-                              type="button"
-                              onClick={() => onCustomizeCar({ livery: lv.id as LiveryStyle })}
-                              className={`w-full text-left px-2.5 py-1.5 text-xs font-display uppercase tracking-wide nfs-chamfer-sm border transition-colors cursor-pointer ${
-                                activeConfig.livery === lv.id
-                                  ? 'bg-amber-400 text-black border-amber-400 font-bold'
+                              onClick={() => {
+                                soundEngine.triggerUiClick();
+                                setVisualSubTab(sub.id);
+                              }}
+                              className={`px-3 py-1 text-[11px] font-display uppercase tracking-wider font-bold nfs-chamfer-sm border transition-colors cursor-pointer ${
+                                visualSubTab === sub.id
+                                  ? 'bg-amber-400 text-black border-amber-400'
                                   : 'bg-[#11151E] text-slate-300 border-white/12 hover:border-white/30'
                               }`}
                             >
-                              {lv.label}
+                              {sub.label}
                             </button>
                           ))}
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            soundEngine.triggerUpgradeClunk();
+                            onCustomizeCar({
+                              paintHex: activeSpec.defaultPaint,
+                              secondaryHex: '#F8FAFC',
+                              paintFinish: 'metallic',
+                              livery: activeSpec.defaultLivery,
+                              bodyKit: activeSpec.aeroKit === 'boss_gt' ? 'gt_race' : activeSpec.aeroKit === 'widebody' ? 'widebody' : 'stock',
+                              spoilerStyle: 'auto',
+                              hoodStyle: 'stock',
+                              exhaustStyle: activeSpec.bodyStyle === 'exotic' ? 'quad' : 'dual',
+                              rimStyle: 'chrome',
+                              rimDesign: activeSpec.bodyStyle === 'exotic' || activeSpec.bodyStyle === 'gtr' ? 'y_split' : 'five_spoke',
+                              caliperHex: '#EF4444',
+                              windowTint: 'dark',
+                              headlightTint: 'xenon',
+                              underglowHex: 'none',
+                              stanceHeight: 0,
+                              camberDeg: 0,
+                            });
+                          }}
+                          className="px-2.5 py-1 text-[10px] font-display uppercase tracking-wider font-bold nfs-chamfer-sm border border-white/15 bg-[#11151E] text-slate-300 hover:text-amber-400 hover:border-amber-400/50 transition-colors cursor-pointer flex items-center gap-1"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          Reset Visuals
+                        </button>
                       </div>
 
-                      <div className="space-y-2">
-                        <div className="text-xs font-display uppercase tracking-wider font-bold text-slate-300">
-                          Forged Wheels
+                      {visualSubTab === 'paint' && (
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                          <div className="md:col-span-5 space-y-2.5">
+                            <div className="space-y-1.5">
+                              <div className="text-[11px] font-display uppercase tracking-wider font-bold text-slate-300">
+                                Primary Color
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {PAINT_SWATCHES.map((sw) => (
+                                  <button
+                                    key={sw.hex}
+                                    type="button"
+                                    title={sw.name}
+                                    onClick={() => {
+                                      soundEngine.triggerUiClick();
+                                      onCustomizeCar({ paintHex: sw.hex });
+                                    }}
+                                    className={`w-7 h-7 nfs-chamfer-sm border-2 transition-transform cursor-pointer ${
+                                      activeConfig.paintHex.toLowerCase() === sw.hex.toLowerCase()
+                                        ? 'border-amber-400 scale-110'
+                                        : 'border-white/25 hover:scale-105'
+                                    }`}
+                                    style={{ backgroundColor: sw.hex }}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <div className="text-[11px] font-display uppercase tracking-wider font-bold text-slate-300">
+                                Secondary / Livery Accent
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {SECONDARY_SWATCHES.map((sw) => (
+                                  <button
+                                    key={sw.hex}
+                                    type="button"
+                                    title={sw.name}
+                                    onClick={() => {
+                                      soundEngine.triggerUiClick();
+                                      onCustomizeCar({ secondaryHex: sw.hex });
+                                    }}
+                                    className={`w-7 h-7 nfs-chamfer-sm border-2 transition-transform cursor-pointer ${
+                                      (activeConfig.secondaryHex ?? '#F8FAFC').toLowerCase() === sw.hex.toLowerCase()
+                                        ? 'border-amber-400 scale-110'
+                                        : 'border-white/25 hover:scale-105'
+                                    }`}
+                                    style={{ backgroundColor: sw.hex }}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="md:col-span-3 space-y-1.5">
+                            <div className="text-[11px] font-display uppercase tracking-wider font-bold text-slate-300">
+                              Coat Finish
+                            </div>
+                            <div className="grid grid-cols-1 gap-1.5">
+                              {PAINT_FINISH_OPTIONS.map((fin) => (
+                                <button
+                                  key={fin.id}
+                                  type="button"
+                                  onClick={() => {
+                                    soundEngine.triggerUiClick();
+                                    onCustomizeCar({ paintFinish: fin.id as PaintFinish });
+                                  }}
+                                  className={`w-full text-left px-2.5 py-1.5 text-xs font-display uppercase tracking-wide nfs-chamfer-sm border transition-colors cursor-pointer ${
+                                    (activeConfig.paintFinish ?? 'metallic') === fin.id
+                                      ? 'bg-amber-400 text-black border-amber-400 font-bold'
+                                      : 'bg-[#11151E] text-slate-300 border-white/12 hover:border-white/30'
+                                  }`}
+                                >
+                                  {fin.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="md:col-span-4 space-y-1.5">
+                            <div className="text-[11px] font-display uppercase tracking-wider font-bold text-slate-300">
+                              Body Livery
+                            </div>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {LIVERY_OPTIONS.map((lv) => (
+                                <button
+                                  key={lv.id}
+                                  type="button"
+                                  onClick={() => {
+                                    soundEngine.triggerUiClick();
+                                    onCustomizeCar({ livery: lv.id as LiveryStyle });
+                                  }}
+                                  className={`w-full text-left px-2.5 py-1.5 text-xs font-display uppercase tracking-wide nfs-chamfer-sm border transition-colors cursor-pointer truncate ${
+                                    activeConfig.livery === lv.id
+                                      ? 'bg-amber-400 text-black border-amber-400 font-bold'
+                                      : 'bg-[#11151E] text-slate-300 border-white/12 hover:border-white/30'
+                                  }`}
+                                >
+                                  {lv.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-1.5">
-                          {RIM_OPTIONS.map((rm) => (
-                            <button
-                              key={rm.id}
-                              type="button"
-                              onClick={() => onCustomizeCar({ rimStyle: rm.id as RimStyle })}
-                              className={`px-3 py-2 text-xs font-display uppercase tracking-wide nfs-chamfer-sm border flex items-center gap-2 transition-colors cursor-pointer ${
-                                activeConfig.rimStyle === rm.id
-                                  ? 'bg-amber-400 text-black border-amber-400 font-bold'
-                                  : 'bg-[#11151E] text-slate-300 border-white/12 hover:border-white/30'
-                              }`}
-                            >
-                              <span
-                                className="w-3 h-3 border border-black/40 shrink-0"
-                                style={{ backgroundColor: rm.colorHex }}
-                              />
-                              <span className="truncate">{rm.label}</span>
-                            </button>
-                          ))}
+                      )}
+
+                      {visualSubTab === 'body' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                          <div className="space-y-1.5">
+                            <div className="text-[11px] font-display uppercase tracking-wider font-bold text-slate-300">
+                              Body Kit
+                            </div>
+                            <div className="space-y-1.5">
+                              {BODY_KIT_OPTIONS.map((bk) => (
+                                <button
+                                  key={bk.id}
+                                  type="button"
+                                  onClick={() => {
+                                    soundEngine.triggerUpgradeClunk();
+                                    onCustomizeCar({ bodyKit: bk.id as BodyKitStyle });
+                                  }}
+                                  className={`w-full text-left px-2.5 py-1.5 text-xs font-display uppercase tracking-wide nfs-chamfer-sm border transition-colors cursor-pointer ${
+                                    (activeConfig.bodyKit ?? 'stock') === bk.id
+                                      ? 'bg-amber-400 text-black border-amber-400 font-bold'
+                                      : 'bg-[#11151E] text-slate-300 border-white/12 hover:border-white/30'
+                                  }`}
+                                >
+                                  {bk.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <div className="text-[11px] font-display uppercase tracking-wider font-bold text-slate-300">
+                              Rear Spoiler / Wing
+                            </div>
+                            <div className="grid grid-cols-1 gap-1.5">
+                              {SPOILER_OPTIONS.map((sp) => (
+                                <button
+                                  key={sp.id}
+                                  type="button"
+                                  onClick={() => {
+                                    soundEngine.triggerUpgradeClunk();
+                                    onCustomizeCar({ spoilerStyle: sp.id as SpoilerStyle });
+                                  }}
+                                  className={`w-full text-left px-2.5 py-1.5 text-xs font-display uppercase tracking-wide nfs-chamfer-sm border transition-colors cursor-pointer ${
+                                    (activeConfig.spoilerStyle ?? 'auto') === sp.id
+                                      ? 'bg-amber-400 text-black border-amber-400 font-bold'
+                                      : 'bg-[#11151E] text-slate-300 border-white/12 hover:border-white/30'
+                                  }`}
+                                >
+                                  {sp.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <div className="text-[11px] font-display uppercase tracking-wider font-bold text-slate-300">
+                              Hood Style
+                            </div>
+                            <div className="space-y-1.5">
+                              {HOOD_OPTIONS.map((hd) => (
+                                <button
+                                  key={hd.id}
+                                  type="button"
+                                  onClick={() => {
+                                    soundEngine.triggerUpgradeClunk();
+                                    onCustomizeCar({ hoodStyle: hd.id as HoodStyle });
+                                  }}
+                                  className={`w-full text-left px-2.5 py-1.5 text-xs font-display uppercase tracking-wide nfs-chamfer-sm border transition-colors cursor-pointer ${
+                                    (activeConfig.hoodStyle ?? 'stock') === hd.id
+                                      ? 'bg-amber-400 text-black border-amber-400 font-bold'
+                                      : 'bg-[#11151E] text-slate-300 border-white/12 hover:border-white/30'
+                                  }`}
+                                >
+                                  {hd.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <div className="text-[11px] font-display uppercase tracking-wider font-bold text-slate-300">
+                              Exhaust System
+                            </div>
+                            <div className="space-y-1.5">
+                              {EXHAUST_OPTIONS.map((ex) => (
+                                <button
+                                  key={ex.id}
+                                  type="button"
+                                  onClick={() => {
+                                    soundEngine.triggerUpgradeClunk();
+                                    onCustomizeCar({ exhaustStyle: ex.id as ExhaustStyle });
+                                  }}
+                                  className={`w-full text-left px-2.5 py-1.5 text-xs font-display uppercase tracking-wide nfs-chamfer-sm border transition-colors cursor-pointer ${
+                                    (activeConfig.exhaustStyle ?? 'dual') === ex.id
+                                      ? 'bg-amber-400 text-black border-amber-400 font-bold'
+                                      : 'bg-[#11151E] text-slate-300 border-white/12 hover:border-white/30'
+                                  }`}
+                                >
+                                  {ex.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         </div>
-                      </div>
+                      )}
+
+                      {visualSubTab === 'wheels' && (
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                          <div className="md:col-span-4 space-y-1.5">
+                            <div className="text-[11px] font-display uppercase tracking-wider font-bold text-slate-300">
+                              Wheel Spoke Design
+                            </div>
+                            <div className="space-y-1.5">
+                              {RIM_DESIGN_OPTIONS.map((rd) => (
+                                <button
+                                  key={rd.id}
+                                  type="button"
+                                  onClick={() => {
+                                    soundEngine.triggerUpgradeClunk();
+                                    onCustomizeCar({ rimDesign: rd.id as RimDesign });
+                                  }}
+                                  className={`w-full text-left px-2.5 py-1.5 text-xs font-display uppercase tracking-wide nfs-chamfer-sm border transition-colors cursor-pointer ${
+                                    (activeConfig.rimDesign ?? 'five_spoke') === rd.id
+                                      ? 'bg-amber-400 text-black border-amber-400 font-bold'
+                                      : 'bg-[#11151E] text-slate-300 border-white/12 hover:border-white/30'
+                                  }`}
+                                >
+                                  {rd.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="md:col-span-4 space-y-1.5">
+                            <div className="text-[11px] font-display uppercase tracking-wider font-bold text-slate-300">
+                              Forged Wheel Finish
+                            </div>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {RIM_OPTIONS.map((rm) => (
+                                <button
+                                  key={rm.id}
+                                  type="button"
+                                  onClick={() => {
+                                    soundEngine.triggerUiClick();
+                                    onCustomizeCar({ rimStyle: rm.id as RimStyle });
+                                  }}
+                                  className={`px-2.5 py-1.5 text-xs font-display uppercase tracking-wide nfs-chamfer-sm border flex items-center gap-2 transition-colors cursor-pointer ${
+                                    activeConfig.rimStyle === rm.id
+                                      ? 'bg-amber-400 text-black border-amber-400 font-bold'
+                                      : 'bg-[#11151E] text-slate-300 border-white/12 hover:border-white/30'
+                                  }`}
+                                >
+                                  <span
+                                    className="w-3 h-3 border border-black/40 shrink-0"
+                                    style={{ backgroundColor: rm.colorHex }}
+                                  />
+                                  <span className="truncate">{rm.label}</span>
+                                </button>
+                              ))}
+                            </div>
+
+                            <div className="pt-1 space-y-1.5">
+                              <div className="text-[11px] font-display uppercase tracking-wider font-bold text-slate-300">
+                                Brake Caliper Color
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {CALIPER_SWATCHES.map((cp) => (
+                                  <button
+                                    key={cp.hex}
+                                    type="button"
+                                    title={cp.name}
+                                    onClick={() => {
+                                      soundEngine.triggerUiClick();
+                                      onCustomizeCar({ caliperHex: cp.hex });
+                                    }}
+                                    className={`w-7 h-7 nfs-chamfer-sm border-2 transition-transform cursor-pointer ${
+                                      (activeConfig.caliperHex ?? '#EF4444').toLowerCase() === cp.hex.toLowerCase()
+                                        ? 'border-amber-400 scale-110'
+                                        : 'border-white/25 hover:scale-105'
+                                    }`}
+                                    style={{ backgroundColor: cp.hex }}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="md:col-span-4 space-y-3">
+                            <div className="space-y-1.5">
+                              <div className="text-[11px] font-display uppercase tracking-wider font-bold text-slate-300">
+                                Ride Height Stance
+                              </div>
+                              <div className="grid grid-cols-3 gap-1.5">
+                                {STANCE_OPTIONS.map((st) => (
+                                  <button
+                                    key={st.value}
+                                    type="button"
+                                    onClick={() => {
+                                      soundEngine.triggerUpgradeClunk();
+                                      onCustomizeCar({ stanceHeight: st.value });
+                                    }}
+                                    className={`px-2 py-1.5 text-[11px] font-display uppercase tracking-wide nfs-chamfer-sm border transition-colors cursor-pointer ${
+                                      (activeConfig.stanceHeight ?? 0) === st.value
+                                        ? 'bg-amber-400 text-black border-amber-400 font-bold'
+                                        : 'bg-[#11151E] text-slate-300 border-white/12 hover:border-white/30'
+                                    }`}
+                                  >
+                                    {st.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <div className="text-[11px] font-display uppercase tracking-wider font-bold text-slate-300">
+                                Negative Wheel Camber
+                              </div>
+                              <div className="grid grid-cols-2 gap-1.5">
+                                {CAMBER_OPTIONS.map((cb) => (
+                                  <button
+                                    key={cb.value}
+                                    type="button"
+                                    onClick={() => {
+                                      soundEngine.triggerUpgradeClunk();
+                                      onCustomizeCar({ camberDeg: cb.value });
+                                    }}
+                                    className={`px-2.5 py-1.5 text-xs font-mono-tabular font-bold nfs-chamfer-sm border transition-colors cursor-pointer ${
+                                      (activeConfig.camberDeg ?? 0) === cb.value
+                                        ? 'bg-amber-400 text-black border-amber-400'
+                                        : 'bg-[#11151E] text-slate-300 border-white/12 hover:border-white/30'
+                                    }`}
+                                  >
+                                    {cb.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {visualSubTab === 'lights' && (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="space-y-1.5">
+                            <div className="text-[11px] font-display uppercase tracking-wider font-bold text-slate-300">
+                              Window Tint
+                            </div>
+                            <div className="space-y-1.5">
+                              {WINDOW_TINT_OPTIONS.map((wt) => (
+                                <button
+                                  key={wt.id}
+                                  type="button"
+                                  onClick={() => {
+                                    soundEngine.triggerUiClick();
+                                    onCustomizeCar({ windowTint: wt.id as WindowTintStyle });
+                                  }}
+                                  className={`w-full text-left px-2.5 py-1.5 text-xs font-display uppercase tracking-wide nfs-chamfer-sm border transition-colors cursor-pointer ${
+                                    (activeConfig.windowTint ?? 'dark') === wt.id
+                                      ? 'bg-amber-400 text-black border-amber-400 font-bold'
+                                      : 'bg-[#11151E] text-slate-300 border-white/12 hover:border-white/30'
+                                  }`}
+                                >
+                                  {wt.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <div className="text-[11px] font-display uppercase tracking-wider font-bold text-slate-300">
+                              Headlight Bulbs
+                            </div>
+                            <div className="space-y-1.5">
+                              {HEADLIGHT_TINT_OPTIONS.map((hl) => (
+                                <button
+                                  key={hl.id}
+                                  type="button"
+                                  onClick={() => {
+                                    soundEngine.triggerUiClick();
+                                    onCustomizeCar({ headlightTint: hl.id as HeadlightTintStyle });
+                                  }}
+                                  className={`w-full px-2.5 py-1.5 text-xs font-display uppercase tracking-wide nfs-chamfer-sm border flex items-center gap-2 transition-colors cursor-pointer ${
+                                    (activeConfig.headlightTint ?? 'xenon') === hl.id
+                                      ? 'bg-amber-400 text-black border-amber-400 font-bold'
+                                      : 'bg-[#11151E] text-slate-300 border-white/12 hover:border-white/30'
+                                  }`}
+                                >
+                                  <span
+                                    className="w-3 h-3 border border-black/40 shrink-0"
+                                    style={{ backgroundColor: hl.colorHex }}
+                                  />
+                                  <span className="truncate">{hl.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <div className="text-[11px] font-display uppercase tracking-wider font-bold text-slate-300">
+                              Neon Underglow
+                            </div>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {UNDERGLOW_SWATCHES.map((ug) => (
+                                <button
+                                  key={ug.hex}
+                                  type="button"
+                                  onClick={() => {
+                                    soundEngine.triggerUiClick();
+                                    onCustomizeCar({ underglowHex: ug.hex });
+                                  }}
+                                  className={`px-2.5 py-1.5 text-xs font-display uppercase tracking-wide nfs-chamfer-sm border flex items-center gap-2 transition-colors cursor-pointer ${
+                                    (activeConfig.underglowHex ?? 'none').toLowerCase() === ug.hex.toLowerCase()
+                                      ? 'bg-amber-400 text-black border-amber-400 font-bold'
+                                      : 'bg-[#11151E] text-slate-300 border-white/12 hover:border-white/30'
+                                  }`}
+                                >
+                                  <span
+                                    className="w-3 h-3 border border-white/30 shrink-0"
+                                    style={{ backgroundColor: ug.hex === 'none' ? '#0D0E12' : ug.hex }}
+                                  />
+                                  <span className="truncate">{ug.name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

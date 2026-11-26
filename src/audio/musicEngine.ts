@@ -20,10 +20,9 @@ export const EA_TRAX_PLAYLIST: EaTraxEntry[] = [
     id: 'pk_nightdrive',
     title: 'Nightdrive Phonk Mix',
     artist: 'LXST CXNTURY Style',
-    genre: 'Drift Phonk',
-    kind: 'stream',
-    url: 'https://archive.org/download/Sz22_22/NIGHTDRIVE%20PHONK%20MIX%20%28LXST%20CXNTURY%20TYPE%29.mp3',
-    bpm: 142,
+    genre: 'Nightdrive Phonk',
+    kind: 'synth',
+    bpm: 144,
     bassPattern: [36, 0, 36, 48, 36, 0, 39, 41, 36, 0, 36, 48, 43, 41, 39, 34],
     leadPattern: [72, 0, 75, 72, 79, 0, 77, 75, 72, 0, 82, 79, 77, 75, 72, 70],
   },
@@ -31,10 +30,9 @@ export const EA_TRAX_PLAYLIST: EaTraxEntry[] = [
     id: 'pk_waveloom_1',
     title: 'Waveloom Drift I',
     artist: 'Waveloom',
-    genre: 'Memphis Drift Phonk',
-    kind: 'stream',
-    url: 'https://archive.org/download/jamendo-625614/01-2302002-Waveloom-Phonk%20Music%20Free.mp3',
-    bpm: 146,
+    genre: 'Nightdrive Drift Phonk',
+    kind: 'synth',
+    bpm: 148,
     bassPattern: [36, 36, 48, 36, 39, 36, 43, 41, 36, 36, 48, 36, 46, 43, 41, 39],
     leadPattern: [72, 0, 75, 79, 75, 0, 77, 75, 72, 0, 82, 79, 77, 75, 74, 70],
   },
@@ -42,10 +40,9 @@ export const EA_TRAX_PLAYLIST: EaTraxEntry[] = [
     id: 'pk_waveloom_2',
     title: 'Waveloom Drift II',
     artist: 'Waveloom',
-    genre: 'Aggressive Cowbell Phonk',
-    kind: 'stream',
-    url: 'https://archive.org/download/jamendo-625614/02-2301999-Waveloom-Phonk%20Free.mp3',
-    bpm: 150,
+    genre: 'Nightdrive Cowbell Phonk',
+    kind: 'synth',
+    bpm: 152,
     bassPattern: [34, 0, 34, 46, 34, 0, 39, 41, 34, 0, 34, 46, 44, 41, 39, 37],
     leadPattern: [70, 74, 77, 70, 79, 0, 77, 74, 70, 74, 82, 79, 77, 74, 72, 69],
   },
@@ -53,10 +50,9 @@ export const EA_TRAX_PLAYLIST: EaTraxEntry[] = [
     id: 'pk_waveloom_3',
     title: 'Waveloom Drift III',
     artist: 'Waveloom',
-    genre: 'Sub-Tunnel Phonk',
-    kind: 'stream',
-    url: 'https://archive.org/download/jamendo-625614/03-2302000-Waveloom-Phonk%20Free%20Music.mp3',
-    bpm: 154,
+    genre: 'Sub-Tunnel Nightdrive Phonk',
+    kind: 'synth',
+    bpm: 156,
     bassPattern: [36, 0, 36, 39, 41, 0, 43, 46, 36, 0, 36, 39, 43, 41, 39, 34],
     leadPattern: [72, 0, 79, 75, 72, 0, 82, 79, 75, 0, 84, 82, 79, 77, 75, 72],
   },
@@ -64,10 +60,9 @@ export const EA_TRAX_PLAYLIST: EaTraxEntry[] = [
     id: 'pk_soundore',
     title: 'Midnight Cowbell Overdrive',
     artist: 'Soundore',
-    genre: 'Dark Phonk',
-    kind: 'stream',
-    url: 'https://archive.org/download/jamendo-612712/02-2274145-Soundore-Phonk.mp3',
-    bpm: 148,
+    genre: 'Dark Nightdrive Phonk',
+    kind: 'synth',
+    bpm: 150,
     bassPattern: [36, 0, 36, 39, 36, 0, 41, 43, 36, 0, 36, 46, 43, 41, 39, 0],
     leadPattern: [72, 75, 72, 79, 72, 75, 77, 75, 72, 82, 79, 75, 77, 75, 72, 70],
   },
@@ -120,6 +115,26 @@ export const EA_TRAX_PLAYLIST: EaTraxEntry[] = [
     bpm: 156,
     bassPattern: [33, 33, 45, 33, 36, 36, 48, 36, 38, 38, 50, 38, 40, 43, 45, 40],
     leadPattern: [69, 72, 69, 76, 81, 0, 79, 76, 69, 72, 84, 81, 79, 76, 74, 72],
+  },
+  {
+    id: 'sy_subway_nightdrive',
+    title: 'Subway Tunnel Nightdrive',
+    artist: 'LXST Sector',
+    genre: 'Dark Nightdrive Wave',
+    kind: 'synth',
+    bpm: 142,
+    bassPattern: [34, 0, 46, 34, 37, 0, 49, 37, 39, 0, 51, 39, 41, 39, 37, 34],
+    leadPattern: [70, 0, 73, 77, 82, 0, 80, 77, 73, 0, 82, 80, 77, 75, 73, 70],
+  },
+  {
+    id: 'sy_apex_midnight',
+    title: 'Apex Midnight Nightdrive',
+    artist: 'Rockport Underground',
+    genre: 'Adrenaline Nightdrive Phonk',
+    kind: 'synth',
+    bpm: 155,
+    bassPattern: [36, 36, 0, 48, 39, 39, 0, 51, 41, 41, 53, 41, 43, 46, 48, 43],
+    leadPattern: [72, 75, 79, 72, 84, 82, 79, 75, 72, 75, 87, 84, 82, 79, 77, 75],
   },
 ];
 
@@ -612,40 +627,78 @@ class MusicEngine {
         this.cleanupSynthNodes(src, [src, hp, hg], 190);
       }
 
-      // 4. Nightdrive Reese + Saturated 808 Bass Glide
+      // 4. Stereo Detuned Nightdrive Reese + Saturated 808 Sub Glide
       const baseRoot = bassSeq[s];
       if (baseRoot > 0) {
         const transpose = bar === 3 && s >= 8 ? 3 : bar === 2 && s >= 12 ? -2 : 0;
         const freq = 440 * Math.pow(2, (baseRoot + transpose - 69) / 12);
         const osc = ctx.createOscillator();
+        const oscDetune = ctx.createOscillator();
         const sub = ctx.createOscillator();
         const lp = ctx.createBiquadFilter();
         const g = ctx.createGain();
         osc.type = 'sawtooth';
+        oscDetune.type = 'sawtooth';
         sub.type = 'sine';
         osc.frequency.setValueAtTime(freq * 0.996, t);
         osc.frequency.linearRampToValueAtTime(freq, t + 0.03);
+        oscDetune.frequency.setValueAtTime(freq * 1.008, t);
+        oscDetune.frequency.linearRampToValueAtTime(freq * 1.006, t + 0.03);
         sub.frequency.setValueAtTime(freq * 0.5, t);
         lp.type = 'lowpass';
-        const cutoff = isMenuGroove ? 760 : this.pursuitActive ? 1280 + this.heatLevel * 130 : 1040;
-        lp.frequency.setValueAtTime(cutoff * 1.55, t);
-        lp.frequency.exponentialRampToValueAtTime(cutoff * 0.42, t + stepDur * 1.45);
-        lp.Q.value = 2.4;
+        const cutoff = isMenuGroove ? 820 : this.pursuitActive ? 1420 + this.heatLevel * 140 : 1140;
+        lp.frequency.setValueAtTime(cutoff * 1.65, t);
+        lp.frequency.exponentialRampToValueAtTime(cutoff * 0.44, t + stepDur * 1.5);
+        lp.Q.value = 2.6;
         g.gain.setValueAtTime(0.002, t);
-        g.gain.linearRampToValueAtTime(isMenuGroove ? 0.15 : 0.22, t + 0.008);
-        g.gain.exponentialRampToValueAtTime(0.001, t + stepDur * 1.5);
+        g.gain.linearRampToValueAtTime(isMenuGroove ? 0.16 : 0.24, t + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.001, t + stepDur * 1.55);
         osc.connect(lp);
+        oscDetune.connect(lp);
         lp.connect(g);
         g.connect(drive);
         sub.connect(g);
         osc.start(t);
+        oscDetune.start(t);
         sub.start(t);
-        osc.stop(t + stepDur * 1.55);
-        sub.stop(t + stepDur * 1.55);
-        this.cleanupSynthNodes(osc, [osc, sub, lp, g], Math.ceil(stepDur * 1550) + 120);
+        osc.stop(t + stepDur * 1.6);
+        oscDetune.stop(t + stepDur * 1.6);
+        sub.stop(t + stepDur * 1.6);
+        this.cleanupSynthNodes(osc, [osc, oscDetune, sub, lp, g], Math.ceil(stepDur * 1600) + 120);
       }
 
-      // 5. Authentic Metallic TR-808 Drift Phonk Cowbell Lead (1:1.483 inharmonic square pair)
+      // 5. Atmospheric Nightdrive Minor Wave Arp Pulse (dark midnight highway momentum)
+      if (s % 2 === 0) {
+        const arpOffset = [0, 7, 12, 15][(s / 2) % 4];
+        const arpMidi = (bassSeq[0] > 0 ? bassSeq[0] : 36) + 24 + arpOffset + (bar === 3 ? 3 : 0);
+        const arpFreq = 440 * Math.pow(2, (arpMidi - 69) / 12);
+        const a1 = ctx.createOscillator();
+        const a2 = ctx.createOscillator();
+        const aFilter = ctx.createBiquadFilter();
+        const ag = ctx.createGain();
+        a1.type = 'sawtooth';
+        a2.type = 'triangle';
+        a1.frequency.setValueAtTime(arpFreq, t);
+        a2.frequency.setValueAtTime(arpFreq * 1.005, t);
+        aFilter.type = 'lowpass';
+        aFilter.frequency.setValueAtTime(isMenuGroove ? 1200 : 1850 + (this.pursuitActive ? this.heatLevel * 140 : 0), t);
+        aFilter.frequency.exponentialRampToValueAtTime(480, t + stepDur * 1.8);
+        aFilter.Q.value = 1.8;
+        ag.gain.setValueAtTime(0.001, t);
+        ag.gain.linearRampToValueAtTime(isMenuGroove ? 0.048 : 0.068, t + 0.014);
+        ag.gain.exponentialRampToValueAtTime(0.001, t + stepDur * 1.85);
+        a1.connect(aFilter);
+        a2.connect(aFilter);
+        aFilter.connect(ag);
+        ag.connect(bus);
+        a1.start(t);
+        a2.start(t);
+        a1.stop(t + stepDur * 1.9);
+        a2.stop(t + stepDur * 1.9);
+        this.cleanupSynthNodes(a1, [a1, a2, aFilter, ag], Math.ceil(stepDur * 1900) + 120);
+      }
+
+      // 6. Authentic Metallic TR-808 Drift Phonk Cowbell Lead (1:1.483 inharmonic square pair)
       const leadMidi = leadSeq[s];
       if (leadMidi > 0 && (!isMenuGroove || s % 2 === 0)) {
         const transpose = bar === 3 && s >= 8 ? 3 : 0;
@@ -661,11 +714,11 @@ class MusicEngine {
         o2.frequency.setValueAtTime(f2, t);
         bp.type = 'bandpass';
         bp.frequency.setValueAtTime(
-          isMenuGroove ? 1320 : 1850 + (this.pursuitActive ? this.heatLevel * 180 : 0),
+          isMenuGroove ? 1360 : 1900 + (this.pursuitActive ? this.heatLevel * 185 : 0),
           t,
         );
-        bp.Q.value = 2.1;
-        const amp = isMenuGroove ? 0.055 : this.pursuitActive ? 0.098 : 0.084;
+        bp.Q.value = 2.2;
+        const amp = isMenuGroove ? 0.058 : this.pursuitActive ? 0.105 : 0.088;
         lg.gain.setValueAtTime(0.001, t);
         lg.gain.linearRampToValueAtTime(amp, t + 0.005);
         lg.gain.exponentialRampToValueAtTime(0.001, t + stepDur * 1.35);

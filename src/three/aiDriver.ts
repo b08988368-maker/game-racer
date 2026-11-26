@@ -709,6 +709,18 @@ export function stepAiRacerPhysics(
           pushThreat(other.pos.x, other.pos.z, Math.max(1, fwdD), 2.9, 110);
         }
       }
+      const trackObstacles = track.obstacles ?? [];
+      for (let i = 0; i < trackObstacles.length; i++) {
+        const obs = trackObstacles[i];
+        if (obs.breakerId !== undefined && track.pursuitBreakers[obs.breakerId]?.triggered) continue;
+        if (ai.pos.y < obs.y - 1.5 || ai.pos.y > obs.y + obs.height + 1.5) continue;
+        const dx = obs.x - ai.pos.x;
+        const dz = obs.z - ai.pos.z;
+        const fwdD = dx * aiFwdX + dz * aiFwdZ;
+        if (fwdD > 0.5 && fwdD < horizonDist && Math.abs(dx * aiRightX + dz * aiRightZ) < track.barrierHalfWidth + 6.0) {
+          pushThreat(obs.x, obs.z, fwdD, obs.radius + 1.75, 240);
+        }
+      }
 
       if (threatCount > 0) {
         let bestLane = idealLane;

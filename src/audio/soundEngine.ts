@@ -28,116 +28,116 @@ interface EngineAcousticProfile {
 
 const ENGINE_ACOUSTICS: Record<ConcreteEngineSoundProfile, EngineAcousticProfile> = {
   i4_turbo: {
-    mainHarmonics: [1.0, 0.72, 0.44, 0.26, 0.14, 0.07, 0.03],
-    harmHarmonics: [0.42, 0.88, 0.5, 0.24, 0.11],
-    pitchScale: 0.94,
-    detuneRatio: 1.008,
+    mainHarmonics: [1.0, 0.82, 0.56, 0.36, 0.22, 0.12, 0.06],
+    harmHarmonics: [0.48, 0.94, 0.62, 0.32, 0.16],
+    pitchScale: 0.92,
+    detuneRatio: 1.011,
     harmRatio: 1.5,
     idleChopRate: 15.5,
-    chopIdleDepth: 0.02,
-    chopLoadDepth: 0.01,
-    raspMult: 0.95,
-    hasTurbo: true,
-    isElectric: false,
-    gearWhineBase: 0.005,
-    barkBaseHz: 560,
-    barkRangeHz: 540,
-  },
-  v6_twin_turbo: {
-    mainHarmonics: [1.0, 0.74, 0.62, 0.42, 0.25, 0.14, 0.06],
-    harmHarmonics: [0.52, 0.9, 0.72, 0.4, 0.19],
-    pitchScale: 1.05,
-    detuneRatio: 1.009,
-    harmRatio: 1.5,
-    idleChopRate: 16,
-    chopIdleDepth: 0.018,
-    chopLoadDepth: 0.01,
-    raspMult: 1.0,
-    hasTurbo: true,
-    isElectric: false,
-    gearWhineBase: 0.014,
-    barkBaseHz: 600,
-    barkRangeHz: 620,
-  },
-  v8_muscle: {
-    mainHarmonics: [1.0, 0.92, 0.68, 0.44, 0.26, 0.13, 0.05],
-    harmHarmonics: [0.82, 0.9, 0.64, 0.36, 0.16],
-    pitchScale: 0.66,
-    detuneRatio: 1.016,
-    harmRatio: 1.333,
-    idleChopRate: 10.8,
-    chopIdleDepth: 0.048,
+    chopIdleDepth: 0.028,
     chopLoadDepth: 0.014,
-    raspMult: 1.1,
-    hasTurbo: false,
+    raspMult: 1.28,
+    hasTurbo: true,
     isElectric: false,
     gearWhineBase: 0.008,
-    barkBaseHz: 450,
-    barkRangeHz: 340,
+    barkBaseHz: 540,
+    barkRangeHz: 620,
   },
-  v10_screamer: {
-    mainHarmonics: [0.86, 0.98, 0.78, 0.54, 0.34, 0.19, 0.09],
-    harmHarmonics: [0.38, 0.88, 0.86, 0.5, 0.25],
-    pitchScale: 1.28,
-    detuneRatio: 1.005,
-    harmRatio: 2.0,
-    idleChopRate: 20,
-    chopIdleDepth: 0.012,
-    chopLoadDepth: 0.008,
-    raspMult: 1.05,
-    hasTurbo: false,
-    isElectric: false,
-    gearWhineBase: 0.015,
-    barkBaseHz: 680,
-    barkRangeHz: 720,
-  },
-  v12_hyper: {
-    mainHarmonics: [0.82, 1.0, 0.88, 0.66, 0.44, 0.26, 0.13],
-    harmHarmonics: [0.32, 0.92, 0.9, 0.58, 0.32],
-    pitchScale: 1.42,
-    detuneRatio: 1.004,
-    harmRatio: 2.0,
-    idleChopRate: 22,
-    chopIdleDepth: 0.01,
-    chopLoadDepth: 0.006,
-    raspMult: 0.92,
-    hasTurbo: false,
-    isElectric: false,
-    gearWhineBase: 0.017,
-    barkBaseHz: 740,
-    barkRangeHz: 760,
-  },
-  rotary_brap: {
-    mainHarmonics: [0.94, 0.86, 0.72, 0.58, 0.4, 0.24, 0.11],
-    harmHarmonics: [0.7, 0.94, 0.82, 0.54, 0.28],
-    pitchScale: 1.48,
-    detuneRatio: 1.019,
-    harmRatio: 2.0,
-    idleChopRate: 8.6,
-    chopIdleDepth: 0.068,
-    chopLoadDepth: 0.016,
-    raspMult: 1.18,
-    hasTurbo: true,
-    isElectric: false,
-    gearWhineBase: 0.012,
-    barkBaseHz: 660,
-    barkRangeHz: 680,
-  },
-  flat6_gt: {
-    mainHarmonics: [0.96, 0.78, 0.64, 0.46, 0.29, 0.16, 0.07],
-    harmHarmonics: [0.58, 0.86, 0.74, 0.45, 0.22],
-    pitchScale: 1.14,
+  v6_twin_turbo: {
+    mainHarmonics: [1.0, 0.84, 0.72, 0.52, 0.34, 0.20, 0.09],
+    harmHarmonics: [0.58, 0.96, 0.80, 0.48, 0.25],
+    pitchScale: 1.02,
     detuneRatio: 1.012,
     harmRatio: 1.5,
-    idleChopRate: 13.5,
-    chopIdleDepth: 0.026,
-    chopLoadDepth: 0.011,
-    raspMult: 1.08,
+    idleChopRate: 16,
+    chopIdleDepth: 0.025,
+    chopLoadDepth: 0.014,
+    raspMult: 1.34,
+    hasTurbo: true,
+    isElectric: false,
+    gearWhineBase: 0.018,
+    barkBaseHz: 590,
+    barkRangeHz: 680,
+  },
+  v8_muscle: {
+    mainHarmonics: [1.0, 0.98, 0.78, 0.56, 0.36, 0.20, 0.09],
+    harmHarmonics: [0.88, 0.96, 0.74, 0.44, 0.22],
+    pitchScale: 0.64,
+    detuneRatio: 1.02,
+    harmRatio: 1.333,
+    idleChopRate: 10.6,
+    chopIdleDepth: 0.058,
+    chopLoadDepth: 0.02,
+    raspMult: 1.42,
     hasTurbo: false,
     isElectric: false,
-    gearWhineBase: 0.016,
-    barkBaseHz: 620,
-    barkRangeHz: 640,
+    gearWhineBase: 0.011,
+    barkBaseHz: 430,
+    barkRangeHz: 420,
+  },
+  v10_screamer: {
+    mainHarmonics: [0.90, 1.0, 0.88, 0.64, 0.44, 0.26, 0.13],
+    harmHarmonics: [0.46, 0.94, 0.92, 0.58, 0.32],
+    pitchScale: 1.26,
+    detuneRatio: 1.007,
+    harmRatio: 2.0,
+    idleChopRate: 20,
+    chopIdleDepth: 0.016,
+    chopLoadDepth: 0.011,
+    raspMult: 1.36,
+    hasTurbo: false,
+    isElectric: false,
+    gearWhineBase: 0.019,
+    barkBaseHz: 690,
+    barkRangeHz: 780,
+  },
+  v12_hyper: {
+    mainHarmonics: [0.88, 1.0, 0.94, 0.74, 0.52, 0.32, 0.16],
+    harmHarmonics: [0.40, 0.98, 0.94, 0.66, 0.38],
+    pitchScale: 1.4,
+    detuneRatio: 1.006,
+    harmRatio: 2.0,
+    idleChopRate: 22,
+    chopIdleDepth: 0.014,
+    chopLoadDepth: 0.009,
+    raspMult: 1.24,
+    hasTurbo: false,
+    isElectric: false,
+    gearWhineBase: 0.021,
+    barkBaseHz: 740,
+    barkRangeHz: 820,
+  },
+  rotary_brap: {
+    mainHarmonics: [0.98, 0.92, 0.80, 0.66, 0.48, 0.30, 0.15],
+    harmHarmonics: [0.76, 0.98, 0.88, 0.62, 0.34],
+    pitchScale: 1.46,
+    detuneRatio: 1.022,
+    harmRatio: 2.0,
+    idleChopRate: 8.6,
+    chopIdleDepth: 0.075,
+    chopLoadDepth: 0.022,
+    raspMult: 1.48,
+    hasTurbo: true,
+    isElectric: false,
+    gearWhineBase: 0.015,
+    barkBaseHz: 650,
+    barkRangeHz: 740,
+  },
+  flat6_gt: {
+    mainHarmonics: [0.98, 0.86, 0.72, 0.54, 0.36, 0.22, 0.10],
+    harmHarmonics: [0.64, 0.92, 0.80, 0.52, 0.28],
+    pitchScale: 1.12,
+    detuneRatio: 1.015,
+    harmRatio: 1.5,
+    idleChopRate: 13.5,
+    chopIdleDepth: 0.032,
+    chopLoadDepth: 0.015,
+    raspMult: 1.38,
+    hasTurbo: false,
+    isElectric: false,
+    gearWhineBase: 0.02,
+    barkBaseHz: 610,
+    barkRangeHz: 700,
   },
   electric_whine: {
     mainHarmonics: [0.95, 0.18, 0.06, 0.02],
@@ -390,7 +390,7 @@ class SoundEngine {
     hallFb.connect(hallDelayL);
     hallLp.connect(this.masterMixBus);
 
-    this.warmCurve = makeWarmSaturationCurve(2.05);
+    this.warmCurve = makeWarmSaturationCurve(3.4);
 
     const profileEntries = Object.keys(ENGINE_ACOUSTICS) as ConcreteEngineSoundProfile[];
     for (const key of profileEntries) {
@@ -408,19 +408,19 @@ class SoundEngine {
     this.engineCabinet = this.ctx.createBiquadFilter();
     this.engineCabinet.type = 'peaking';
     this.engineCabinet.frequency.value = 145;
-    this.engineCabinet.Q.value = 1.1;
-    this.engineCabinet.gain.value = 3.4;
+    this.engineCabinet.Q.value = 1.15;
+    this.engineCabinet.gain.value = 4.6;
 
     this.engineBarkFilter = this.ctx.createBiquadFilter();
     this.engineBarkFilter.type = 'peaking';
     this.engineBarkFilter.frequency.value = 600;
-    this.engineBarkFilter.Q.value = 1.25;
-    this.engineBarkFilter.gain.value = 1.5;
+    this.engineBarkFilter.Q.value = 1.45;
+    this.engineBarkFilter.gain.value = 2.6;
 
     this.engineLowpass = this.ctx.createBiquadFilter();
     this.engineLowpass.type = 'lowpass';
-    this.engineLowpass.frequency.value = 340;
-    this.engineLowpass.Q.value = 0.9;
+    this.engineLowpass.frequency.value = 390;
+    this.engineLowpass.Q.value = 1.05;
 
     this.engineChopVca = this.ctx.createGain();
     this.engineChopVca.gain.value = 1.0;
@@ -435,11 +435,11 @@ class SoundEngine {
     this.engineOscSub.type = 'sine';
 
     this.engineBankBGain = this.ctx.createGain();
-    this.engineBankBGain.gain.value = 0.52;
+    this.engineBankBGain.gain.value = 0.64;
     this.engineHarmGain = this.ctx.createGain();
-    this.engineHarmGain.gain.value = 0.34;
+    this.engineHarmGain.gain.value = 0.46;
     this.engineSubGain = this.ctx.createGain();
-    this.engineSubGain.gain.value = 0.48;
+    this.engineSubGain.gain.value = 0.66;
 
     // Cam-lobe chop modulates engineChopVca (nominal 1.0) so engineGain can cleanly reach 0
     this.chopLfo = this.ctx.createOscillator();
@@ -876,25 +876,31 @@ class SoundEngine {
     const pitchFactor = timeSlow * acoustic.pitchScale;
     const speedKmh = clampAudioValue(params.speedKmh ?? safeRpm * 200, 0, 0, 480);
 
-    // Upshift ignition-cut thump + compressor-surge turbo flutter + overrun pops (muted for EV)
+    // Upshift ignition-cut gunshot bark + compressor-surge turbo flutter + multi-pop overrun (muted for EV)
     if (!acoustic.isElectric) {
       if (params.gear > this.lastGear && params.gear > 1) {
         if (acoustic.hasTurbo && this.blowoffCooldown <= 0) {
-          this.triggerTurboBlowoff(0.85);
-          this.blowoffCooldown = 0.28;
+          this.triggerTurboBlowoff(1.0);
+          this.blowoffCooldown = 0.24;
         }
-        this.triggerExhaustPop(this.carStyle === 'v8_muscle' || this.carStyle === 'rotary_brap' ? 0.21 : 0.16);
-      } else if (params.gear < this.lastGear && params.gear >= 1 && speedKmh > 55 && this.popCooldown <= 0) {
-        this.triggerExhaustPop(0.16);
-        this.scheduleTimeout(() => this.triggerExhaustPop(0.11), 85);
-        this.popCooldown = 0.32;
-      } else if (this.prevThrottle && !params.throttle && safeRpm > 0.52 && this.popCooldown <= 0) {
-        if (acoustic.hasTurbo && safeRpm > 0.66 && this.blowoffCooldown <= 0) {
-          this.triggerTurboBlowoff(0.68);
-          this.blowoffCooldown = 0.36;
+        const upshiftPop = this.carStyle === 'v8_muscle' || this.carStyle === 'rotary_brap' ? 0.32 : 0.26;
+        this.triggerExhaustPop(upshiftPop);
+        this.scheduleTimeout(() => this.triggerExhaustPop(upshiftPop * 0.65), 62);
+      } else if (params.gear < this.lastGear && params.gear >= 1 && speedKmh > 48 && this.popCooldown <= 0) {
+        this.triggerExhaustPop(0.28);
+        this.scheduleTimeout(() => this.triggerExhaustPop(0.21), 72);
+        this.scheduleTimeout(() => this.triggerExhaustPop(0.15), 148);
+        this.popCooldown = 0.28;
+      } else if (this.prevThrottle && !params.throttle && safeRpm > 0.46 && this.popCooldown <= 0) {
+        if (acoustic.hasTurbo && safeRpm > 0.6 && this.blowoffCooldown <= 0) {
+          this.triggerTurboBlowoff(0.88);
+          this.blowoffCooldown = 0.3;
         }
-        this.triggerExhaustPop(this.carStyle === 'v8_muscle' || this.carStyle === 'rotary_brap' ? 0.19 : 0.14);
-        this.popCooldown = 0.42;
+        const overrunPop = this.carStyle === 'v8_muscle' || this.carStyle === 'rotary_brap' ? 0.28 : 0.23;
+        this.triggerExhaustPop(overrunPop);
+        this.scheduleTimeout(() => this.triggerExhaustPop(overrunPop * 0.72), 84);
+        this.scheduleTimeout(() => this.triggerExhaustPop(overrunPop * 0.48), 165);
+        this.popCooldown = 0.35;
       }
     }
     if (params.nosActive && !this.prevNos) {
@@ -905,32 +911,32 @@ class SoundEngine {
     this.prevNos = params.nosActive;
 
     const redlineActive = !acoustic.isElectric && params.throttle && safeRpm > 0.962;
-    const redlineCut = redlineActive && Math.sin(now * 78) > 0.42 ? 0.58 : 1.0;
+    const redlineCut = redlineActive && Math.sin(now * 86) > 0.38 ? 0.52 : 1.0;
 
     const baseFreq = acoustic.isElectric
-      ? (110 + speedKmh * 1.45 + safeRpm * 135) * timeSlow
-      : (40 + safeRpm * 142) * pitchFactor;
+      ? (115 + speedKmh * 1.5 + safeRpm * 145) * timeSlow
+      : (40 + safeRpm * 146) * pitchFactor;
 
-    this.setParamTarget(this.engineOscMain?.frequency, baseFreq, now, 0.028, 20, 1400);
-    this.setParamTarget(this.engineOscBankB?.frequency, baseFreq * acoustic.detuneRatio, now, 0.028, 20, 1400);
-    this.setParamTarget(this.engineOscHarm?.frequency, baseFreq * acoustic.harmRatio, now, 0.028, 20, 2200);
-    this.setParamTarget(this.engineOscSub?.frequency, baseFreq * 0.5, now, 0.028, 15, 700);
+    this.setParamTarget(this.engineOscMain?.frequency, baseFreq, now, 0.024, 20, 1450);
+    this.setParamTarget(this.engineOscBankB?.frequency, baseFreq * acoustic.detuneRatio, now, 0.024, 20, 1450);
+    this.setParamTarget(this.engineOscHarm?.frequency, baseFreq * acoustic.harmRatio, now, 0.024, 20, 2250);
+    this.setParamTarget(this.engineOscSub?.frequency, baseFreq * 0.5, now, 0.024, 15, 720);
 
     // Strictly positive firing-rate exhaust rasp (0 for pure EV turbine)
     const raspBase = acoustic.isElectric
       ? 0
-      : (params.throttle ? 0.18 + safeRpm * 0.2 : 0.11 + safeRpm * 0.07) * acoustic.raspMult;
-    this.setParamTarget(this.raspModOsc?.frequency, Math.max(24, baseFreq), now, 0.03, 20, 450);
+      : (params.throttle ? 0.24 + safeRpm * 0.25 : 0.14 + safeRpm * 0.09) * acoustic.raspMult;
+    this.setParamTarget(this.raspModOsc?.frequency, Math.max(24, baseFreq), now, 0.028, 20, 460);
     this.setParamTarget(
       this.raspFilter?.frequency,
-      280 + safeRpm * 920 + (params.throttle ? 200 : 0),
+      300 + safeRpm * 1050 + (params.throttle ? 260 : 0),
       now,
-      0.04,
+      0.038,
       120,
-      2400,
+      2500,
     );
-    this.setParamTarget(this.raspVca?.gain, raspBase, now, 0.04, 0, 0.48);
-    this.setParamTarget(this.raspModDepth?.gain, raspBase * 0.38, now, 0.04, 0, 0.18);
+    this.setParamTarget(this.raspVca?.gain, raspBase, now, 0.036, 0, 0.62);
+    this.setParamTarget(this.raspModDepth?.gain, raspBase * 0.44, now, 0.036, 0, 0.24);
 
     this.setParamTarget(this.chopLfo?.frequency, Math.max(acoustic.idleChopRate, baseFreq * 0.26), now, 0.05, 7, 85);
     this.setParamTarget(
@@ -939,48 +945,48 @@ class SoundEngine {
       now,
       0.05,
       0,
-      0.08,
+      0.09,
     );
 
     this.setParamTarget(
       this.engineBarkFilter?.frequency,
       acoustic.barkBaseHz + safeRpm * acoustic.barkRangeHz,
       now,
-      0.045,
+      0.04,
       200,
-      2400,
+      2500,
     );
     this.setParamTarget(
       this.engineBarkFilter?.gain,
-      acoustic.isElectric ? 0.3 : params.throttle ? 2.6 : 0.9,
+      acoustic.isElectric ? 0.5 : params.throttle ? 5.2 : 1.7,
       now,
-      0.045,
+      0.04,
       0,
-      4,
+      6.0,
     );
 
     const filterCutoff =
       (acoustic.isElectric
-        ? 620 + speedKmh * 5.2 + (params.throttle ? 380 : 0)
-        : 220 + safeRpm * 1080 + (params.throttle ? 460 : 40) + (params.nosActive ? 260 : 0)) *
+        ? 680 + speedKmh * 5.6 + (params.throttle ? 420 : 0)
+        : 260 + safeRpm * 1260 + (params.throttle ? 560 : 60) + (params.nosActive ? 340 : 0)) *
       (safeTimeScale < 0.7 ? 0.55 : 1.0);
-    this.setParamTarget(this.engineLowpass?.frequency, filterCutoff, now, 0.04, 140, 2800);
+    this.setParamTarget(this.engineLowpass?.frequency, filterCutoff, now, 0.036, 150, 3100);
 
     const targetEngineGain = acoustic.isElectric
-      ? 0.05 + (params.throttle ? 0.11 : 0.02) + Math.min(0.11, speedKmh / 2400)
-      : (0.16 + (params.throttle ? 0.15 : 0.035) + safeRpm * 0.085) * redlineCut;
-    this.setParamTarget(this.engineGain?.gain, targetEngineGain, now, 0.03, 0, 0.48);
-    this.setParamTarget(this.tunnelSendGain?.gain, params.inTunnel ? (acoustic.isElectric ? 0.22 : 0.45) : 0, now, 0.07, 0, 0.6);
+      ? 0.06 + (params.throttle ? 0.13 : 0.025) + Math.min(0.12, speedKmh / 2200)
+      : (0.19 + (params.throttle ? 0.21 : 0.045) + safeRpm * 0.11 + (params.nosActive ? 0.04 : 0)) * redlineCut;
+    this.setParamTarget(this.engineGain?.gain, targetEngineGain, now, 0.028, 0, 0.56);
+    this.setParamTarget(this.tunnelSendGain?.gain, params.inTunnel ? (acoustic.isElectric ? 0.26 : 0.55) : 0, now, 0.06, 0, 0.65);
 
     // Cold-airbox intake suction growl (muted for EV)
-    this.setParamTarget(this.intakeFilter?.frequency, 360 + safeRpm * 980, now, 0.045, 200, 2000);
+    this.setParamTarget(this.intakeFilter?.frequency, 380 + safeRpm * 1080, now, 0.04, 200, 2150);
     this.setParamTarget(
       this.intakeGain?.gain,
-      acoustic.isElectric ? 0 : params.throttle ? (0.024 + safeRpm * 0.045) * redlineCut : 0.006,
+      acoustic.isElectric ? 0 : params.throttle ? (0.034 + safeRpm * 0.062) * redlineCut : 0.008,
       now,
-      0.04,
+      0.035,
       0,
-      0.12,
+      0.15,
     );
 
     // Straight-cut dog-box / EV inverter transmission whine (capped <= 2100 Hz)
@@ -995,32 +1001,32 @@ class SoundEngine {
         now,
         0.04,
         0,
-        0.055,
+        0.06,
       );
-    } else if (!acoustic.isElectric && acoustic.gearWhineBase > 0.004 && speedKmh > 65) {
-      const whineFreq = clampAudioValue((320 + speedKmh * 2.8 + safeRpm * 150) * timeSlow, 600, 250, 1950);
+    } else if (!acoustic.isElectric && acoustic.gearWhineBase > 0.004 && speedKmh > 60) {
+      const whineFreq = clampAudioValue((330 + speedKmh * 2.9 + safeRpm * 160) * timeSlow, 620, 250, 1980);
       this.setParamTarget(this.gearWhineOsc?.frequency, whineFreq, now, 0.045, 200, 2000);
       this.setParamTarget(this.gearWhineFilter?.frequency, Math.min(2100, whineFreq * 1.12), now, 0.045, 250, 2100);
-      const loadMult = params.throttle ? 1.0 : 0.42;
+      const loadMult = params.throttle ? 1.0 : 0.45;
       this.setParamTarget(
         this.gearWhineGain?.gain,
-        acoustic.gearWhineBase * loadMult * Math.min(1, (speedKmh - 65) / 130),
+        acoustic.gearWhineBase * loadMult * Math.min(1, (speedKmh - 60) / 120),
         now,
         0.05,
         0,
-        0.04,
+        0.048,
       );
     } else {
-      this.setParamTarget(this.gearWhineGain?.gain, 0, now, 0.06, 0, 0.055);
+      this.setParamTarget(this.gearWhineGain?.gain, 0, now, 0.06, 0, 0.06);
     }
 
     // Twin-scroll turbocharger compressor whistle (turbo cars only)
-    if (acoustic.hasTurbo && params.throttle && safeRpm > 0.34) {
-      const spoolFreq = (1450 + safeRpm * 950) * timeSlow;
-      this.setParamTarget(this.turboSpoolFilter?.frequency, spoolFreq, now, 0.05, 800, 2400);
-      this.setParamTarget(this.turboSpoolGain?.gain, 0.025 * (safeRpm - 0.32), now, 0.05, 0, 0.045);
+    if (acoustic.hasTurbo && params.throttle && safeRpm > 0.30) {
+      const spoolFreq = (1500 + safeRpm * 1020) * timeSlow;
+      this.setParamTarget(this.turboSpoolFilter?.frequency, spoolFreq, now, 0.045, 800, 2500);
+      this.setParamTarget(this.turboSpoolGain?.gain, 0.036 * (safeRpm - 0.28), now, 0.045, 0, 0.058);
     } else {
-      this.setParamTarget(this.turboSpoolGain?.gain, 0, now, 0.08, 0, 0.045);
+      this.setParamTarget(this.turboSpoolGain?.gain, 0, now, 0.08, 0, 0.058);
     }
 
     // Aerodynamic wind rush
@@ -1031,8 +1037,8 @@ class SoundEngine {
     this.setParamTarget(this.windGain?.gain, Math.min(0.2, baseWind + extraWind), now, 0.06, 0, 0.25);
 
     // NOS Afterburner Jet
-    this.setParamTarget(this.nosNoiseFilter?.frequency, params.nosActive ? 760 + safeRpm * 240 : 680, now, 0.05, 300, 1600);
-    this.setParamTarget(this.nosNoiseGain?.gain, params.nosActive ? 0.19 : 0, now, 0.04, 0, 0.25);
+    this.setParamTarget(this.nosNoiseFilter?.frequency, params.nosActive ? 820 + safeRpm * 280 : 680, now, 0.04, 300, 1750);
+    this.setParamTarget(this.nosNoiseGain?.gain, params.nosActive ? 0.24 : 0, now, 0.035, 0, 0.28);
 
     // 3-Layer Tire Scrub + Squeal (warm, non-fatiguing Q)
     const wheelspin = params.airborne ? 0 : clampAudioValue(params.wheelspin ?? 0, 0, 0, 1.5);
@@ -1088,35 +1094,39 @@ class SoundEngine {
     if (!this.ctx || !this.masterMixBus || this.muted || this.activeVoices >= MAX_CONCURRENT_SFX_VOICES) return;
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(165, now);
-    osc.frequency.exponentialRampToValueAtTime(42, now + 0.24);
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(195, now);
+    osc.frequency.exponentialRampToValueAtTime(38, now + 0.28);
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 420;
     const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0.26, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.27);
-    osc.connect(g);
+    g.gain.setValueAtTime(0.34, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    osc.connect(lp);
+    lp.connect(g);
     g.connect(this.masterMixBus);
     osc.start(now);
-    osc.stop(now + 0.28);
-    this.trackAndCleanupVoice(osc, [osc, g], 280);
+    osc.stop(now + 0.31);
+    this.trackAndCleanupVoice(osc, [osc, lp, g], 310);
 
     if (this.noiseBuffer) {
       const purgeSrc = this.ctx.createBufferSource();
       purgeSrc.buffer = this.noiseBuffer;
       const hp = this.ctx.createBiquadFilter();
       hp.type = 'bandpass';
-      hp.frequency.setValueAtTime(2400, now);
-      hp.frequency.exponentialRampToValueAtTime(1250, now + 0.14);
-      hp.Q.value = 1.4;
+      hp.frequency.setValueAtTime(2600, now);
+      hp.frequency.exponentialRampToValueAtTime(1150, now + 0.16);
+      hp.Q.value = 1.6;
       const pg = this.ctx.createGain();
-      pg.gain.setValueAtTime(0.1, now);
-      pg.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+      pg.gain.setValueAtTime(0.16, now);
+      pg.gain.exponentialRampToValueAtTime(0.001, now + 0.17);
       purgeSrc.connect(hp);
       hp.connect(pg);
       pg.connect(this.masterMixBus);
       purgeSrc.start(now);
-      purgeSrc.stop(now + 0.16);
-      this.trackAndCleanupVoice(purgeSrc, [purgeSrc, hp, pg], 160);
+      purgeSrc.stop(now + 0.18);
+      this.trackAndCleanupVoice(purgeSrc, [purgeSrc, hp, pg], 180);
     }
   }
 
@@ -1125,22 +1135,22 @@ class SoundEngine {
     const ctx = this.ctx!;
     const bus = this.masterMixBus!;
     const now = ctx.currentTime;
-    const safeScale = clampAudioValue(scale, 1.0, 0.2, 1.1);
+    const safeScale = clampAudioValue(scale, 1.0, 0.2, 1.25);
     const pulseCount =
-      this.carStyle === 'v6_twin_turbo' || this.carStyle === 'i4_turbo' || this.carStyle === 'rotary_brap' ? 3 : 2;
+      this.carStyle === 'v6_twin_turbo' || this.carStyle === 'i4_turbo' || this.carStyle === 'rotary_brap' ? 4 : 2;
     for (let i = 0; i < pulseCount; i++) {
-      const start = now + i * 0.05;
+      const start = now + i * 0.044;
       const src = ctx.createBufferSource();
       src.buffer = this.noiseBuffer;
 
       const filter = ctx.createBiquadFilter();
       filter.type = 'bandpass';
-      filter.frequency.setValueAtTime(2150 - i * 310, start);
-      filter.frequency.exponentialRampToValueAtTime(860, start + 0.048);
-      filter.Q.value = 2.6;
+      filter.frequency.setValueAtTime(2450 - i * 330, start);
+      filter.frequency.exponentialRampToValueAtTime(840, start + 0.046);
+      filter.Q.value = 3.1;
 
       const gain = ctx.createGain();
-      gain.gain.setValueAtTime((0.08 * safeScale) / (i + 1), start);
+      gain.gain.setValueAtTime((0.115 * safeScale) / (i * 0.72 + 1), start);
       gain.gain.exponentialRampToValueAtTime(0.001, start + 0.05);
 
       src.connect(filter);
@@ -1148,48 +1158,56 @@ class SoundEngine {
       gain.connect(bus);
       src.start(start);
       src.stop(start + 0.056);
-      this.trackAndCleanupVoice(src, [src, filter, gain], (i + 1) * 60 + 50);
+      this.trackAndCleanupVoice(src, [src, filter, gain], (i + 1) * 55 + 50);
     }
   }
 
-  private triggerExhaustPop(level = 0.2) {
+  private triggerExhaustPop(level = 0.25) {
     if (!this.noiseBuffer || !this.canPlaySfx('exhaustPop')) return;
     const ctx = this.ctx!;
     const bus = this.masterMixBus!;
     const now = ctx.currentTime;
-    const safeLevel = clampAudioValue(level, 0.2, 0.05, 0.35);
+    const safeLevel = clampAudioValue(level, 0.25, 0.06, 0.44);
 
+    // Punchy gunshot low-mid snap
     const osc = ctx.createOscillator();
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(155, now);
-    osc.frequency.exponentialRampToValueAtTime(42, now + 0.095);
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(190, now);
+    osc.frequency.exponentialRampToValueAtTime(38, now + 0.11);
+
+    const oscLp = ctx.createBiquadFilter();
+    oscLp.type = 'lowpass';
+    oscLp.frequency.setValueAtTime(850, now);
+    oscLp.frequency.exponentialRampToValueAtTime(140, now + 0.11);
 
     const oscGain = ctx.createGain();
-    oscGain.gain.setValueAtTime(safeLevel * 0.88, now);
-    oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
+    oscGain.gain.setValueAtTime(safeLevel * 0.92, now);
+    oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
 
-    osc.connect(oscGain);
+    osc.connect(oscLp);
+    oscLp.connect(oscGain);
     oscGain.connect(bus);
     osc.start(now);
-    osc.stop(now + 0.12);
-    this.trackAndCleanupVoice(osc, [osc, oscGain], 120);
+    osc.stop(now + 0.13);
+    this.trackAndCleanupVoice(osc, [osc, oscLp, oscGain], 130);
 
+    // Metallic exhaust crack transient
     const src = ctx.createBufferSource();
     src.buffer = this.noiseBuffer;
     const filt = ctx.createBiquadFilter();
     filt.type = 'bandpass';
-    filt.frequency.value = 600;
-    filt.Q.value = 1.2;
+    filt.frequency.value = 920;
+    filt.Q.value = 1.45;
     const ng = ctx.createGain();
-    ng.gain.setValueAtTime(safeLevel * 0.56, now);
-    ng.gain.exponentialRampToValueAtTime(0.001, now + 0.085);
+    ng.gain.setValueAtTime(safeLevel * 0.74, now);
+    ng.gain.exponentialRampToValueAtTime(0.001, now + 0.095);
     src.connect(filt);
     filt.connect(ng);
     ng.connect(bus);
     if (this.garageHallSend) ng.connect(this.garageHallSend);
     src.start(now);
-    src.stop(now + 0.095);
-    this.trackAndCleanupVoice(src, [src, filt, ng], 100);
+    src.stop(now + 0.105);
+    this.trackAndCleanupVoice(src, [src, filt, ng], 110);
   }
 
   public triggerLandingThump() {
@@ -1373,58 +1391,58 @@ class SoundEngine {
     osc2.setPeriodicWave(w.harm);
 
     const bankMix = ctx.createGain();
-    bankMix.gain.value = acoustic.isElectric ? 0.34 : 0.52;
+    bankMix.gain.value = acoustic.isElectric ? 0.38 : 0.64;
     const harmMix = ctx.createGain();
-    harmMix.gain.value = acoustic.isElectric ? 0.55 : 0.36;
+    harmMix.gain.value = acoustic.isElectric ? 0.58 : 0.48;
     const subMix = ctx.createGain();
-    subMix.gain.value = acoustic.isElectric ? 0.14 : 0.46;
+    subMix.gain.value = acoustic.isElectric ? 0.16 : 0.64;
 
     const startF = (acoustic.isElectric ? 140 : 46) * scale;
-    const blipF = (acoustic.isElectric ? 460 : 160) * scale;
-    const peakF = (acoustic.isElectric ? 690 : 205) * scale;
+    const blipF = (acoustic.isElectric ? 460 : 168) * scale;
+    const peakF = (acoustic.isElectric ? 710 : 216) * scale;
     const detune = acoustic.detuneRatio;
     const harmRatio = acoustic.harmRatio;
 
     osc.frequency.setValueAtTime(startF, now);
-    osc.frequency.exponentialRampToValueAtTime(blipF, now + 0.16);
-    osc.frequency.exponentialRampToValueAtTime(startF * 1.45, now + 0.34);
-    osc.frequency.exponentialRampToValueAtTime(peakF, now + 0.56);
+    osc.frequency.exponentialRampToValueAtTime(blipF, now + 0.15);
+    osc.frequency.exponentialRampToValueAtTime(startF * 1.5, now + 0.33);
+    osc.frequency.exponentialRampToValueAtTime(peakF, now + 0.54);
     osc.frequency.exponentialRampToValueAtTime(startF * 1.1, now + 1.25);
 
     oscB.frequency.setValueAtTime(startF * detune, now);
-    oscB.frequency.exponentialRampToValueAtTime(blipF * detune, now + 0.16);
-    oscB.frequency.exponentialRampToValueAtTime(startF * 1.45 * detune, now + 0.34);
-    oscB.frequency.exponentialRampToValueAtTime(peakF * detune, now + 0.56);
+    oscB.frequency.exponentialRampToValueAtTime(blipF * detune, now + 0.15);
+    oscB.frequency.exponentialRampToValueAtTime(startF * 1.5 * detune, now + 0.33);
+    oscB.frequency.exponentialRampToValueAtTime(peakF * detune, now + 0.54);
     oscB.frequency.exponentialRampToValueAtTime(startF * 1.1 * detune, now + 1.25);
 
     osc2.frequency.setValueAtTime(startF * harmRatio, now);
-    osc2.frequency.exponentialRampToValueAtTime(blipF * harmRatio, now + 0.16);
-    osc2.frequency.exponentialRampToValueAtTime(startF * 1.45 * harmRatio, now + 0.34);
-    osc2.frequency.exponentialRampToValueAtTime(peakF * harmRatio, now + 0.56);
+    osc2.frequency.exponentialRampToValueAtTime(blipF * harmRatio, now + 0.15);
+    osc2.frequency.exponentialRampToValueAtTime(startF * 1.5 * harmRatio, now + 0.33);
+    osc2.frequency.exponentialRampToValueAtTime(peakF * harmRatio, now + 0.54);
     osc2.frequency.exponentialRampToValueAtTime(startF * 1.1 * harmRatio, now + 1.25);
 
     oscSub.frequency.setValueAtTime(startF * 0.5, now);
-    oscSub.frequency.exponentialRampToValueAtTime(blipF * 0.5, now + 0.16);
-    oscSub.frequency.exponentialRampToValueAtTime(startF * 0.72, now + 0.34);
-    oscSub.frequency.exponentialRampToValueAtTime(peakF * 0.5, now + 0.56);
+    oscSub.frequency.exponentialRampToValueAtTime(blipF * 0.5, now + 0.15);
+    oscSub.frequency.exponentialRampToValueAtTime(startF * 0.75, now + 0.33);
+    oscSub.frequency.exponentialRampToValueAtTime(peakF * 0.5, now + 0.54);
     oscSub.frequency.exponentialRampToValueAtTime(startF * 0.55, now + 1.25);
 
     const shaper = ctx.createWaveShaper();
-    shaper.curve = this.warmCurve ?? makeWarmSaturationCurve(2.05);
+    shaper.curve = this.warmCurve ?? makeWarmSaturationCurve(3.4);
     shaper.oversample = 'none';
 
     const filt = ctx.createBiquadFilter();
     filt.type = 'lowpass';
-    filt.frequency.setValueAtTime(acoustic.isElectric ? 900 : 280, now);
-    filt.frequency.exponentialRampToValueAtTime(acoustic.isElectric ? 2400 : 1550, now + 0.16);
-    filt.frequency.exponentialRampToValueAtTime(acoustic.isElectric ? 1100 : 500, now + 0.34);
-    filt.frequency.exponentialRampToValueAtTime(acoustic.isElectric ? 2800 : 1950, now + 0.56);
-    filt.frequency.exponentialRampToValueAtTime(acoustic.isElectric ? 760 : 240, now + 1.25);
+    filt.frequency.setValueAtTime(acoustic.isElectric ? 900 : 340, now);
+    filt.frequency.exponentialRampToValueAtTime(acoustic.isElectric ? 2450 : 1850, now + 0.15);
+    filt.frequency.exponentialRampToValueAtTime(acoustic.isElectric ? 1150 : 560, now + 0.33);
+    filt.frequency.exponentialRampToValueAtTime(acoustic.isElectric ? 2900 : 2250, now + 0.54);
+    filt.frequency.exponentialRampToValueAtTime(acoustic.isElectric ? 760 : 280, now + 1.25);
 
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.01, now);
-    gain.gain.linearRampToValueAtTime(acoustic.isElectric ? 0.18 : 0.24, now + 0.12);
-    gain.gain.linearRampToValueAtTime(acoustic.isElectric ? 0.22 : 0.27, now + 0.55);
+    gain.gain.linearRampToValueAtTime(acoustic.isElectric ? 0.2 : 0.3, now + 0.11);
+    gain.gain.linearRampToValueAtTime(acoustic.isElectric ? 0.24 : 0.34, now + 0.53);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 1.28);
 
     osc.connect(shaper);
@@ -1456,10 +1474,11 @@ class SoundEngine {
 
     if (!acoustic.isElectric) {
       this.scheduleTimeout(() => {
-        if (acoustic.hasTurbo) this.triggerTurboBlowoff(0.8);
-        this.triggerExhaustPop(this.carStyle === 'v8_muscle' || this.carStyle === 'rotary_brap' ? 0.22 : 0.17);
-      }, 590);
-      this.scheduleTimeout(() => this.triggerExhaustPop(0.12), 720);
+        if (acoustic.hasTurbo) this.triggerTurboBlowoff(1.0);
+        this.triggerExhaustPop(this.carStyle === 'v8_muscle' || this.carStyle === 'rotary_brap' ? 0.32 : 0.26);
+      }, 575);
+      this.scheduleTimeout(() => this.triggerExhaustPop(0.22), 690);
+      this.scheduleTimeout(() => this.triggerExhaustPop(0.16), 815);
     }
   }
 

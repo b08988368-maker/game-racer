@@ -37,6 +37,7 @@ import {
   isTierBossUnlocked,
   MAX_UPGRADE_LEVEL,
   NFS_MISSIONS,
+  normalizeCarConfig,
   TOTAL_BLACKLIST_RANKS,
   TRACKS,
 } from '../data/gameData';
@@ -48,6 +49,7 @@ import {
   stepAiRacerPhysics,
 } from './aiDriver';
 import {
+  buildTrack,
   BuiltTrack,
   computeTrackSampledCorridors,
   getControlPoints,
@@ -1573,6 +1575,167 @@ test('Barrier cutout containment handles circular wraparound and all 10 tracks k
       assert.ok(
         isSampleInsideBarrierCutout(sc.exitCutEndIdx, sc.exitCutStartIdx, sc.exitCutEndIdx, total),
       );
+    }
+  }
+});
+
+test('Full car customization config preserves legacy progress, builds custom aero/stance meshes, and applies Nightdrive-only synth playlist', () => {
+  // Legacy config missing all new customization fields must keep all upgrade levels & legacy paint/livery/rims intact
+  const legacyHydrated = normalizeCarConfig(
+    {
+      ownerId: 'legacy_driver',
+      carId: 'skyline_r34',
+      engineLevel: 4,
+      turboLevel: 5,
+      nitrousLevel: 3,
+      tiresLevel: 4,
+      paintHex: '#1D4ED8',
+      livery: 'most_wanted',
+      rimStyle: 'gold',
+    },
+    'skyline_r34',
+    'legacy_driver',
+  );
+  assert.equal(legacyHydrated.engineLevel, 4);
+  assert.equal(legacyHydrated.turboLevel, 5);
+  assert.equal(legacyHydrated.nitrousLevel, 3);
+  assert.equal(legacyHydrated.tiresLevel, 4);
+  assert.equal(legacyHydrated.paintHex, '#1D4ED8');
+  assert.equal(legacyHydrated.livery, 'most_wanted');
+  assert.equal(legacyHydrated.rimStyle, 'gold');
+  assert.equal(legacyHydrated.bodyKit, 'widebody');
+  assert.equal(legacyHydrated.spoilerStyle, 'auto');
+  assert.equal(legacyHydrated.stanceHeight, 0);
+  assert.equal(legacyHydrated.camberDeg, 0);
+
+  // Full custom build with extreme options should build cleanly and clamp camber/stance
+  const customCfg = normalizeCarConfig(
+    {
+      paintHex: '#7C3AED',
+      secondaryHex: '#06B6D4',
+      paintFinish: 'chrome',
+      livery: 'cyber_hex',
+      bodyKit: 'gt_race',
+      spoilerStyle: 'chassis_mount',
+      hoodStyle: 'twin_intake',
+      exhaustStyle: 'titanium',
+      rimStyle: 'gunmetal',
+      rimDesign: 'deep_dish',
+      caliperHex: '#F59E0B',
+      windowTint: 'limo',
+      headlightTint: 'crimson',
+      underglowHex: '#06B6D4',
+      stanceHeight: -1,
+      camberDeg: 6,
+    },
+    'rx7_fd3s',
+    'tester',
+  );
+  const rx7Spec = CARS.find((c) => c.id === 'rx7_fd3s')!;
+  const fakeCtx = {
+    createLinearGradient: () => ({ addColorStop: () => {} }),
+    createRadialGradient: () => ({ addColorStop: () => {} }),
+    fillRect: () => {},
+    strokeRect: () => {},
+    clearRect: () => {},
+    beginPath: () => {},
+    arc: () => {},
+    fill: () => {},
+    stroke: () => {},
+    moveTo: () => {},
+    lineTo: () => {},
+    closePath: () => {},
+    save: () => {},
+    restore: () => {},
+    translate: () => {},
+    rotate: () => {},
+    fillText: () => {},
+    fillStyle: '#000',
+    strokeStyle: '#000',
+    lineWidth: 1,
+    font: '12px sans-serif',
+    textAlign: 'center',
+  };
+  const prevDoc = (globalThis as { document?: unknown }).document;
+  (globalThis as { document?: unknown }).document = {
+    createElement: () => ({ width: 256, height: 256, getContext: () => fakeCtx }),
+  };
+  try {
+    const built = buildCarMesh({
+      spec: rx7Spec,
+      paintHex: customCfg.paintHex,
+      livery: customCfg.livery,
+      rimStyle: customCfg.rimStyle,
+      shadowTexture: new THREE.Texture(),
+      maxAnisotropy: 1,
+      isSoftwareGl: false,
+      upgradeLevels: { engineLevel: 3, turboLevel: 3, nitrousLevel: 3, tiresLevel: 3 },
+      customConfig: customCfg,
+    });
+    assert.ok(built.root.children.length > 0);
+    assert.equal(built.wheelHubs.length, 4);
+    assert.ok((built.baseCamberRad ?? 0) > 0.09, 'Expected -6 deg negative camber angle applied to wheel hubs');
+    assert.ok(built.underglowMat !== null && built.underglowMat !== undefined, 'Expected neon underglow material active');
+  } finally {
+    (globalThis as { document?: unknown }).document = prevDoc;
+  }
+
+  // Verify 100% Nightdrive/Phonk playlist runs offline-safe synth with zero flaky external streams
+  assert.ok(EA_TRAX_PLAYLIST.length >= 12);
+  for (const song of EA_TRAX_PLAYLIST) {
+    assert.equal(song.kind, 'synth', `Track "${song.title}" must use reliable Nightdrive synth`);
+    assert.ok(isNightdriveOrHypePhonkTrack(song));
+  }
+});
+
+test('Anti-two-wheel suspension clamps body roll/pitch and track monument colliders populate cleanly', () => {
+  const dynamics = createVehicleDynamicsState();
+  const base = makeBaseStepInput({ rawSteerInput: 1, steerAngle: 0.35, forwardSpeed: 65, lateralSpeed: 18 });
+  const out = makeOutput();
+  for (let i = 0; i < 60; i++) {
+    stepVehiclePhysics(dynamics, base, out);
+    assert.ok(Math.abs(out.targetRoll) <= 0.046, `Roll ${out.targetRoll} exceeded anti-two-wheel clamp`);
+    assert.ok(Math.abs(out.targetPitch) <= 0.045, `Pitch ${out.targetPitch} exceeded clamp`);
+  }
+
+  // Verify tracks with highway/forest/city monuments expose physical colliders for player, AI, traffic & cops
+  const baseFakeCtx: Record<string, unknown> = {
+    createLinearGradient: () => ({ addColorStop: () => {} }),
+    createRadialGradient: () => ({ addColorStop: () => {} }),
+    measureText: (txt: string) => ({ width: (txt?.length ?? 4) * 8 }),
+    fillStyle: '#000',
+    strokeStyle: '#000',
+    lineWidth: 1,
+    font: '12px sans-serif',
+    textAlign: 'center',
+  };
+  const fakeCtx = new Proxy(baseFakeCtx, {
+    get(target, prop) {
+      if (prop in target) return target[prop as string];
+      return () => {};
+    },
+  });
+  const prevDoc = (globalThis as { document?: unknown }).document;
+  (globalThis as { document?: unknown }).document = {
+    createElement: () => ({ width: 256, height: 256, getContext: () => fakeCtx }),
+  };
+  try {
+    for (const trackId of ['rockport_loop', 'hwy99_speedway', 'downtown_labyrinth'] as const) {
+      const builtTrack = buildTrack(trackId, 1, 'golden_dusk');
+      assert.ok(
+        builtTrack.obstacles.length > 10,
+        `Expected populated monument/pillar colliders on ${trackId}, got ${builtTrack.obstacles.length}`,
+      );
+      for (const obs of builtTrack.obstacles) {
+        assert.ok(Number.isFinite(obs.x) && Number.isFinite(obs.z));
+        assert.ok(obs.radius > 0.2 && obs.height > 0.5);
+      }
+    }
+  } finally {
+    if (prevDoc === undefined) {
+      delete (globalThis as { document?: unknown }).document;
+    } else {
+      (globalThis as { document?: unknown }).document = prevDoc;
     }
   }
 });

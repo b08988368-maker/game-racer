@@ -688,17 +688,17 @@ export class RacingEngine {
 
     this.camera = new THREE.PerspectiveCamera(48, initW / initH, 0.3, this.isSoftwareGl ? 520 : 6500);
 
-    // Per-Biome PMREM Environment Maps (authentic PS2 Most Wanted sky/wet/neon car reflections)
+    // Per-Biome PMREM Environment Maps (rich horizon/sun/sky/asphalt reflections for clearcoat paint)
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.raceEnvMaps = {
-      golden_dusk: this.createBiomeEnvMap(pmrem, '#102036', '#D9772B', '#FBBF64', '#14100C', 'rgba(255,248,220,1)'),
-      midnight_neon: this.createBiomeEnvMap(pmrem, '#040711', '#1B2D4F', '#38BDF8', '#06080E', 'rgba(186,230,253,0.95)'),
-      overcast_rain: this.createBiomeEnvMap(pmrem, '#121922', '#475569', '#94A3B8', '#0F172A', 'rgba(226,232,240,0.85)'),
-      noon_clear: this.createBiomeEnvMap(pmrem, '#1D4ED8', '#60A5FA', '#EFF6FF', '#1E293B', 'rgba(255,253,235,1)'),
-      dawn_mist: this.createBiomeEnvMap(pmrem, '#0F2429', '#34D399', '#FDE68A', '#0E1716', 'rgba(254,243,199,0.95)'),
-      crimson_foundry: this.createBiomeEnvMap(pmrem, '#140B10', '#C2410C', '#FB7185', '#120A0C', 'rgba(253,186,116,1)'),
-      canyon_sun: this.createBiomeEnvMap(pmrem, '#B45309', '#F59E0B', '#FDE68A', '#7C2D12', 'rgba(255,248,224,1)'),
-      mediterranean_day: this.createBiomeEnvMap(pmrem, '#0284C7', '#38BDF8', '#E0F2FE', '#1E3A5F', 'rgba(255,253,232,1)'),
+      golden_dusk: this.createBiomeEnvMap(pmrem, '#0C1C34', '#E5822C', '#FCD34D', '#16110D', 'rgba(255,248,220,1)'),
+      midnight_neon: this.createBiomeEnvMap(pmrem, '#03060F', '#183058', '#38BDF8', '#05080F', 'rgba(186,230,253,0.98)'),
+      overcast_rain: this.createBiomeEnvMap(pmrem, '#16202C', '#4B5E75', '#CBD5E1', '#101827', 'rgba(241,245,249,0.90)'),
+      noon_clear: this.createBiomeEnvMap(pmrem, '#1D4ED8', '#38BDF8', '#F0F9FF', '#1E293B', 'rgba(255,253,235,1)'),
+      dawn_mist: this.createBiomeEnvMap(pmrem, '#0C242B', '#2DD4BF', '#FEF08A', '#0D1817', 'rgba(254,243,199,0.96)'),
+      crimson_foundry: this.createBiomeEnvMap(pmrem, '#190A10', '#EA580C', '#FDA4AF', '#120A0C', 'rgba(253,186,116,1)'),
+      canyon_sun: this.createBiomeEnvMap(pmrem, '#1E40AF', '#F59E0B', '#FEF08A', '#7C2D12', 'rgba(255,248,224,1)'),
+      mediterranean_day: this.createBiomeEnvMap(pmrem, '#0369A1', '#38BDF8', '#E0F2FE', '#1E3A5F', 'rgba(255,253,232,1)'),
     };
     this.garageEnvMap = this.createGarageEnvMap(pmrem);
     pmrem.dispose();
@@ -977,30 +977,41 @@ export class RacingEngine {
     const envScene = new THREE.Scene();
     const domeGeo = new THREE.SphereGeometry(50, 24, 16);
     const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 128;
+    canvas.width = 512;
+    canvas.height = 256;
     const ctx = canvas.getContext('2d')!;
-    const grad = ctx.createLinearGradient(0, 0, 0, 128);
+    const grad = ctx.createLinearGradient(0, 0, 0, 256);
     grad.addColorStop(0.0, topHex);
-    grad.addColorStop(0.35, midHex);
-    grad.addColorStop(0.50, horizonHex);
-    grad.addColorStop(0.60, groundHex);
+    grad.addColorStop(0.30, midHex);
+    grad.addColorStop(0.49, horizonHex);
+    grad.addColorStop(0.54, groundHex);
     grad.addColorStop(1.0, groundHex);
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 256, 128);
-    const sGrad = ctx.createRadialGradient(180, 62, 2, 180, 62, 34);
+    ctx.fillRect(0, 0, 512, 256);
+
+    // Crisp specular horizon shimmer & dual studio-grade reflection highlights for clearcoat paint curves
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.24)';
+    ctx.fillRect(0, 118, 512, 10);
+
+    const sGrad = ctx.createRadialGradient(360, 122, 4, 360, 122, 68);
     sGrad.addColorStop(0, sunCoreRgba);
-    sGrad.addColorStop(0.4, 'rgba(255, 255, 255, 0.35)');
+    sGrad.addColorStop(0.35, 'rgba(255, 255, 255, 0.45)');
     sGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
     ctx.fillStyle = sGrad;
-    ctx.fillRect(140, 22, 80, 80);
+    ctx.fillRect(280, 44, 160, 160);
+
+    const rimGrad = ctx.createRadialGradient(110, 104, 2, 110, 104, 54);
+    rimGrad.addColorStop(0, 'rgba(186, 230, 253, 0.65)');
+    rimGrad.addColorStop(1, 'rgba(186, 230, 253, 0)');
+    ctx.fillStyle = rimGrad;
+    ctx.fillRect(46, 44, 128, 128);
 
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
     const domeMat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide });
     const dome = new THREE.Mesh(domeGeo, domeMat);
     envScene.add(dome);
-    const rt = pmrem.fromScene(envScene, 0.04);
+    const rt = pmrem.fromScene(envScene, 0.032);
     domeGeo.dispose();
     domeMat.dispose();
     tex.dispose();
@@ -1009,27 +1020,35 @@ export class RacingEngine {
 
   private createGarageEnvMap(pmrem: THREE.PMREMGenerator): THREE.Texture {
     const envScene = new THREE.Scene();
-    envScene.background = new THREE.Color('#0E1117');
-    const stripGeo = new THREE.BoxGeometry(12, 0.4, 1.4);
-    const warmMat = new THREE.MeshBasicMaterial({ color: '#FDE68A' });
+    envScene.background = new THREE.Color('#0E131D');
+    const stripGeo = new THREE.BoxGeometry(14, 0.35, 1.5);
+    const warmMat = new THREE.MeshBasicMaterial({ color: '#FEF08A' });
     const coolMat = new THREE.MeshBasicMaterial({ color: '#BAE6FD' });
-    [-6, 0, 6].forEach((z, idx) => {
-      const m = new THREE.Mesh(stripGeo, idx === 1 ? warmMat : coolMat);
-      m.position.set(0, 8, z);
+    const crispMat = new THREE.MeshBasicMaterial({ color: '#FFFFFF' });
+    [-6, -2, 2, 6].forEach((z, idx) => {
+      const m = new THREE.Mesh(stripGeo, idx === 1 || idx === 2 ? crispMat : idx === 0 ? warmMat : coolMat);
+      m.position.set(0, 7.6, z);
       envScene.add(m);
     });
-    const sideStripGeo = new THREE.BoxGeometry(0.4, 1.6, 14);
+    const sideStripGeo = new THREE.BoxGeometry(0.35, 1.9, 16);
     const sideL = new THREE.Mesh(sideStripGeo, warmMat);
-    sideL.position.set(-12, 3.2, 0);
+    sideL.position.set(-11.5, 3.0, 0);
     const sideR = new THREE.Mesh(sideStripGeo, coolMat);
-    sideR.position.set(12, 3.2, 0);
-    envScene.add(sideL, sideR);
+    sideR.position.set(11.5, 3.0, 0);
+    const ringGeo = new THREE.BoxGeometry(16, 0.45, 0.45);
+    const frontBar = new THREE.Mesh(ringGeo, crispMat);
+    frontBar.position.set(0, 4.2, 11.5);
+    const rearBar = new THREE.Mesh(ringGeo, coolMat);
+    rearBar.position.set(0, 4.2, -11.5);
+    envScene.add(sideL, sideR, frontBar, rearBar);
 
-    const rt = pmrem.fromScene(envScene, 0.05);
+    const rt = pmrem.fromScene(envScene, 0.035);
     stripGeo.dispose();
     sideStripGeo.dispose();
+    ringGeo.dispose();
     warmMat.dispose();
     coolMat.dispose();
+    crispMat.dispose();
     return rt.texture;
   }
 
@@ -1223,116 +1242,116 @@ export class RacingEngine {
       }
     > = {
       golden_dusk: {
-        bg: '#2B2118',
-        fog: '#3A2A1E',
-        fogDensity: 0.00032,
-        hemiSky: '#94BCEB',
+        bg: '#2A1F16',
+        fog: '#3C2A1B',
+        fogDensity: 0.00028,
+        hemiSky: '#93C5FD',
         hemiGround: '#3E2B1E',
-        hemiInt: 0.96,
-        sunColor: '#FFE8BA',
-        sunInt: 2.75,
-        rimColor: '#7DD3FC',
-        rimInt: 0.72,
-        envInt: 0.86,
-        exposure: 1.09,
+        hemiInt: 1.02,
+        sunColor: '#FFE8B6',
+        sunInt: 2.88,
+        rimColor: '#60A5FA',
+        rimInt: 0.88,
+        envInt: 1.08,
+        exposure: 1.11,
       },
       midnight_neon: {
-        bg: '#090F1E',
-        fog: '#0C162B',
-        fogDensity: 0.00038,
+        bg: '#080E1E',
+        fog: '#0C172E',
+        fogDensity: 0.00034,
         hemiSky: '#60A5FA',
         hemiGround: '#0F172A',
-        hemiInt: 0.84,
-        sunColor: '#93C5FD',
-        sunInt: 1.72,
+        hemiInt: 0.90,
+        sunColor: '#BFDBFE',
+        sunInt: 1.85,
         rimColor: '#38BDF8',
-        rimInt: 1.08,
-        envInt: 0.92,
-        exposure: 1.12,
+        rimInt: 1.24,
+        envInt: 1.16,
+        exposure: 1.14,
       },
       overcast_rain: {
-        bg: '#1A2430',
-        fog: '#1E2A38',
-        fogDensity: 0.00044,
-        hemiSky: '#94A3B8',
+        bg: '#1A2534',
+        fog: '#1E2C3E',
+        fogDensity: 0.00038,
+        hemiSky: '#CBD5E1',
         hemiGround: '#1E293B',
-        hemiInt: 0.98,
-        sunColor: '#E2E8F0',
-        sunInt: 1.88,
+        hemiInt: 1.02,
+        sunColor: '#F1F5F9',
+        sunInt: 1.98,
         rimColor: '#60A5FA',
-        rimInt: 0.76,
-        envInt: 0.90,
-        exposure: 1.08,
+        rimInt: 0.92,
+        envInt: 1.12,
+        exposure: 1.10,
       },
       noon_clear: {
-        bg: '#6BA4DB',
-        fog: '#89B8E6',
-        fogDensity: 0.00024,
+        bg: '#5EA2E0',
+        fog: '#85B8EA',
+        fogDensity: 0.00022,
         hemiSky: '#BAE6FD',
         hemiGround: '#3F4E3A',
-        hemiInt: 1.08,
+        hemiInt: 1.12,
         sunColor: '#FFFFFF',
-        sunInt: 2.85,
+        sunInt: 2.95,
         rimColor: '#E0F2FE',
-        rimInt: 0.60,
-        envInt: 0.86,
-        exposure: 1.06,
+        rimInt: 0.72,
+        envInt: 1.05,
+        exposure: 1.07,
       },
       dawn_mist: {
-        bg: '#1A2929',
-        fog: '#243836',
-        fogDensity: 0.00040,
+        bg: '#182A2B',
+        fog: '#243C39',
+        fogDensity: 0.00034,
         hemiSky: '#99F6E4',
         hemiGround: '#1F2925',
-        hemiInt: 0.98,
-        sunColor: '#FDE68A',
-        sunInt: 2.25,
+        hemiInt: 1.04,
+        sunColor: '#FEF08A',
+        sunInt: 2.38,
         rimColor: '#6EE7B7',
-        rimInt: 0.72,
-        envInt: 0.86,
-        exposure: 1.08,
+        rimInt: 0.88,
+        envInt: 1.06,
+        exposure: 1.10,
       },
       crimson_foundry: {
-        bg: '#261317',
-        fog: '#2E161B',
-        fogDensity: 0.00038,
+        bg: '#281217',
+        fog: '#32161D',
+        fogDensity: 0.00034,
         hemiSky: '#FDA4AF',
         hemiGround: '#241415',
-        hemiInt: 0.90,
+        hemiInt: 0.96,
         sunColor: '#FDBA74',
-        sunInt: 2.45,
+        sunInt: 2.58,
         rimColor: '#FB7185',
-        rimInt: 0.82,
-        envInt: 0.88,
-        exposure: 1.10,
+        rimInt: 0.98,
+        envInt: 1.10,
+        exposure: 1.12,
       },
       canyon_sun: {
         bg: '#D97736',
         fog: '#EA9A56',
-        fogDensity: 0.00022,
+        fogDensity: 0.00020,
         hemiSky: '#FDE68A',
         hemiGround: '#7C2D12',
-        hemiInt: 1.02,
+        hemiInt: 1.08,
         sunColor: '#FFFDF2',
-        sunInt: 2.90,
+        sunInt: 2.98,
         rimColor: '#FDBA74',
-        rimInt: 0.68,
-        envInt: 0.92,
-        exposure: 1.07,
+        rimInt: 0.80,
+        envInt: 1.08,
+        exposure: 1.08,
       },
       mediterranean_day: {
-        bg: '#38BDF8',
+        bg: '#2BB0F6',
         fog: '#7DD3FC',
-        fogDensity: 0.00020,
+        fogDensity: 0.00018,
         hemiSky: '#E0F2FE',
         hemiGround: '#334155',
-        hemiInt: 1.10,
+        hemiInt: 1.14,
         sunColor: '#FFFFFF',
-        sunInt: 2.95,
+        sunInt: 3.05,
         rimColor: '#BAE6FD',
-        rimInt: 0.64,
-        envInt: 0.96,
-        exposure: 1.06,
+        rimInt: 0.76,
+        envInt: 1.12,
+        exposure: 1.07,
       },
     };
 
@@ -1545,6 +1564,7 @@ export class RacingEngine {
       maxAnisotropy: this.maxAnisotropy,
       isSoftwareGl: this.isSoftwareGl,
       upgradeLevels: config,
+      customConfig: config,
     });
     this.garageCar.root.position.set(0, 0.032, 0);
     this.scene.add(this.garageCar.root);
@@ -1788,6 +1808,7 @@ export class RacingEngine {
       isSoftwareGl: this.isSoftwareGl,
       isPlayer: true,
       upgradeLevels: params.playerConfig,
+      customConfig: params.playerConfig,
     });
     const laneGridX = Math.min(3.1, this.track.roadHalfWidth * 0.28);
     const playerLane = isPackRace ? (playerBackRow ? laneGridX : -laneGridX) : -laneGridX;
@@ -4463,12 +4484,12 @@ export class RacingEngine {
 
           const aiAir = r.airHeight > 0.12;
           const baseRad = r.visual.wheelBaseRadius;
-          const latLean = aiAir ? 0 : THREE.MathUtils.clamp(b.dyn.latAccelG * 0.024, -0.045, 0.045);
+          const latLean = aiAir ? 0 : THREE.MathUtils.clamp(b.dyn.latAccelG * 0.010, -0.018, 0.018);
           for (let wi = 0; wi < 4; wi++) {
             const wh = b.dyn.wheels[wi];
             const isLeft = wi === 0 || wi === 2;
-            const staticCam = wi < 2 ? -0.02 : -0.012;
-            const hubDrop = aiAir ? -0.06 : (wh.compression - 0.42) * 0.11;
+            const staticCam = r.visual.baseCamberRad ?? (wi < 2 ? -0.02 : -0.012);
+            const hubDrop = aiAir ? -0.045 : THREE.MathUtils.clamp((wh.compression - 0.42) * 0.018, -0.006, 0.006);
             r.visual.wheelHubs[wi].position.y = baseRad + hubDrop;
             r.visual.wheelCamberPivots[wi].rotation.z = isLeft
               ? staticCam + latLean
@@ -4578,12 +4599,12 @@ export class RacingEngine {
     p.visual.wheelFrontRight.rotation.y = steerViz < 0 ? steerViz * 1.09 : steerViz * 0.91;
 
     const pBaseRad = p.visual.wheelBaseRadius;
-    const pLatLean = airborne ? 0 : THREE.MathUtils.clamp(this.vehicleDynamics.latAccelG * 0.028, -0.052, 0.052);
+    const pLatLean = airborne ? 0 : THREE.MathUtils.clamp(this.vehicleDynamics.latAccelG * 0.010, -0.018, 0.018);
     for (let wi = 0; wi < 4; wi++) {
       const wh = this.vehicleDynamics.wheels[wi];
       const isLeft = wi === 0 || wi === 2;
-      const staticCam = wi < 2 ? -0.022 : -0.014;
-      const hubDrop = airborne ? -0.065 : (wh.compression - 0.42) * 0.125;
+      const staticCam = p.visual.baseCamberRad ?? (wi < 2 ? -0.022 : -0.014);
+      const hubDrop = airborne ? -0.045 : THREE.MathUtils.clamp((wh.compression - 0.42) * 0.018, -0.006, 0.006);
       p.visual.wheelHubs[wi].position.y = pBaseRad + hubDrop;
       p.visual.wheelCamberPivots[wi].rotation.z = isLeft
         ? staticCam + pLatLean
@@ -4884,6 +4905,19 @@ export class RacingEngine {
         t.knockLatVel *= -0.35;
       }
 
+      const trObs = this.resolveTrackObstacleCollisions(
+        t.pos,
+        0,
+        t.heading,
+        t.speed,
+        t.knockLatVel,
+        t.isTruck ? 1.35 : 1.15,
+      );
+      if (trObs.hit) {
+        t.speed = Math.max(4, trObs.forwardSpeed);
+        t.knockLatVel = THREE.MathUtils.clamp(trObs.lateralSpeed, -10, 10);
+      }
+
       t.slopePitch = info.slopePitch;
       t.bankAngle = info.bankAngle;
 
@@ -5034,17 +5068,18 @@ export class RacingEngine {
       const along = rx * ramp.tangent.x + rz * ramp.tangent.z;
       const lat = rx * ramp.right.x + rz * ramp.right.z;
 
-      if (along >= 0 && along <= ramp.length + 0.6 && Math.abs(lat) <= ramp.halfWidth + 0.55) {
+      if (along >= 0 && along <= ramp.length + 0.6 && Math.abs(lat) <= ramp.halfWidth + 0.45) {
         const rampY = computeRampDeckHeight(along, ramp.length, ramp.height);
-        if (r.airHeight <= rampY + 0.55) {
+        if (r.airHeight <= rampY + 0.45) {
           groundHeight += rampY;
-          if (along >= ramp.length - 1.5 && r.forwardSpeed > 20 && r.verticalVel <= 0.8) {
+          if (along >= ramp.length - 1.1 && r.forwardSpeed > 20 && r.verticalVel <= 0.8) {
             r.airHeight = rampY;
             r.verticalVel = computeRampLaunchVerticalVel({
               forwardSpeedMs: r.forwardSpeed,
               launchAngleRad: ramp.launchAngle,
               nosActive: playerNosBoost,
             });
+            r.pitch = Math.max(r.pitch, ramp.launchAngle * 0.55);
             if (isPlayer) {
               soundEngine.triggerBeep(false);
               this.camShake = Math.max(this.camShake, 0.14);
@@ -5058,13 +5093,13 @@ export class RacingEngine {
       }
     }
 
-    // Dynamic gravity with subtle aero lift and strict peak air ceiling so cars never fly out of the map
+    // Weighty parabolic jump physics with firm landing compression & realistic air ceiling
     if (r.airHeight > 0 || r.verticalVel > 0) {
       const gravScale = computeAirGravityScale(r.forwardSpeed, playerNosBoost);
       r.verticalVel -= AIR_GRAVITY_MPS2 * gravScale * dt;
       r.airHeight += r.verticalVel * dt;
-      if (r.airHeight > 5.5) {
-        r.airHeight = 5.5;
+      if (r.airHeight > 4.2) {
+        r.airHeight = 4.2;
         if (r.verticalVel > 0) r.verticalVel = 0;
       }
       r.airTimeTotal += dt;
@@ -5073,7 +5108,7 @@ export class RacingEngine {
         r.lastLandingVelMps = Math.max(r.lastLandingVelMps, Math.max(0, -r.verticalVel));
         if (isPlayer) {
           if (r.airTimeTotal > 0.22) {
-            r.pitch = -0.048;
+            r.pitch = -0.044;
           }
           if (r.airTimeTotal > 0.28) {
             for (let k = 0; k < 4; k++) {
@@ -5311,6 +5346,7 @@ export class RacingEngine {
         r.progress = entryInfo.sample.progress;
         r.totalProgress = r.lap - 1 + r.progress;
       }
+      this.resolveRacerObstacles(r, isPlayer);
       return;
     }
 
@@ -5474,6 +5510,122 @@ export class RacingEngine {
         }
       }
     }
+    this.resolveRacerObstacles(r, isPlayer);
+  }
+
+  private resolveTrackObstacleCollisions(
+    pos: THREE.Vector3,
+    airHeight: number,
+    heading: number,
+    forwardSpeed: number,
+    lateralSpeed: number,
+    carRadius = 1.18,
+  ): {
+    hit: boolean;
+    impactSpeed: number;
+    forwardSpeed: number;
+    lateralSpeed: number;
+    hitLocalX: number;
+    hitLocalZ: number;
+    hitNx: number;
+    hitNz: number;
+  } {
+    let hit = false;
+    let maxImpact = 0;
+    let outFwd = forwardSpeed;
+    let outLat = lateralSpeed;
+    let outLocX = 0;
+    let outLocZ = 0;
+    let outNx = 0;
+    let outNz = 0;
+
+    if (!this.track || this.track.obstacles.length === 0) {
+      return { hit, impactSpeed: maxImpact, forwardSpeed: outFwd, lateralSpeed: outLat, hitLocalX: 0, hitLocalZ: 0, hitNx: 0, hitNz: 0 };
+    }
+
+    const fwdX = -Math.sin(heading);
+    const fwdZ = -Math.cos(heading);
+    const rgtX = Math.cos(heading);
+    const rgtZ = -Math.sin(heading);
+    const effectiveY = pos.y + Math.max(0, airHeight);
+
+    for (let i = 0; i < this.track.obstacles.length; i++) {
+      const obs = this.track.obstacles[i];
+      if (obs.breakerId !== undefined && this.track.pursuitBreakers[obs.breakerId]?.triggered) continue;
+      if (effectiveY < obs.y - 1.2 || effectiveY > obs.y + obs.height) continue;
+
+      const minDist = obs.radius + carRadius;
+      const dx = pos.x - obs.x;
+      const dz = pos.z - obs.z;
+      const dSq = dx * dx + dz * dz;
+      if (dSq >= minDist * minDist) continue;
+
+      const d = Math.sqrt(dSq);
+      const nx = d > 0.001 ? dx / d : rgtX;
+      const nz = d > 0.001 ? dz / d : rgtZ;
+      const pen = minDist - d;
+      pos.x += nx * (pen + 0.02);
+      pos.z += nz * (pen + 0.02);
+
+      const vx = fwdX * outFwd + rgtX * outLat;
+      const vz = fwdZ * outFwd + rgtZ * outLat;
+      const vn = vx * nx + vz * nz;
+      hit = true;
+      outNx = nx;
+      outNz = nz;
+
+      if (vn < 0) {
+        const impact = -vn;
+        if (impact > maxImpact) maxImpact = impact;
+        const bounce = impact > 14 ? 0.34 : 0.14;
+        const nvx = vx - nx * vn * (1 + bounce);
+        const nvz = vz - nz * vn * (1 + bounce);
+        const scrub = impact > 16 ? 0.62 : 0.86;
+        outFwd = (nvx * fwdX + nvz * fwdZ) * scrub;
+        outLat = (nvx * rgtX + nvz * rgtZ) * 0.55;
+        outLocX = -nx * rgtX - nz * rgtZ;
+        outLocZ = -nx * fwdX - nz * fwdZ;
+      }
+    }
+
+    return {
+      hit,
+      impactSpeed: maxImpact,
+      forwardSpeed: outFwd,
+      lateralSpeed: outLat,
+      hitLocalX: outLocX,
+      hitLocalZ: outLocZ,
+      hitNx: outNx,
+      hitNz: outNz,
+    };
+  }
+
+  private resolveRacerObstacles(r: RacerEntity, isPlayer: boolean) {
+    const res = this.resolveTrackObstacleCollisions(
+      r.pos,
+      r.airHeight,
+      r.heading,
+      r.forwardSpeed,
+      r.lateralSpeed,
+      1.16,
+    );
+    if (!res.hit) return;
+    r.forwardSpeed = res.forwardSpeed;
+    r.lateralSpeed = res.lateralSpeed;
+    if (res.impactSpeed > 8) {
+      this.applyImpactDamage(r, res.hitLocalX, res.hitLocalZ, res.impactSpeed, isPlayer);
+      if (isPlayer) {
+        this.camShake = Math.max(this.camShake, Math.min(0.45, res.impactSpeed * 0.015));
+        soundEngine.triggerImpact(Math.min(0.95, 0.35 + res.impactSpeed * 0.02));
+      }
+      if (isPlayer || (this.player && r.pos.distanceToSquared(this.player.pos) < 110 * 110)) {
+        for (let k = 0; k < 6; k++) {
+          _v1.set(r.pos.x - res.hitNx * 0.7, r.pos.y + 0.5, r.pos.z - res.hitNz * 0.7);
+          _v2.set((Math.random() - 0.5) * 9, 2.5 + Math.random() * 3.5, (Math.random() - 0.5) * 9);
+          this.spawnParticle(_v1, _v2, '#FBBF24', 0.45, 0.28);
+        }
+      }
+    }
   }
 
   private enforcePostCollisionBarrierSafety() {
@@ -5525,6 +5677,7 @@ export class RacingEngine {
         r.pos.x -= info.sample.right.x * sign * excess;
         r.pos.z -= info.sample.right.z * sign * excess;
       }
+      this.resolveRacerObstacles(r, r.isPlayer);
       r.pos.y = Math.max(r.pos.y, info.elevationY + ROAD_SURFACE_OFFSET);
     }
   }
@@ -5915,6 +6068,10 @@ export class RacingEngine {
           cop.pos.z -= cInfo.sample.right.z * sign * ex;
         }
         cop.pos.y = cInfo.elevationY + ROAD_SURFACE_OFFSET;
+        const patrolObs = this.resolveTrackObstacleCollisions(cop.pos, 0, cop.heading, cop.speed, 0, 1.15);
+        if (patrolObs.hit) {
+          cop.speed = Math.max(6, patrolObs.forwardSpeed);
+        }
         cop.slopePitch = cInfo.slopePitch;
         cop.bankAngle = cInfo.bankAngle;
 
@@ -6295,6 +6452,18 @@ export class RacingEngine {
           }
           cop.slopePitch = cInfo.slopePitch;
           cop.bankAngle = cInfo.bankAngle;
+        }
+        const copFwdX = -Math.sin(cop.heading);
+        const copFwdZ = -Math.cos(cop.heading);
+        const copRgtX = Math.cos(cop.heading);
+        const copRgtZ = -Math.sin(cop.heading);
+        const cFwdV = cop.vx * copFwdX + cop.vz * copFwdZ;
+        const cLatV = cop.vx * copRgtX + cop.vz * copRgtZ;
+        const copObs = this.resolveTrackObstacleCollisions(cop.pos, 0, cop.heading, cFwdV, cLatV, cop.isRhino ? 1.38 : 1.15);
+        if (copObs.hit) {
+          cop.vx = copFwdX * copObs.forwardSpeed + copRgtX * copObs.lateralSpeed;
+          cop.vz = copFwdZ * copObs.forwardSpeed + copRgtZ * copObs.lateralSpeed;
+          cop.speed = Math.hypot(cop.vx, cop.vz);
         }
       } else {
         const rbInfo = this.track.getClosestTrackInfo(cop.pos.x, cop.pos.z, cop.trackIdx, cop.pos.y);
@@ -7052,9 +7221,9 @@ export class RacingEngine {
     }
     if (absLook < 0.25) {
       this.camera.rotation.z += THREE.MathUtils.clamp(
-        -this.steerInputSmooth * speedRatio * 0.032 - p.lateralSpeed * 0.0045,
-        -0.055,
-        0.055,
+        -this.steerInputSmooth * speedRatio * 0.014 - p.lateralSpeed * 0.0018,
+        -0.022,
+        0.022,
       );
     }
 

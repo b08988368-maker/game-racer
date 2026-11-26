@@ -54,8 +54,32 @@ export type EnvironmentId =
 
 export type TrackDifficulty = 'Easy' | 'Medium' | 'Hard' | 'Expert';
 
-export type LiveryStyle = 'clean' | 'stripes' | 'most_wanted' | 'boss_carbon';
-export type RimStyle = 'chrome' | 'black' | 'gold' | 'bronze';
+export type LiveryStyle =
+  | 'clean'
+  | 'stripes'
+  | 'most_wanted'
+  | 'boss_carbon'
+  | 'two_tone'
+  | 'cyber_hex'
+  | 'drift_camo';
+export type PaintFinish = 'gloss' | 'metallic' | 'matte' | 'pearl' | 'chrome';
+export type BodyKitStyle = 'stock' | 'street' | 'widebody' | 'gt_race';
+export type SpoilerStyle = 'auto' | 'none' | 'lip' | 'ducktail' | 'gt_wing' | 'chassis_mount';
+export type HoodStyle = 'stock' | 'vented' | 'carbon' | 'twin_intake';
+export type ExhaustStyle = 'dual' | 'quad' | 'titanium';
+export type RimDesign = 'five_spoke' | 'y_split' | 'turbofan' | 'deep_dish';
+export type RimStyle = 'chrome' | 'black' | 'gold' | 'bronze' | 'gunmetal' | 'white';
+export type WindowTintStyle = 'light' | 'dark' | 'limo' | 'amber_mirror';
+export type HeadlightTintStyle = 'xenon' | 'ice_blue' | 'yellow_gt' | 'crimson';
+export interface TrackObstacleCollider {
+  x: number;
+  y: number;
+  z: number;
+  radius: number;
+  height: number;
+  kind: 'pillar' | 'monument' | 'kiosk' | 'pylon';
+  breakerId?: number;
+}
 export type EngineSoundProfile =
   | 'auto'
   | 'i4_turbo'
@@ -155,8 +179,21 @@ export interface GarageCarConfig {
   nitrousLevel: number; // 1..5
   tiresLevel: number; // 1..5
   paintHex: string;
+  secondaryHex?: string;
+  paintFinish?: PaintFinish;
   livery: LiveryStyle;
+  bodyKit?: BodyKitStyle;
+  spoilerStyle?: SpoilerStyle;
+  hoodStyle?: HoodStyle;
+  exhaustStyle?: ExhaustStyle;
   rimStyle: RimStyle;
+  rimDesign?: RimDesign;
+  caliperHex?: string;
+  windowTint?: WindowTintStyle;
+  headlightTint?: HeadlightTintStyle;
+  underglowHex?: string;
+  stanceHeight?: number; // -1 (Slammed), 0 (Street), 1 (Track)
+  camberDeg?: number; // 0..6 negative wheel camber degrees
   engineSound?: EngineSoundProfile;
 }
 
