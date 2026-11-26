@@ -48,7 +48,7 @@ import {
   WeatherMode,
   WeatherSnapshot,
 } from '../config/weatherConfig';
-import { BLACKLIST_RIVALS, CARS, computeEffectiveStats, TRACKS } from '../data/gameData';
+import { BLACKLIST_RIVALS, CARS, computeEffectiveStats, getDefaultCarConfig, TRACKS } from '../data/gameData';
 import {
   AiDebugEntry,
   AssistSettings,
@@ -61,6 +61,7 @@ import {
   EnvironmentId,
   GarageCameraPreset,
   GarageCarConfig,
+  GarageDynoTelemetry,
   GraphicsQuality,
   HandlingMode,
   MinimapBlip,
@@ -96,6 +97,31 @@ import {
 } from './ghostAndRewind';
 import { createContactShadowTexture } from './textures';
 import { buildGarageShowroom, buildTrack, BuiltTrack } from './trackBuilder';
+import {
+  computeAirGravityScale,
+  computeEscalatedHeatLevel,
+  computeRampDeckHeight,
+  computeRampLaunchVerticalVel,
+  computeRedlineShiftZone,
+  createSlipstreamSlingshotState,
+  createStyleComboState,
+  evaluateCountdownLaunch,
+  evaluatePatrolPursuitTrigger,
+  generateTrafficSpawnSlots,
+  isSampleInsideBarrierCutout,
+  MenuDynoState,
+  POLICE_PATROL_DETECT_RADIUS_M,
+  POLICE_PATROL_EASY_SPEED_TRIGGER_KMH,
+  POLICE_PATROL_SPEED_TRIGGER_KMH,
+  resolveCarEngineProfile,
+  SlipstreamSlingshotState,
+  createMenuDynoState,
+  stepMenuDynoRun,
+  stepSlipstreamSlingshot,
+  stepStyleComboState,
+  StyleComboEventType,
+  StyleComboState,
+} from './gameplayUpgrades';
 import {
   createVehicleDynamicsState,
   stepVehiclePhysics,
@@ -203,6 +229,7 @@ interface TrafficEntity {
   pos: THREE.Vector3;
   heading: number;
   speed: number;
+  cruiseSpeed: number;
   trackIdx: number;
   laneOffset: number;
   isTruck: boolean;
@@ -253,6 +280,7 @@ export interface RacingEngineCallbacks {
   onPauseRequest?: () => void;
   onAutoPause?: () => void;
   onGamepadChange?: (connected: boolean, id: string | null) => void;
+  onGarageDyno?: (telemetry: GarageDynoTelemetry) => void;
 }
 
 const _v1 = new THREE.Vector3();
@@ -326,6 +354,16 @@ export class RacingEngine {
   private garageCamDist = 7.35;
   private garageCamHeight = 2.22;
   private garageCamLookY = 0.78;
+  private currentGarageSpec: CarSpec | null = null;
+  private currentGarageConfig: GarageCarConfig | null = null;
+  private garageDynoActive = false;
+  private garageDynoGasHeld = false;
+  private garageDynoAutoPull = false;
+  private garageDynoNosHeld = false;
+  private garageDynoState: MenuDynoState | null = null;
+  private garageDynoLastEmitMs = 0;
+  private garageDynoBackfireTimer = 0;
+  private garageDynoWheelAngle = 0;
 
   private raceParams: RaceStartParams | null = null;
   private racers: RacerEntity[] = [];
@@ -363,7 +401,10 @@ export class RacingEngine {
   private airTimeTotalSec = 0;
   private smashablesHit = 0;
   private driftBoostTimer = 0;
+  private upshiftKickTimer = 0;
   private isSlipstreaming = false;
+  private slingshotState: SlipstreamSlingshotState = createSlipstreamSlingshotState();
+  private styleComboState: StyleComboState = createStyleComboState();
   private spikedTimer = 0;
   private playerOnCurb = false;
   private playerNearBarrier = false;
@@ -388,8 +429,9 @@ export class RacingEngine {
   private speedTrapBestKmh = 0;
   private shortcutsTaken = 0;
   private activeEnvironment: Exclude<EnvironmentId, 'auto'> = 'golden_dusk';
-  private activeMusicTrackName = 'Nine Thou Overdrive';
+  private activeMusicTrackName = 'Midnight Rain Nightdrive';
   private patrolsEnabled = true;
+  private recklessInfractionTimer = 0;
   private highestHeat = 1;
   private nextRoadblockCooldown = 12;
   private copSpawnTimer = 3.2;
@@ -626,7 +668,7 @@ export class RacingEngine {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.06;
     this.currentPixelRatio = this.isSoftwareGl
-      ? 1
+      ? 0.65
       : Math.min(window.devicePixelRatio, GRAPHICS_QUALITY_PRESETS.medium.pixelRatioCap);
     this.renderer.setPixelRatio(this.currentPixelRatio);
     this.renderer.shadowMap.enabled = !this.isSoftwareGl && GRAPHICS_QUALITY_PRESETS.medium.shadowsEnabled;
@@ -644,7 +686,7 @@ export class RacingEngine {
     this.scene.background = new THREE.Color('#2B2118');
     this.scene.fog = new THREE.FogExp2('#2B2118', 0.00058);
 
-    this.camera = new THREE.PerspectiveCamera(48, initW / initH, 0.3, 4800);
+    this.camera = new THREE.PerspectiveCamera(48, initW / initH, 0.3, this.isSoftwareGl ? 520 : 6500);
 
     // Per-Biome PMREM Environment Maps (authentic PS2 Most Wanted sky/wet/neon car reflections)
     const pmrem = new THREE.PMREMGenerator(this.renderer);
@@ -681,8 +723,8 @@ export class RacingEngine {
     this.sunLight = new THREE.DirectionalLight('#FFE0A6', 2.45);
     this.sunLight.position.set(65, 58, -45);
     this.sunLight.castShadow = !this.isSoftwareGl && GRAPHICS_QUALITY_PRESETS.medium.shadowsEnabled;
-    this.sunLight.shadow.mapSize.width = 768;
-    this.sunLight.shadow.mapSize.height = 768;
+    this.sunLight.shadow.mapSize.width = 1024;
+    this.sunLight.shadow.mapSize.height = 1024;
     this.sunLight.shadow.camera.near = 5;
     this.sunLight.shadow.camera.far = 200;
     const d = 42;
@@ -914,7 +956,7 @@ export class RacingEngine {
       this.composer.addPass(new RenderPass(this.scene, this.camera));
       const bloomW = Math.max(1, Math.floor(initW * 0.5));
       const bloomH = Math.max(1, Math.floor(initH * 0.5));
-      this.bloomPass = new UnrealBloomPass(new THREE.Vector2(bloomW, bloomH), 0.20, 0.28, 0.92);
+      this.bloomPass = new UnrealBloomPass(new THREE.Vector2(bloomW, bloomH), 0.28, 0.34, 0.84);
       this.composer.addPass(this.bloomPass);
       this.composer.addPass(new OutputPass());
       this.renderer.compile(this.scene, this.camera);
@@ -1318,8 +1360,135 @@ export class RacingEngine {
     this.rainMesh.visible = env === 'overcast_rain' && this.weatherMode !== 'clear';
   }
 
+  private emitGarageDyno(force = false) {
+    if (!this.callbacks.onGarageDyno) return;
+    const now = performance.now();
+    if (!force && now - this.garageDynoLastEmitMs < 75) return;
+    this.garageDynoLastEmitMs = now;
+    const engineProfile = resolveCarEngineProfile(
+      this.currentGarageSpec?.id,
+      this.currentGarageSpec?.bodyStyle,
+      this.currentGarageConfig?.engineSound,
+    );
+    const s = this.garageDynoState;
+    const zInfo = computeRedlineShiftZone(s?.rpm ?? 0.2, s?.gear ?? 1);
+    this.callbacks.onGarageDyno({
+      active: this.garageDynoActive,
+      gasHeld: this.garageDynoGasHeld,
+      autoPull: this.garageDynoAutoPull,
+      nosActive: this.garageDynoNosHeld && (this.garageDynoGasHeld || this.garageDynoAutoPull),
+      speedKmh: s ? Number(s.speedKmh.toFixed(1)) : 0,
+      peakSpeedKmh: s ? Number(s.peakSpeedKmh.toFixed(1)) : 0,
+      topTargetKmh: s ? Math.round(s.topTargetKmh) : 240,
+      rpm: s ? s.rpm : 0.2,
+      gear: s ? s.gear : 1,
+      redlineLedCount: zInfo.ledCount,
+      zeroTo100Sec: s?.zeroTo100Sec ?? null,
+      zeroTo200Sec: s?.zeroTo200Sec ?? null,
+      elapsedPullSec: s ? Number(s.elapsedPullSec.toFixed(2)) : 0,
+      engineProfile,
+    });
+  }
+
+  public setGarageDynoMode(
+    active: boolean,
+    opts?: { gasHeld?: boolean; autoPull?: boolean; nosHeld?: boolean },
+  ) {
+    this.garageDynoActive = active;
+    if (!active) {
+      this.garageDynoGasHeld = false;
+      this.garageDynoAutoPull = false;
+      this.garageDynoNosHeld = false;
+      this.garageDynoBackfireTimer = 0;
+      soundEngine.stopRaceLoops();
+      if (this.garageCar) {
+        this.garageCar.bodyGroup.rotation.x = 0;
+        this.garageCar.nosFlames.forEach((f) => {
+          f.visible = false;
+        });
+        this.garageCar.nosCores.forEach((f) => {
+          f.visible = false;
+        });
+        this.garageCar.nosHalos.forEach((f) => {
+          f.visible = false;
+        });
+        this.garageCar.backfireFlames.forEach((f) => {
+          f.visible = false;
+        });
+      }
+      this.emitGarageDyno(true);
+      return;
+    }
+
+    if (opts?.gasHeld !== undefined) this.garageDynoGasHeld = opts.gasHeld;
+    if (opts?.autoPull !== undefined) this.garageDynoAutoPull = opts.autoPull;
+    if (opts?.nosHeld !== undefined) this.garageDynoNosHeld = opts.nosHeld;
+
+    soundEngine.init();
+    if (this.currentGarageSpec) {
+      soundEngine.setCarStyle(
+        resolveCarEngineProfile(
+          this.currentGarageSpec.id,
+          this.currentGarageSpec.bodyStyle,
+          this.currentGarageConfig?.engineSound,
+        ),
+      );
+      if (!this.garageDynoState) {
+        const stats = computeEffectiveStats(
+          this.currentGarageSpec,
+          this.currentGarageConfig ?? getDefaultCarConfig(this.currentGarageSpec.id),
+        );
+        this.garageDynoState = createMenuDynoState(stats.topSpeedKmh, stats.accel, stats.nitrous);
+      }
+    }
+    this.emitGarageDyno(true);
+  }
+
+  public triggerGarageDynoAction(action: 'reset' | 'rev') {
+    if (action === 'reset') {
+      this.garageDynoAutoPull = false;
+      this.garageDynoGasHeld = false;
+      this.garageDynoNosHeld = false;
+      this.garageDynoBackfireTimer = 0;
+      if (this.currentGarageSpec) {
+        const stats = computeEffectiveStats(
+          this.currentGarageSpec,
+          this.currentGarageConfig ?? getDefaultCarConfig(this.currentGarageSpec.id),
+        );
+        this.garageDynoState = createMenuDynoState(stats.topSpeedKmh, stats.accel, stats.nitrous);
+      } else {
+        this.garageDynoState = null;
+      }
+      if (this.garageCar) {
+        this.garageCar.bodyGroup.rotation.x = 0;
+      }
+      this.emitGarageDyno(true);
+      return;
+    }
+
+    const profile = resolveCarEngineProfile(
+      this.currentGarageSpec?.id,
+      this.currentGarageSpec?.bodyStyle,
+      this.currentGarageConfig?.engineSound,
+    );
+    soundEngine.triggerGarageRev(profile);
+    this.garageDynoBackfireTimer = 0.25;
+  }
+
   public showGarageCar(spec: CarSpec, config: GarageCarConfig) {
     const wasInGarage = this.mode === 'garage';
+    const sameCar = wasInGarage && this.currentGarageSpec?.id === spec.id;
+    this.currentGarageSpec = spec;
+    this.currentGarageConfig = config;
+    const stats = computeEffectiveStats(spec, config);
+    if (sameCar && this.garageDynoActive && this.garageDynoState) {
+      this.garageDynoState.topTargetKmh = Math.max(180, stats.topSpeedKmh);
+      this.garageDynoState.accelStat = stats.accel;
+      this.garageDynoState.nitroStat = stats.nitrous;
+    } else {
+      this.garageDynoState = createMenuDynoState(stats.topSpeedKmh, stats.accel, stats.nitrous);
+    }
+
     this.clearRaceEntities();
     this.clearSpeedStreaks();
     this.mode = 'garage';
@@ -1327,7 +1496,10 @@ export class RacingEngine {
     this.introTimer = 0;
     this.outroActive = false;
     this.outroOutcome = null;
-    soundEngine.stopRaceLoops();
+    soundEngine.setCarStyle(resolveCarEngineProfile(spec.id, spec.bodyStyle, config.engineSound));
+    if (!this.garageDynoActive) {
+      soundEngine.stopRaceLoops();
+    }
     if (this.heliGroup) this.heliGroup.visible = false;
     this.rainMesh.visible = false;
     if (this.skyDomeMesh) this.skyDomeMesh.visible = false;
@@ -1335,13 +1507,13 @@ export class RacingEngine {
     this.scene.background = new THREE.Color('#0D0E12');
     this.scene.fog = new THREE.FogExp2('#0D0E12', 0.015);
     this.scene.environment = this.garageEnvMap;
-    this.scene.environmentIntensity = 0.76;
+    this.scene.environmentIntensity = 1.02;
     this.hemiLight.color.set('#BAE6FD');
     this.hemiLight.groundColor.set('#1E293B');
-    this.hemiLight.intensity = 0.90;
+    this.hemiLight.intensity = 0.94;
     this.sunLight.color.set('#FFFFFF');
-    this.sunLight.intensity = 1.85;
-    this.renderer.toneMappingExposure = 1.06;
+    this.sunLight.intensity = 2.05;
+    this.renderer.toneMappingExposure = 1.08;
 
     if (this.track) {
       this.scene.remove(this.track.group);
@@ -1352,9 +1524,10 @@ export class RacingEngine {
     if (this.garageShowroom) {
       this.garageShowroom.group.visible = true;
     }
-    this.garageMainLight.intensity = 112;
+    this.garageMainLight.intensity = 124;
     this.garageMainLight.visible = true;
-    this.garageRimLight.intensity = 48;
+    this.garageRimLight.color.set('#38BDF8');
+    this.garageRimLight.intensity = 56;
     this.garageRimLight.visible = true;
 
     if (this.garageCar) {
@@ -1396,9 +1569,14 @@ export class RacingEngine {
     } else {
       this.renderer.render(this.scene, this.camera);
     }
+    this.emitGarageDyno(true);
   }
 
   public startRace(params: RaceStartParams) {
+    this.garageDynoActive = false;
+    this.garageDynoGasHeld = false;
+    this.garageDynoAutoPull = false;
+    this.garageDynoNosHeld = false;
     this.clearRaceEntities();
     this.resetInput();
     if (this.garageCar) {
@@ -1480,12 +1658,16 @@ export class RacingEngine {
     this.airTimeTotalSec = 0;
     this.smashablesHit = 0;
     this.driftBoostTimer = 0;
+    this.upshiftKickTimer = 0;
     this.isSlipstreaming = false;
+    this.slingshotState = createSlipstreamSlingshotState();
+    this.styleComboState = createStyleComboState();
     this.spikedTimer = 0;
     this.playerOnCurb = false;
     this.playerNearBarrier = false;
     this.currentWallScrape = 0;
     this.speedTrapFlashTimer = 0;
+    this.gridRevRpm = 0.22;
     this.steerInputSmooth = 0;
     this.lastPlayerGear = 0;
     this.backfireTimer = -0.5;
@@ -1503,6 +1685,7 @@ export class RacingEngine {
     this.nearMissCombo = 0;
     this.nearMissComboTimer = 0;
     this.speedTrapBestKmh = 0;
+    this.recklessInfractionTimer = 0;
     this.evadeProgress = 0;
     this.bustProgress = 0;
     this.nextRoadblockCooldown = 11;
@@ -1519,7 +1702,9 @@ export class RacingEngine {
     this.clock.getDelta();
 
     this.activeMusicTrackName = musicEngine.getTrackTitle(params.trackId);
-    soundEngine.setCarStyle(params.playerSpec.bodyStyle);
+    soundEngine.setCarStyle(
+      resolveCarEngineProfile(params.playerSpec.id, params.playerSpec.bodyStyle, params.playerConfig.engineSound),
+    );
     musicEngine.startTrack(params.trackId);
     this.activeMusicTrackName = musicEngine.getCurrentTrackLabel();
 
@@ -1911,7 +2096,7 @@ export class RacingEngine {
       this.scene.add(this.ghostCarMesh.root);
     }
 
-    const trafficCount = params.mode === 'freeroam' ? 16 : params.mode === 'pursuit' ? 12 : raceDiff === 'Easy' ? 7 : 10;
+    const trafficCount = params.mode === 'freeroam' ? 46 : params.mode === 'pursuit' ? 38 : raceDiff === 'Easy' ? 26 : 34;
     this.spawnCivilianTraffic(trafficCount);
 
     if (params.mode === 'pursuit') {
@@ -1921,9 +2106,13 @@ export class RacingEngine {
         this.spawnPoliceCruiser(this.track.samples.length + 75, 0, false, false);
       }
     } else if (this.patrolsEnabled && params.mode !== 'tollbooth') {
-      this.spawnPoliceCruiser(32, laneGridX * 1.1, false, false, false, true);
-      this.spawnPoliceCruiser(88, -laneGridX * 1.1, false, false, false, true);
-      this.spawnPoliceCruiser(148, laneGridX * 0.85, false, false, false, true);
+      const patrolOffsets = [6, 48, 115, 210, 330, 470];
+      const nSamples = this.track.samples.length;
+      for (let i = 0; i < patrolOffsets.length; i++) {
+        const sIdx = Math.round((patrolOffsets[i] / 720) * nSamples) % nSamples;
+        const laneSign = i % 2 === 0 ? 1 : -1;
+        this.spawnPoliceCruiser(sIdx, laneGridX * laneSign * (0.9 + (i % 3) * 0.25), false, false, false, true);
+      }
     }
 
     this.camPos.copy(playerStartPos).addScaledVector(gridStart.tangent, -5.8).add(new THREE.Vector3(0, 2.25, 0));
@@ -1959,30 +2148,27 @@ export class RacingEngine {
 
   private spawnCivilianTraffic(count: number) {
     if (!this.track) return;
-    const trafficColors = ['#94A3B8', '#334155', '#E2E8F0', '#78350F', '#1E3A8A', '#065F46'];
     const totalSamples = this.track.samples.length;
+    const slots = generateTrafficSpawnSlots(count, totalSamples, this.track.roadHalfWidth);
 
-    for (let i = 0; i < count; i++) {
-      const idx = Math.floor(((i + 0.5) / count) * totalSamples * 0.92 + 26) % totalSamples;
-      const s = this.track.samples[idx];
-      const lanes = [-7.6, -2.9, 2.9, 7.6];
-      const laneOffset = lanes[i % lanes.length];
-      const isTruck = i % 4 === 0;
-      const spec = CARS[isTruck ? 1 : 0];
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i];
+      const s = this.track.samples[slot.trackIdx];
+      const spec = CARS[slot.specIndex] ?? CARS[0];
       const visual = buildCarMesh({
         spec,
-        paintHex: trafficColors[i % trafficColors.length],
+        paintHex: slot.paintHex,
         livery: 'clean',
-        rimStyle: 'chrome',
+        rimStyle: i % 3 === 0 ? 'black' : 'chrome',
         shadowTexture: this.shadowTexture,
         maxAnisotropy: this.maxAnisotropy,
         isSoftwareGl: this.isSoftwareGl,
         isTraffic: true,
-        isTrafficTruck: isTruck,
+        isTrafficTruck: slot.isTruck,
       });
 
-      const pos = s.point.clone().addScaledVector(s.right, laneOffset);
-      pos.y += ROAD_SURFACE_OFFSET + laneOffset * Math.sin(s.bankAngle);
+      const pos = s.point.clone().addScaledVector(s.right, slot.laneOffset);
+      pos.y += ROAD_SURFACE_OFFSET + slot.laneOffset * Math.sin(s.bankAngle);
       const heading = Math.atan2(-s.tangent.x, -s.tangent.z);
       visual.root.position.copy(pos);
       visual.root.rotation.y = heading;
@@ -1993,10 +2179,11 @@ export class RacingEngine {
         visual,
         pos,
         heading,
-        speed: isTruck ? 15 : 20,
-        trackIdx: idx,
-        laneOffset,
-        isTruck,
+        speed: slot.cruiseSpeedMs,
+        cruiseSpeed: slot.cruiseSpeedMs,
+        trackIdx: slot.trackIdx,
+        laneOffset: slot.laneOffset,
+        isTruck: slot.isTruck,
         knockLatVel: 0,
         nearMissCooldown: 0,
         hitCooldown: 0,
@@ -2044,7 +2231,7 @@ export class RacingEngine {
     this.scene.add(visual.root);
 
     const heatSpec = HEAT_POLICE_SPECS[Math.max(1, Math.min(5, this.heatLevel))] ?? HEAT_POLICE_SPECS[1];
-    const initSpeed = isRoadblock ? 0 : patrolling ? 28 : isHeadOn ? 50 : 38;
+    const initSpeed = isRoadblock ? 0 : patrolling ? 23 : isHeadOn ? 50 : 38;
     const initVx = -Math.sin(heading) * initSpeed;
     const initVz = -Math.cos(heading) * initSpeed;
 
@@ -2279,8 +2466,8 @@ export class RacingEngine {
     this.graphicsQuality = quality;
     const preset = GRAPHICS_QUALITY_PRESETS[quality];
     if (this.isSoftwareGl) {
-      this.currentPixelRatio = 1;
-      this.renderer.setPixelRatio(1);
+      this.currentPixelRatio = 0.65;
+      this.renderer.setPixelRatio(0.65);
       this.renderer.shadowMap.enabled = false;
       this.sunLight.castShadow = false;
       this.bloomEnabled = false;
@@ -2568,12 +2755,16 @@ export class RacingEngine {
     this.airTimeTotalSec = 0;
     this.smashablesHit = 0;
     this.driftBoostTimer = 0;
+    this.upshiftKickTimer = 0;
     this.isSlipstreaming = false;
+    this.slingshotState = createSlipstreamSlingshotState();
+    this.styleComboState = createStyleComboState();
     this.spikedTimer = 0;
     this.playerOnCurb = false;
     this.playerNearBarrier = false;
     this.currentWallScrape = 0;
     this.speedTrapFlashTimer = 0;
+    this.gridRevRpm = 0.22;
     this.steerInputSmooth = 0;
     this.lastPlayerGear = 0;
     this.backfireTimer = -0.5;
@@ -2774,6 +2965,22 @@ export class RacingEngine {
   private pushCallout(text: string, tone: 'amber' | 'cyan' | 'red' | 'emerald') {
     this.calloutId++;
     this.callout = { text, tone, expiresAt: performance.now() + 2600, id: this.calloutId };
+  }
+
+  private recordStyleEvent(
+    event: StyleComboEventType,
+    customBaseBounty?: number,
+  ): { bountyAwarded: number; mult: number; milestoneMult: number | null } {
+    const res = stepStyleComboState(this.styleComboState, event, 0, customBaseBounty);
+    this.sessionBounty += res.bountyAwarded;
+    if (res.milestoneMult && res.milestoneMult >= 2) {
+      soundEngine.triggerComboMilestone(res.milestoneMult);
+    }
+    return {
+      bountyAwarded: res.bountyAwarded,
+      mult: this.styleComboState.multiplier,
+      milestoneMult: res.milestoneMult,
+    };
   }
 
   private pushRadio(text: string) {
@@ -3077,10 +3284,10 @@ export class RacingEngine {
         this.frameId = window.setTimeout(poll, 5);
       } else {
         if (sync) gl.deleteSync(sync);
-        this.frameId = window.setTimeout(cb, 80);
+        this.frameId = window.setTimeout(cb, 140);
       }
     };
-    this.frameId = window.setTimeout(poll, 5);
+    this.frameId = window.setTimeout(poll, 16);
   }
 
   private updateGarage(dt: number) {
@@ -3123,6 +3330,89 @@ export class RacingEngine {
     const targetZ = Math.cos(this.garageCamAngle) * this.garageCamDist;
     this.camera.position.set(targetX, this.garageCamHeight, targetZ);
     this.camera.lookAt(0, this.garageCamLookY, 0);
+
+    if (this.garageCar) {
+      if (this.garageDynoActive && this.garageDynoState) {
+        const dyno = this.garageDynoState;
+        const stepRes = stepMenuDynoRun(
+          dyno,
+          dt,
+          this.garageDynoGasHeld,
+          this.garageDynoAutoPull,
+          this.garageDynoNosHeld,
+        );
+        if (stepRes.upshifted) {
+          this.garageDynoBackfireTimer = 0.16;
+          soundEngine.triggerGearShift();
+        }
+        if (this.garageDynoBackfireTimer > 0) {
+          this.garageDynoBackfireTimer = Math.max(0, this.garageDynoBackfireTimer - dt);
+        }
+
+        const speedMps = dyno.speedKmh / 3.6;
+        const wheelRad = Math.max(0.28, this.garageCar.wheelBaseRadius);
+        this.garageDynoWheelAngle -= (speedMps * dt) / wheelRad;
+        for (let i = 0; i < this.garageCar.wheelSpinners.length; i++) {
+          this.garageCar.wheelSpinners[i].rotation.x = this.garageDynoWheelAngle;
+        }
+
+        const accelerating = this.garageDynoGasHeld || this.garageDynoAutoPull;
+        const nosOn = accelerating && this.garageDynoNosHeld;
+        const targetPitch = accelerating ? (nosOn ? -0.026 : -0.014) : dyno.speedKmh > 12 ? 0.01 : 0;
+        this.garageCar.bodyGroup.rotation.x = THREE.MathUtils.damp(
+          this.garageCar.bodyGroup.rotation.x,
+          targetPitch,
+          10,
+          dt,
+        );
+
+        const flick = 0.85 + Math.sin(performance.now() * 0.048) * 0.3;
+        this.garageCar.nosFlames.forEach((f) => {
+          f.visible = nosOn;
+          if (nosOn) f.scale.set(0.92, 0.92, 1.35 * flick);
+        });
+        this.garageCar.nosCores.forEach((f) => {
+          f.visible = nosOn;
+          if (nosOn) f.scale.set(0.9, 0.9, 1.25 * flick);
+        });
+        this.garageCar.nosHalos.forEach((f) => {
+          f.visible = nosOn;
+        });
+        const bfOn = this.garageDynoBackfireTimer > 0 && !nosOn;
+        this.garageCar.backfireFlames.forEach((f) => {
+          f.visible = bfOn;
+          if (bfOn) f.scale.setScalar(0.95 + Math.random() * 0.45);
+        });
+
+        soundEngine.update({
+          active: true,
+          rpm: dyno.rpm,
+          throttle: accelerating,
+          gear: dyno.gear,
+          speedKmh: dyno.speedKmh,
+          nosActive: nosOn,
+          driftSlip: 0,
+          copProximity: 0,
+          wheelspin: accelerating && dyno.speedKmh < 55 ? 0.42 : 0,
+          timeScale: 1,
+        });
+        this.emitGarageDyno(stepRes.upshifted || stepRes.downshifted);
+      } else {
+        this.garageCar.bodyGroup.rotation.x = THREE.MathUtils.damp(this.garageCar.bodyGroup.rotation.x, 0, 8, dt);
+        this.garageCar.nosFlames.forEach((f) => {
+          f.visible = false;
+        });
+        this.garageCar.nosCores.forEach((f) => {
+          f.visible = false;
+        });
+        this.garageCar.nosHalos.forEach((f) => {
+          f.visible = false;
+        });
+        this.garageCar.backfireFlames.forEach((f) => {
+          f.visible = false;
+        });
+      }
+    }
   }
 
   private updateRace(rawDt: number) {
@@ -3147,34 +3437,45 @@ export class RacingEngine {
       const rightZ = -Math.sin(p.heading);
 
       if (outcome === 'win') {
-        // Beat 1: Finish-line NOS rocket burst -> Beat 2/3: Controlled victory power-slide donut
-        const winSlideSpd = Math.max(20, Math.min(44, Math.abs(p.forwardSpeed) * dir.targetSpeedFactor));
-        p.forwardSpeed = THREE.MathUtils.damp(p.forwardSpeed, winSlideSpd, 2.4, slowDt);
-        p.heading += slowDt * dir.spinRate;
-        const nFwdX = -Math.sin(p.heading);
-        const nFwdZ = -Math.cos(p.heading);
-        const nRightX = Math.cos(p.heading);
-        const nRightZ = -Math.sin(p.heading);
-        const lateralDriftPush = dir.beat === 1 ? 2.5 : 8.8;
-        p.pos.x += (nFwdX * p.forwardSpeed * 0.78 + nRightX * lateralDriftPush) * slowDt;
-        p.pos.z += (nFwdZ * p.forwardSpeed * 0.78 + nRightZ * lateralDriftPush) * slowDt;
+        // Clean hero highway rollout aligned with the road (no wall-banging spinouts)
+        const targetWinSpd = dir.beat === 1 ? 38 : dir.beat === 2 ? 26 : 16;
+        p.forwardSpeed = THREE.MathUtils.damp(Math.abs(p.forwardSpeed), targetWinSpd, 2.2, rawDt);
+        p.lateralSpeed = 0;
+
+        const curInfo = this.track.getClosestTrackInfo(p.pos.x, p.pos.z, p.trackIdx, p.pos.y);
+        const roadYaw = Math.atan2(-curInfo.sample.tangent.x, -curInfo.sample.tangent.z);
+        let hDiff = roadYaw - p.heading;
+        while (hDiff > Math.PI) hDiff -= Math.PI * 2;
+        while (hDiff < -Math.PI) hDiff += Math.PI * 2;
+        p.heading += hDiff * Math.min(1, rawDt * 6.5);
+
+        const winFwdX = -Math.sin(p.heading);
+        const winFwdZ = -Math.cos(p.heading);
+        p.pos.x += winFwdX * p.forwardSpeed * slowDt;
+        p.pos.z += winFwdZ * p.forwardSpeed * slowDt;
 
         const pInfo = this.track.getClosestTrackInfo(p.pos.x, p.pos.z, p.trackIdx, p.pos.y);
         p.trackIdx = pInfo.sample.index;
-        const maxWinLat = this.track.barrierHalfWidth - 2.6;
-        if (Math.abs(pInfo.lateralOffset) > maxWinLat) {
-          const ex = Math.abs(pInfo.lateralOffset) - maxWinLat;
-          const sgn = Math.sign(pInfo.lateralOffset);
-          p.pos.x -= pInfo.sample.right.x * sgn * ex;
-          p.pos.z -= pInfo.sample.right.z * sgn * ex;
-        }
+        // Gently center the car onto the clean middle lane so it never scrapes barriers
+        const centerPull = THREE.MathUtils.damp(pInfo.lateralOffset, 0, 3.2, rawDt) - pInfo.lateralOffset;
+        p.pos.x += pInfo.sample.right.x * centerPull;
+        p.pos.z += pInfo.sample.right.z * centerPull;
+        const maxWinLat = Math.max(2.0, this.track.roadHalfWidth - 3.0);
+        const clampedLat = THREE.MathUtils.clamp(pInfo.lateralOffset + centerPull, -maxWinLat, maxWinLat);
+        const latCorr = clampedLat - (pInfo.lateralOffset + centerPull);
+        p.pos.x += pInfo.sample.right.x * latCorr;
+        p.pos.z += pInfo.sample.right.z * latCorr;
+
         p.pos.y = pInfo.elevationY + ROAD_SURFACE_OFFSET;
+        p.airHeight = 0;
+        p.verticalVel = 0;
         p.visual.root.position.copy(p.pos);
         p.visual.root.rotation.set(pInfo.slopePitch, p.heading, -pInfo.bankAngle, 'YXZ');
-        p.visual.bodyGroup.rotation.y = THREE.MathUtils.damp(p.visual.bodyGroup.rotation.y, dir.driftYawOffset, 6, rawDt);
-        p.visual.bodyGroup.rotation.z = THREE.MathUtils.damp(p.visual.bodyGroup.rotation.z, dir.beat === 1 ? -0.02 : -0.055, 6, rawDt);
-        p.visual.wheelFrontLeft.rotation.y = THREE.MathUtils.damp(p.visual.wheelFrontLeft.rotation.y, dir.counterSteerAngle, 8, rawDt);
-        p.visual.wheelFrontRight.rotation.y = THREE.MathUtils.damp(p.visual.wheelFrontRight.rotation.y, dir.counterSteerAngle, 8, rawDt);
+        p.visual.bodyGroup.rotation.x = THREE.MathUtils.damp(p.visual.bodyGroup.rotation.x, 0, 8, rawDt);
+        p.visual.bodyGroup.rotation.y = THREE.MathUtils.damp(p.visual.bodyGroup.rotation.y, 0, 10, rawDt);
+        p.visual.bodyGroup.rotation.z = THREE.MathUtils.damp(p.visual.bodyGroup.rotation.z, 0, 10, rawDt);
+        p.visual.wheelFrontLeft.rotation.y = THREE.MathUtils.damp(p.visual.wheelFrontLeft.rotation.y, 0, 10, rawDt);
+        p.visual.wheelFrontRight.rotation.y = THREE.MathUtils.damp(p.visual.wheelFrontRight.rotation.y, 0, 10, rawDt);
 
         const spin = (p.forwardSpeed * slowDt) / 0.36;
         for (let k = 0; k < p.visual.wheelSpinners.length; k++) {
@@ -3183,38 +3484,22 @@ export class RacingEngine {
         for (let k = 0; k < p.visual.nosFlames.length; k++) {
           const f = p.visual.nosFlames[k];
           f.visible = dir.nosBurst;
-          if (dir.nosBurst) f.scale.set(1.15 + Math.random() * 0.28, 1.15 + Math.random() * 0.28, 1.05 + Math.random() * 0.95);
+          if (dir.nosBurst) f.scale.set(1.1 + Math.random() * 0.2, 1.1 + Math.random() * 0.2, 0.95 + Math.random() * 0.75);
         }
         for (let k = 0; k < p.visual.nosCores.length; k++) {
           const c = p.visual.nosCores[k];
           c.visible = dir.nosBurst;
-          if (dir.nosBurst) c.scale.set(1.05, 1.05, 0.9 + Math.random() * 0.7);
+          if (dir.nosBurst) c.scale.set(1.0, 1.0, 0.85 + Math.random() * 0.55);
         }
         for (let k = 0; k < p.visual.nosHalos.length; k++) {
           const h = p.visual.nosHalos[k];
           h.visible = dir.nosBurst;
-          if (dir.nosBurst) h.scale.setScalar(1.05 + Math.random() * 0.5);
+          if (dir.nosBurst) h.scale.setScalar(1.0 + Math.random() * 0.35);
         }
         for (let k = 0; k < p.visual.backfireFlames.length; k++) {
           const bf = p.visual.backfireFlames[k];
           bf.visible = dir.backfirePulse;
-          if (dir.backfirePulse) bf.scale.set(1.1, 1.1, 0.9 + Math.random() * 0.7);
-        }
-
-        // Billowing rear tire smoke & exhaust embers
-        const rearX = p.pos.x - nFwdX * 1.45;
-        const rearZ = p.pos.z - nFwdZ * 1.45;
-        if (Math.random() < dir.smokeIntensity) {
-          for (const side of [-0.95, 0.95]) {
-            _v1.set(rearX + nRightX * side, p.pos.y + 0.22, rearZ + nRightZ * side);
-            _v2.set((Math.random() - 0.5) * 4.0, 1.7 + Math.random() * 1.5, (Math.random() - 0.5) * 4.0);
-            this.spawnParticle(_v1, _v2, '#E2E8F0', 1.2, 0.65);
-          }
-        }
-        if (dir.nosBurst && Math.random() < 0.78) {
-          _v1.set(rearX - nFwdX * 0.55, p.pos.y + 0.42, rearZ - nFwdZ * 0.55);
-          _v2.set(-nFwdX * 11 + (Math.random() - 0.5) * 4, 1.6 + Math.random() * 2.2, -nFwdZ * 11 + (Math.random() - 0.5) * 4);
-          this.spawnParticle(_v1, _v2, Math.random() > 0.42 ? '#38BDF8' : '#F59E0B', 0.82, 0.46);
+          if (dir.backfirePulse) bf.scale.set(1.05, 1.05, 0.85 + Math.random() * 0.6);
         }
 
         // Celebratory Gold & Plasma-Cyan Pyrotechnic Spark Fountains flanking the car
@@ -3224,32 +3509,56 @@ export class RacingEngine {
             const sparkHex =
               Math.random() < 0.46 ? '#F59E0B' : Math.random() < 0.75 ? '#38BDF8' : '#FEF08A';
             _v1.set(
-              p.pos.x + nRightX * pySide + (Math.random() - 0.5) * 1.2,
+              p.pos.x + pInfo.sample.right.x * pySide + (Math.random() - 0.5) * 1.2,
               p.pos.y + 0.35,
-              p.pos.z + nRightZ * pySide + (Math.random() - 0.5) * 1.2,
+              p.pos.z + pInfo.sample.right.z * pySide + (Math.random() - 0.5) * 1.2,
             );
             _v2.set(
               Math.cos(ang) * (2.5 + Math.random() * 3.5),
               7.5 + Math.random() * 6.5,
               Math.sin(ang) * (2.5 + Math.random() * 3.5),
             );
-            this.spawnParticle(_v1, _v2, sparkHex, 0.95, 0.95);
+            this.spawnParticle(_v1, _v2, sparkHex, 0.85, 0.9);
           }
         }
       } else if (outcome === 'loss') {
-        p.forwardSpeed = THREE.MathUtils.damp(p.forwardSpeed, Math.max(8, Math.abs(p.forwardSpeed) * dir.targetSpeedFactor), 1.4, slowDt);
-        p.pos.x += fwdX * p.forwardSpeed * slowDt;
-        p.pos.z += fwdZ * p.forwardSpeed * slowDt;
-        const pInfo = this.track.getClosestTrackInfo(p.pos.x, p.pos.z, p.trackIdx, p.pos.y);
-        p.trackIdx = pInfo.sample.index;
-        p.pos.y = pInfo.elevationY + ROAD_SURFACE_OFFSET;
-        const roadYaw = Math.atan2(-pInfo.sample.tangent.x, -pInfo.sample.tangent.z);
+        // Smooth straight-ahead deceleration inside road lane (zero sideways crab-drift)
+        const targetLossSpd = dir.beat === 1 ? 22 : 8;
+        p.forwardSpeed = THREE.MathUtils.damp(Math.abs(p.forwardSpeed), targetLossSpd, 2.2, rawDt);
+        p.lateralSpeed = 0;
+
+        const curInfo = this.track.getClosestTrackInfo(p.pos.x, p.pos.z, p.trackIdx, p.pos.y);
+        const roadYaw = Math.atan2(-curInfo.sample.tangent.x, -curInfo.sample.tangent.z);
         let hDiff = roadYaw - p.heading;
         while (hDiff > Math.PI) hDiff -= Math.PI * 2;
         while (hDiff < -Math.PI) hDiff += Math.PI * 2;
-        p.heading += hDiff * Math.min(1, slowDt * 3.5);
+        p.heading += hDiff * Math.min(1, rawDt * 7.5);
+
+        const lossFwdX = -Math.sin(p.heading);
+        const lossFwdZ = -Math.cos(p.heading);
+        p.pos.x += lossFwdX * p.forwardSpeed * slowDt;
+        p.pos.z += lossFwdZ * p.forwardSpeed * slowDt;
+
+        const pInfo = this.track.getClosestTrackInfo(p.pos.x, p.pos.z, p.trackIdx, p.pos.y);
+        p.trackIdx = pInfo.sample.index;
+        const maxLossLat = Math.max(2.0, this.track.roadHalfWidth - 2.6);
+        if (Math.abs(pInfo.lateralOffset) > maxLossLat) {
+          const ex = Math.abs(pInfo.lateralOffset) - maxLossLat;
+          const sgn = Math.sign(pInfo.lateralOffset);
+          p.pos.x -= pInfo.sample.right.x * sgn * ex;
+          p.pos.z -= pInfo.sample.right.z * sgn * ex;
+        }
+        p.pos.y = pInfo.elevationY + ROAD_SURFACE_OFFSET;
+        p.airHeight = 0;
+        p.verticalVel = 0;
         p.visual.root.position.copy(p.pos);
         p.visual.root.rotation.set(pInfo.slopePitch, p.heading, -pInfo.bankAngle, 'YXZ');
+        p.visual.bodyGroup.rotation.x = THREE.MathUtils.damp(p.visual.bodyGroup.rotation.x, 0.02, 8, rawDt);
+        p.visual.bodyGroup.rotation.y = THREE.MathUtils.damp(p.visual.bodyGroup.rotation.y, 0, 12, rawDt);
+        p.visual.bodyGroup.rotation.z = THREE.MathUtils.damp(p.visual.bodyGroup.rotation.z, 0, 12, rawDt);
+        p.visual.wheelFrontLeft.rotation.y = THREE.MathUtils.damp(p.visual.wheelFrontLeft.rotation.y, 0, 10, rawDt);
+        p.visual.wheelFrontRight.rotation.y = THREE.MathUtils.damp(p.visual.wheelFrontRight.rotation.y, 0, 10, rawDt);
+
         const spin = (p.forwardSpeed * slowDt) / 0.36;
         for (let k = 0; k < p.visual.wheelSpinners.length; k++) {
           p.visual.wheelSpinners[k].rotation.x -= spin;
@@ -3263,6 +3572,8 @@ export class RacingEngine {
         for (let k = 0; k < p.visual.nosFlames.length; k++) p.visual.nosFlames[k].visible = false;
         for (let k = 0; k < p.visual.nosCores.length; k++) p.visual.nosCores[k].visible = false;
         for (let k = 0; k < p.visual.nosHalos.length; k++) p.visual.nosHalos[k].visible = false;
+        p.visual.bodyGroup.rotation.y = THREE.MathUtils.damp(p.visual.bodyGroup.rotation.y, 0, 10, rawDt);
+        p.visual.bodyGroup.rotation.z = THREE.MathUtils.damp(p.visual.bodyGroup.rotation.z, 0, 10, rawDt);
         p.visual.wheelFrontLeft.rotation.y = THREE.MathUtils.damp(p.visual.wheelFrontLeft.rotation.y, dir.counterSteerAngle, 6, rawDt);
         p.visual.wheelFrontRight.rotation.y = THREE.MathUtils.damp(p.visual.wheelFrontRight.rotation.y, dir.counterSteerAngle, 6, rawDt);
         p.visual.brakeLightMat.emissiveIntensity = Math.sin(this.outroTimer * 14) > 0 ? 4.8 : 0.8;
@@ -3479,10 +3790,11 @@ export class RacingEngine {
         soundEngine.triggerCountdownTick(false);
       }
       const launchThrottle = this.input.throttle || this.gamepadThrottleDown;
+      const revTarget = launchThrottle ? 0.915 + Math.sin(nowSec * 22) * 0.032 : 0.24;
       this.gridRevRpm = THREE.MathUtils.damp(
         this.gridRevRpm,
-        launchThrottle ? 0.92 : 0.26,
-        launchThrottle ? 10.5 : 5.5,
+        revTarget,
+        launchThrottle ? 4.8 : 5.5,
         rawDt,
       );
       for (let i = 0; i < this.racers.length; i++) {
@@ -3523,25 +3835,42 @@ export class RacingEngine {
         this.player.visual.backfireFlames.forEach((f) => (f.visible = false));
         soundEngine.triggerCountdownTick(true);
         const cfg = this.raceParams?.playerConfig;
-        if (launchThrottle) {
-          const turboStage = cfg ? cfg.turboLevel : 1;
-          this.player.forwardSpeed = 13.5 + turboStage * 1.1;
-          this.driftBoostTimer = 0.9;
+        const launch = evaluateCountdownLaunch(
+          this.gridRevRpm,
+          launchThrottle,
+          cfg ? cfg.turboLevel : 1,
+        );
+        if (launch.speedBoostMs > 0) {
+          this.player.forwardSpeed = launch.speedBoostMs;
+          this.driftBoostTimer = Math.max(this.driftBoostTimer, launch.boostDurationSec);
+          this.nitrous = Math.min(100, this.nitrous + launch.nosBonus);
+          this.sessionBounty += launch.bountyBonus;
           const p = this.player;
           const fwdX = -Math.sin(p.heading);
           const fwdZ = -Math.cos(p.heading);
-          for (let s = 0; s < 8; s++) {
+          const puffCount = launch.wheelspinParticles ? 12 : 8;
+          for (let s = 0; s < puffCount; s++) {
             _v1.set(
               p.pos.x - fwdX * 1.65 + (Math.random() - 0.5) * 1.4,
               p.pos.y + 0.25,
               p.pos.z - fwdZ * 1.65 + (Math.random() - 0.5) * 1.4,
             );
             _v2.set(-fwdX * (4 + Math.random() * 4), 1.4 + Math.random() * 1.8, -fwdZ * (4 + Math.random() * 4));
-            this.spawnParticle(_v1, _v2, '#E2E8F0', 0.85, 0.45);
+            this.spawnParticle(
+              _v1,
+              _v2,
+              launch.grade === 'perfect' ? '#38BDF8' : '#E2E8F0',
+              0.85,
+              0.45,
+            );
           }
-          this.pushCallout('PERFECT LAUNCH! GO!', 'emerald');
+          if (launch.grade === 'perfect') {
+            soundEngine.triggerPerfectLaunch();
+            this.camShake = Math.max(this.camShake, 0.22);
+          }
+          this.pushCallout(launch.callout, launch.grade === 'wheelspin' ? 'amber' : 'emerald');
         } else {
-          this.pushCallout('GO!', 'emerald');
+          this.pushCallout(launch.callout, 'emerald');
         }
       }
       this.updateCamera(rawDt);
@@ -3579,14 +3908,21 @@ export class RacingEngine {
       this.nearMissComboTimer = Math.max(0, this.nearMissComboTimer - rawDt);
       if (this.nearMissComboTimer === 0) this.nearMissCombo = 0;
     }
+    stepStyleComboState(this.styleComboState, null, rawDt);
     if (this.speedTrapFlashTimer > 0) {
       this.speedTrapFlashTimer = Math.max(0, this.speedTrapFlashTimer - rawDt);
     }
     if (this.driftBoostTimer > 0) {
       this.driftBoostTimer = Math.max(0, this.driftBoostTimer - rawDt);
     }
+    if (this.upshiftKickTimer > 0) {
+      this.upshiftKickTimer = Math.max(0, this.upshiftKickTimer - rawDt);
+    }
     if (this.spikedTimer > 0) {
       this.spikedTimer = Math.max(0, this.spikedTimer - rawDt);
+    }
+    if (this.recklessInfractionTimer > 0) {
+      this.recklessInfractionTimer = Math.max(0, this.recklessInfractionTimer - rawDt);
     }
 
     // Fixed 1/120s physics timestep accumulator with render pose interpolation
@@ -3883,16 +4219,16 @@ export class RacingEngine {
     const pFwdX = -Math.sin(p.heading);
     const pFwdZ = -Math.cos(p.heading);
     let drafting = false;
-    if (p.forwardSpeed > 32 && throttleDown) {
+    if (p.forwardSpeed > 28 && throttleDown) {
       for (let i = 0; i < this.racers.length && !drafting; i++) {
         const other = this.racers[i];
         if (other.isPlayer) continue;
         const dx = other.pos.x - p.pos.x;
         const dz = other.pos.z - p.pos.z;
         const fwdDist = dx * pFwdX + dz * pFwdZ;
-        if (fwdDist > 5 && fwdDist < 38) {
+        if (fwdDist > 4 && fwdDist < 46) {
           const latDist = Math.abs(dx * -pFwdZ + dz * pFwdX);
-          if (latDist < 3.4) drafting = true;
+          if (latDist < 3.6) drafting = true;
         }
       }
       for (let i = 0; i < this.traffic.length && !drafting; i++) {
@@ -3900,24 +4236,40 @@ export class RacingEngine {
         const dx = tr.pos.x - p.pos.x;
         const dz = tr.pos.z - p.pos.z;
         const fwdDist = dx * pFwdX + dz * pFwdZ;
-        if (fwdDist > 5 && fwdDist < 34) {
+        if (fwdDist > 4 && fwdDist < 42) {
           const latDist = Math.abs(dx * -pFwdZ + dz * pFwdX);
-          if (latDist < 3.2) drafting = true;
+          if (latDist < 3.4) drafting = true;
         }
       }
     }
     this.isSlipstreaming = drafting;
+    const slingshotStep = stepSlipstreamSlingshot(this.slingshotState, drafting, p.forwardSpeed, rawFixedDt);
+    if (slingshotStep.triggered) {
+      this.nitrous = Math.min(100, this.nitrous + slingshotStep.nosBonus);
+      this.sessionBounty += slingshotStep.bountyBonus * this.styleComboState.multiplier;
+      this.driftBoostTimer = Math.max(this.driftBoostTimer, 1.35);
+      p.forwardSpeed = Math.min(baseMaxMs * 1.19, p.forwardSpeed + slingshotStep.speedKickMs);
+      soundEngine.triggerPerfectLaunch();
+      this.camShake = Math.max(this.camShake, 0.22);
+      this.pushCallout(
+        `SLIPSTREAM SLINGSHOT! +$${(slingshotStep.bountyBonus * this.styleComboState.multiplier).toLocaleString()} · +12% NOS`,
+        'cyan',
+      );
+    }
+    const slingshotActive = this.slingshotState.boostTimer > 0;
 
     const spikeCapMs = this.spikedTimer > 0 ? 145 / 3.6 : Infinity;
     const maxForwardMs = Math.min(
       spikeCapMs,
       nosActive
         ? baseMaxMs * 1.18
-        : this.driftBoostTimer > 0
-          ? baseMaxMs * 1.1
-          : drafting
-            ? baseMaxMs * 1.06
-            : baseMaxMs,
+        : slingshotActive
+          ? baseMaxMs * 1.16
+          : this.driftBoostTimer > 0
+            ? baseMaxMs * 1.13
+            : drafting
+              ? baseMaxMs * 1.09
+              : baseMaxMs,
     );
 
     if (boostFlare) {
@@ -4014,9 +4366,10 @@ export class RacingEngine {
     this.playerHeaveOffset = sOut.heaveOffset;
     this.playerWheelspinIntensity = sOut.wheelspinIntensity;
 
-    const airPitch = airborne ? THREE.MathUtils.clamp(p.verticalVel * 0.011, -0.11, 0.13) : 0;
+    const airPitch = airborne ? THREE.MathUtils.clamp(p.verticalVel * 0.015, -0.14, 0.17) : 0;
+    const airRoll = airborne ? rawSteerInput * -0.055 : 0;
     p.pitch = THREE.MathUtils.damp(p.pitch, sOut.targetPitch + airPitch, 11, rawFixedDt);
-    p.roll = THREE.MathUtils.damp(p.roll, sOut.targetRoll, 11, rawFixedDt);
+    p.roll = THREE.MathUtils.damp(p.roll, sOut.targetRoll + airRoll, 11, rawFixedDt);
 
     const driftSlip = airborne ? 0 : Math.min(1, Math.abs(p.lateralSpeed) / 7.8);
     const wasDrifting = this.isDrifting;
@@ -4028,16 +4381,17 @@ export class RacingEngine {
       this.nitrous = Math.min(100, this.nitrous + rawFixedDt * 14 * driftSlip);
       this.speedbreaker = Math.min(100, this.speedbreaker + rawFixedDt * 11 * driftSlip);
     } else {
-      if (wasDrifting && this.driftHoldSec >= 0.55 && p.forwardSpeed > 20 && throttleDown) {
-        this.driftBoostTimer = 1.25;
-        p.forwardSpeed = Math.min(maxForwardMs, p.forwardSpeed + 7.2);
-        const driftCash = Math.round(this.driftHoldSec * 280);
-        if (driftCash >= 150) {
-          this.sessionBounty += driftCash;
-          this.pushCallout(`DRIFT EXIT BOOST! +$${driftCash.toLocaleString()} BOUNTY`, 'amber');
-        } else {
-          this.pushCallout('DRIFT EXIT BOOST!', 'amber');
-        }
+      if (wasDrifting && this.driftHoldSec >= 0.45 && p.forwardSpeed > 18 && throttleDown) {
+        this.driftBoostTimer = 1.55;
+        p.forwardSpeed = Math.min(maxForwardMs, p.forwardSpeed + 9.2);
+        const rawDriftCash = Math.round(this.driftHoldSec * 320);
+        const comboOut = this.recordStyleEvent('drift_exit', Math.max(150, rawDriftCash));
+        this.pushCallout(
+          comboOut.mult > 1
+            ? `DRIFT EXIT BOOST x${comboOut.mult}! +$${comboOut.bountyAwarded.toLocaleString()}`
+            : `DRIFT EXIT BOOST! +$${comboOut.bountyAwarded.toLocaleString()} BOUNTY`,
+          'amber',
+        );
       }
       this.driftHoldSec = 0;
     }
@@ -4240,6 +4594,17 @@ export class RacingEngine {
       const rTemp = Math.max(this.vehicleDynamics.wheels[2].brakeTemp, this.vehicleDynamics.wheels[3].brakeTemp);
       p.visual.rotorGlowMats[0].emissiveIntensity = Math.pow(fTemp, 1.55) * 4.4;
       p.visual.rotorGlowMats[1].emissiveIntensity = Math.pow(rTemp, 1.55) * 3.5;
+      if (!airborne && fTemp > 0.78 && Math.abs(p.forwardSpeed) > 22 && Math.random() < 0.4) {
+        const sSin = Math.sin(p.heading);
+        const sCos = Math.cos(p.heading);
+        const rgtX = sCos;
+        const rgtZ = -sSin;
+        const side = Math.random() > 0.5 ? p.spec.dimensions.width * 0.44 : -p.spec.dimensions.width * 0.44;
+        const fAx = p.spec.dimensions.length * 0.305;
+        _v1.set(p.pos.x - sSin * fAx + rgtX * side, p.pos.y + pBaseRad * 0.65, p.pos.z - sCos * fAx + rgtZ * side);
+        _v2.set(sSin * 4 + (Math.random() - 0.5) * 2.5, 0.8 + Math.random() * 1.4, sCos * 4 + (Math.random() - 0.5) * 2.5);
+        this.spawnParticle(_v1, _v2, '#FB923C', 0.28, 0.16);
+      }
     }
 
     // Skidmarks & surface-colored tire smoke / wet rain spray once per render frame
@@ -4325,14 +4690,14 @@ export class RacingEngine {
       const rightZ = -sinH;
       const sparkCount = nosActive ? 2 : 1;
       for (let sp = 0; sp < sparkCount; sp++) {
-        const pipeSign = sp === 0 ? -0.38 : 0.38;
+        const pipeSign = sp === 0 ? -0.36 : 0.36;
         _v1.set(
-          p.pos.x + sinH * 2.35 + rightX * pipeSign,
-          p.pos.y + 0.36 + (Math.random() - 0.5) * 0.1,
-          p.pos.z + cosH * 2.35 + rightZ * pipeSign,
+          p.pos.x + sinH * 2.2 + rightX * pipeSign,
+          p.pos.y + 0.34 + (Math.random() - 0.5) * 0.08,
+          p.pos.z + cosH * 2.2 + rightZ * pipeSign,
         );
-        _v2.set(sinH * 11 + (Math.random() - 0.5) * 2.0, 0.35 + Math.random() * 0.4, cosH * 11 + (Math.random() - 0.5) * 2.0);
-        this.spawnParticle(_v1, _v2, nosActive ? (sp === 0 ? '#38BDF8' : '#E0F2FE') : '#F59E0B', 0.72, 0.26);
+        _v2.set(sinH * 10 + (Math.random() - 0.5) * 1.6, 0.25 + Math.random() * 0.3, cosH * 10 + (Math.random() - 0.5) * 1.6);
+        this.spawnParticle(_v1, _v2, nosActive ? (sp === 0 ? '#38BDF8' : '#E0F2FE') : '#F59E0B', 0.38, 0.2);
       }
     } else {
       for (let k = 0; k < p.visual.nosFlames.length; k++) p.visual.nosFlames[k].visible = false;
@@ -4342,8 +4707,13 @@ export class RacingEngine {
 
     const { gear, rpm } = this.computeGearAndRpm(p.forwardSpeed, throttleDown);
     this.backfireTimer = Math.max(-0.5, this.backfireTimer - rawDt);
+    const isUpshift = gear > this.lastPlayerGear && gear > 1;
+    if (isUpshift) {
+      soundEngine.triggerGearShift();
+      this.upshiftKickTimer = 0.24;
+    }
     if (
-      (gear > this.lastPlayerGear && gear > 1) ||
+      isUpshift ||
       (!throttleDown && rpm > 0.72 && p.forwardSpeed > 20 && this.backfireTimer <= -0.35)
     ) {
       this.backfireTimer = 0.16;
@@ -4484,8 +4854,23 @@ export class RacingEngine {
       t.pos.x += (tFwdX * t.speed + tRightX * t.knockLatVel) * dt;
       t.pos.z += (tFwdZ * t.speed + tRightZ * t.knockLatVel) * dt;
       t.knockLatVel = THREE.MathUtils.damp(t.knockLatVel, 0, 5.5, dt);
-      const baseCruise = t.isTruck ? 15 : 20;
-      t.speed = THREE.MathUtils.damp(t.speed, baseCruise, 1.6, dt);
+
+      // Maintain safe lane spacing behind slower vehicles ahead so dense traffic never overlaps
+      let desiredCruise = t.cruiseSpeed;
+      const nTrafficSamples = samples.length;
+      for (let otherIdx = 0; otherIdx < this.traffic.length; otherIdx++) {
+        const other = this.traffic[otherIdx];
+        if (other === t) continue;
+        if (Math.abs(other.laneOffset - t.laneOffset) > 2.3) continue;
+        const aheadDiff = (other.trackIdx - t.trackIdx + nTrafficSamples) % nTrafficSamples;
+        if (aheadDiff > 0 && aheadDiff < 14) {
+          const gapMeters = t.pos.distanceTo(other.pos);
+          if (gapMeters < 18) {
+            desiredCruise = Math.min(desiredCruise, Math.max(4, other.speed * (gapMeters < 10 ? 0.6 : 0.92)));
+          }
+        }
+      }
+      t.speed = THREE.MathUtils.damp(t.speed, desiredCruise, 2.4, dt);
 
       const info = this.track.getClosestTrackInfo(t.pos.x, t.pos.z, t.trackIdx, t.pos.y);
       t.trackIdx = info.sample.index;
@@ -4592,6 +4977,9 @@ export class RacingEngine {
               if (r.isPlayer) {
                 this.camShake = Math.max(this.camShake, t.isTruck ? 0.42 : 0.28);
                 soundEngine.triggerImpact(t.isTruck ? 0.85 : 0.62);
+                if (impactSpd > 10) {
+                  this.recklessInfractionTimer = Math.max(this.recklessInfractionTimer, 5.0);
+                }
               }
               if (r.isPlayer || r.pos.distanceToSquared(this.player.pos) < 110 * 110) {
                 for (let k = 0; k < 6; k++) {
@@ -4611,13 +4999,12 @@ export class RacingEngine {
         this.nearMissCount++;
         this.nearMissCombo = Math.min(5, this.nearMissCombo + 1);
         this.nearMissComboTimer = 6.5;
-        const reward = 350 * this.nearMissCombo;
-        this.sessionBounty += reward;
+        const comboOut = this.recordStyleEvent('near_miss');
         this.nitrous = Math.min(100, this.nitrous + 10);
         this.pushCallout(
-          this.nearMissCombo > 1
-            ? `NEAR MISS x${this.nearMissCombo}! +$${reward.toLocaleString()} BOUNTY · NOS +10%`
-            : `NEAR MISS! +$${reward.toLocaleString()} BOUNTY · NOS +10%`,
+          comboOut.mult > 1
+            ? `NEAR MISS x${comboOut.mult}! +$${comboOut.bountyAwarded.toLocaleString()} · NOS +10%`
+            : `NEAR MISS! +$${comboOut.bountyAwarded.toLocaleString()} BOUNTY · NOS +10%`,
           'cyan',
         );
         soundEngine.triggerBeep(true);
@@ -4637,7 +5024,9 @@ export class RacingEngine {
 
     let groundHeight = info.elevationY + ROAD_SURFACE_OFFSET;
 
-    // Stunt Jump Ramp collision & launch height
+    // Mega Stunt Ramp concave profile & Big-Air launch
+    const playerNosBoost =
+      isPlayer && (this.input.nitrous || this.gamepadNitrousDown) && this.nitrous > 1;
     for (let i = 0; i < this.track.ramps.length; i++) {
       const ramp = this.track.ramps[i];
       const rx = r.pos.x - ramp.position.x;
@@ -4645,43 +5034,75 @@ export class RacingEngine {
       const along = rx * ramp.tangent.x + rz * ramp.tangent.z;
       const lat = rx * ramp.right.x + rz * ramp.right.z;
 
-      if (along >= 0 && along <= ramp.length + 0.5 && Math.abs(lat) <= ramp.halfWidth + 0.55) {
-        const rampY = THREE.MathUtils.clamp(along / ramp.length, 0, 1) * ramp.height;
-        if (r.airHeight <= rampY + 0.45) {
+      if (along >= 0 && along <= ramp.length + 0.6 && Math.abs(lat) <= ramp.halfWidth + 0.55) {
+        const rampY = computeRampDeckHeight(along, ramp.length, ramp.height);
+        if (r.airHeight <= rampY + 0.55) {
           groundHeight += rampY;
-          if (along >= ramp.length - 1.1 && r.forwardSpeed > 24 && r.verticalVel <= 0.5) {
+          if (along >= ramp.length - 1.5 && r.forwardSpeed > 20 && r.verticalVel <= 0.8) {
             r.airHeight = rampY;
-            r.verticalVel = THREE.MathUtils.clamp(r.forwardSpeed * Math.sin(ramp.launchAngle) * 0.58 + 0.35, 1.2, 5.2);
+            r.verticalVel = computeRampLaunchVerticalVel({
+              forwardSpeedMs: r.forwardSpeed,
+              launchAngleRad: ramp.launchAngle,
+              nosActive: playerNosBoost,
+            });
             if (isPlayer) {
               soundEngine.triggerBeep(false);
+              this.camShake = Math.max(this.camShake, 0.14);
+              for (let k = 0; k < 6; k++) {
+                _v2.set((Math.random() - 0.5) * 7, 1.8 + Math.random() * 2.5, (Math.random() - 0.5) * 7);
+                this.spawnParticle(r.pos, _v2, '#38BDF8', 0.45, 0.25);
+              }
             }
           }
         }
       }
     }
 
-    // Weighty arcade gravity integration so cars feel planted instead of floaty
+    // Dynamic gravity with subtle aero lift and strict peak air ceiling so cars never fly out of the map
     if (r.airHeight > 0 || r.verticalVel > 0) {
-      r.verticalVel -= AIR_GRAVITY_MPS2 * dt;
+      const gravScale = computeAirGravityScale(r.forwardSpeed, playerNosBoost);
+      r.verticalVel -= AIR_GRAVITY_MPS2 * gravScale * dt;
       r.airHeight += r.verticalVel * dt;
+      if (r.airHeight > 5.5) {
+        r.airHeight = 5.5;
+        if (r.verticalVel > 0) r.verticalVel = 0;
+      }
       r.airTimeTotal += dt;
       if (isPlayer) this.airTimeTotalSec += dt;
       if (r.airHeight <= 0) {
         r.lastLandingVelMps = Math.max(r.lastLandingVelMps, Math.max(0, -r.verticalVel));
         if (isPlayer) {
-          if (r.airTimeTotal > 0.25) {
-            r.pitch = -0.032;
+          if (r.airTimeTotal > 0.22) {
+            r.pitch = -0.048;
           }
-          if (r.airTimeTotal > 0.45) {
+          if (r.airTimeTotal > 0.28) {
+            for (let k = 0; k < 4; k++) {
+              const side = k % 2 === 0 ? -0.9 : 0.9;
+              const ax = k < 2 ? 1.3 : -1.3;
+              _v1.set(
+                r.pos.x - Math.sin(r.heading) * ax + Math.cos(r.heading) * side,
+                r.pos.y + 0.16,
+                r.pos.z - Math.cos(r.heading) * ax - Math.sin(r.heading) * side,
+              );
+              _v2.set(side * 3.2 + (Math.random() - 0.5) * 2.0, 0.9 + Math.random() * 1.1, (Math.random() - 0.5) * 2.0);
+              this.spawnParticle(_v1, _v2, '#CBD5E1', 0.55, 0.34);
+            }
+          }
+          if (r.airTimeTotal > 0.38) {
             soundEngine.triggerLandingThump();
-            this.camShake = Math.max(this.camShake, 0.22);
-            const airBonus = 500 + Math.round(r.airTimeTotal * 900);
-            this.sessionBounty += airBonus;
-            this.nitrous = Math.min(100, this.nitrous + 15);
-            this.pushCallout(`AIR TIME ${r.airTimeTotal.toFixed(1)}S · +$${airBonus.toLocaleString()} · NOS +15%`, 'cyan');
-            for (let k = 0; k < 6; k++) {
-              _v2.set((Math.random() - 0.5) * 8, 1.5 + Math.random() * 2, (Math.random() - 0.5) * 8);
-              this.spawnParticle(r.pos, _v2, '#F59E0B', 0.65, 0.35);
+            this.camShake = Math.max(this.camShake, 0.28);
+            const baseAirBonus = 650 + Math.round(r.airTimeTotal * 1100);
+            const comboOut = this.recordStyleEvent('mega_air', baseAirBonus);
+            this.nitrous = Math.min(100, this.nitrous + 20);
+            this.pushCallout(
+              comboOut.mult > 1
+                ? `MEGA AIR ${r.airTimeTotal.toFixed(1)}S x${comboOut.mult} · +$${comboOut.bountyAwarded.toLocaleString()} · NOS +20%`
+                : `MEGA AIR ${r.airTimeTotal.toFixed(1)}S · +$${comboOut.bountyAwarded.toLocaleString()} · NOS +20%`,
+              'cyan',
+            );
+            for (let k = 0; k < 12; k++) {
+              _v2.set((Math.random() - 0.5) * 11, 2.0 + Math.random() * 3.2, (Math.random() - 0.5) * 11);
+              this.spawnParticle(r.pos, _v2, k % 2 === 0 ? '#F59E0B' : '#FDE047', 0.72, 0.42);
             }
           }
         }
@@ -4711,10 +5132,10 @@ export class RacingEngine {
     const canEnterShortcut = Boolean(
       r.activeShortcutId === null &&
         scHit &&
-        scHit.frac >= 0.002 &&
-        scHit.frac <= scHit.shortcut.innerStartFrac + 0.08 &&
-        info.lateralOffset * scHit.shortcut.side > this.track.roadHalfWidth - 2.2 &&
-        Math.abs(scHit.lateral) <= scHit.shortcut.halfWidth + 0.6 &&
+        scHit.frac >= 0.001 &&
+        scHit.frac <= scHit.shortcut.innerStartFrac + 0.14 &&
+        info.lateralOffset * scHit.shortcut.side > this.track.roadHalfWidth - 2.6 &&
+        Math.abs(scHit.lateral) <= scHit.shortcut.halfWidth + 3.2 &&
         r.forwardSpeed > -4.0,
     );
 
@@ -4869,8 +5290,11 @@ export class RacingEngine {
           r.shortcutPassCooldown = 8.0;
           this.shortcutsTaken++;
           this.nitrous = Math.min(100, this.nitrous + 25);
-          this.sessionBounty += 1500;
-          this.pushCallout(`SHORTCUT: ${sc.label.toUpperCase()}! +$1,500 · NOS +25%`, 'emerald');
+          const comboOut = this.recordStyleEvent('shortcut');
+          this.pushCallout(
+            `SHORTCUT: ${sc.label.toUpperCase()}! +$${comboOut.bountyAwarded.toLocaleString()} · NOS +25%`,
+            'emerald',
+          );
           soundEngine.triggerBeep(true);
         }
         r.activeShortcutId = null;
@@ -4977,19 +5401,26 @@ export class RacingEngine {
     r.totalProgress = r.lap - 1 + r.progress;
 
     // ONLY open the main-track barrier where a cutout exists (entry throat or exit merge funnel).
-    // Everywhere else on the highway, continuous reinforced barriers keep vehicles solidly contained.
+    // Synchronize both scHit width AND main-track sample cutout indices so no invisible wall ever blocks a shortcut turn-in.
     const latSign = info.lateralOffset >= 0 ? 1 : -1;
+    const inSampleCutout = this.track.shortcuts.some(
+      (sc) =>
+        sc.side === latSign &&
+        (isSampleInsideBarrierCutout(info.sample.index, sc.entryCutStartIdx, sc.entryCutEndIdx, nSamples) ||
+          isSampleInsideBarrierCutout(info.sample.index, sc.exitCutStartIdx, sc.exitCutEndIdx, nSamples)),
+    );
     const insideShortcutMouth = Boolean(
-      scHit &&
-        scHit.shortcut.side === latSign &&
-        Math.abs(scHit.lateral) <= scHit.shortcut.halfWidth + 0.8 &&
-        (scHit.frac <= scHit.shortcut.innerStartFrac + 0.04 || scHit.frac >= scHit.shortcut.innerEndFrac - 0.04),
+      inSampleCutout ||
+        (scHit &&
+          scHit.shortcut.side === latSign &&
+          Math.abs(scHit.lateral) <= scHit.shortcut.halfWidth + 3.2 &&
+          (scHit.frac <= scHit.shortcut.innerStartFrac + 0.08 || scHit.frac >= scHit.shortcut.innerEndFrac - 0.08)),
     );
 
     const maxLat = this.track.barrierHalfWidth - 1.15;
     if (!insideShortcutMouth && Math.abs(info.lateralOffset) > maxLat) {
       const sign = Math.sign(info.lateralOffset);
-      const excess = Math.min(Math.max(0, Math.abs(info.lateralOffset) - maxLat), 4.5);
+      const excess = Math.max(0, Math.abs(info.lateralOffset) - maxLat);
       r.pos.x -= info.sample.right.x * sign * excess;
       r.pos.z -= info.sample.right.z * sign * excess;
 
@@ -5072,12 +5503,20 @@ export class RacingEngine {
 
       const info = this.track.getClosestTrackInfo(r.pos.x, r.pos.z, r.trackIdx, r.pos.y);
       const latSign = info.lateralOffset >= 0 ? 1 : -1;
+      const nSamples = this.track.samples.length;
+      const inSampleCutout = this.track.shortcuts.some(
+        (sc) =>
+          sc.side === latSign &&
+          (isSampleInsideBarrierCutout(info.sample.index, sc.entryCutStartIdx, sc.entryCutEndIdx, nSamples) ||
+            isSampleInsideBarrierCutout(info.sample.index, sc.exitCutStartIdx, sc.exitCutEndIdx, nSamples)),
+      );
       const scHit = this.track.queryShortcut(r.pos.x, r.pos.z);
       const insideMouth = Boolean(
-        scHit &&
-          scHit.shortcut.side === latSign &&
-          Math.abs(scHit.lateral) <= scHit.shortcut.halfWidth + 0.8 &&
-          (scHit.frac <= scHit.shortcut.innerStartFrac + 0.04 || scHit.frac >= scHit.shortcut.innerEndFrac - 0.04),
+        inSampleCutout ||
+          (scHit &&
+            scHit.shortcut.side === latSign &&
+            Math.abs(scHit.lateral) <= scHit.shortcut.halfWidth + 3.2 &&
+            (scHit.frac <= scHit.shortcut.innerStartFrac + 0.08 || scHit.frac >= scHit.shortcut.innerEndFrac - 0.08)),
       );
       const maxLat = this.track.barrierHalfWidth - 1.15;
       if (!insideMouth && Math.abs(info.lateralOffset) > maxLat) {
@@ -5303,6 +5742,9 @@ export class RacingEngine {
         if (p.airHeight < 1.2 && p.pos.distanceToSquared(sm.pos) < 2.2 * 2.2 && Math.abs(p.forwardSpeed) > 10) {
           sm.hit = true;
           this.smashablesHit++;
+          if (this.smashablesHit >= 2) {
+            this.recklessInfractionTimer = Math.max(this.recklessInfractionTimer, 5.0);
+          }
           sm.respawnTimer = 18;
           sm.vel.set(
             -Math.sin(p.heading) * Math.abs(p.forwardSpeed) * 0.72 + (Math.random() - 0.5) * 10,
@@ -5311,9 +5753,14 @@ export class RacingEngine {
           );
           sm.rotVel.set((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12);
           soundEngine.triggerImpact(0.32);
-          this.sessionBounty += 300;
+          const comboOut = this.recordStyleEvent('smash');
           this.nitrous = Math.min(100, this.nitrous + 6);
-          this.pushCallout('SMASH BONUS! +$300 BOUNTY · NOS +6%', 'amber');
+          this.pushCallout(
+            comboOut.mult > 1
+              ? `SMASH x${comboOut.mult}! +$${comboOut.bountyAwarded.toLocaleString()} · NOS +6%`
+              : `SMASH BONUS! +$${comboOut.bountyAwarded.toLocaleString()} BOUNTY · NOS +6%`,
+            'amber',
+          );
         }
       }
     }
@@ -5352,13 +5799,13 @@ export class RacingEngine {
               this.patrolsEnabled &&
               this.pursuitState === 'none' &&
               this.raceParams?.mode !== 'tollbooth' &&
-              rounded >= trap.targetKmh
+              (rounded >= 125 || rounded >= trap.targetKmh)
             ) {
               this.pursuitState = 'pursuit';
               this.heatLevel = 1;
               this.pushCallout('POLICE DISPATCHED — HEAT LEVEL 1', 'red');
               this.pushRadio(`Dispatch: Radar clocked speeders at ${rounded} km/h. Cruisers intercepting pack!`);
-              this.spawnPoliceCruiser(p.trackIdx + 95, 3.2, false, false);
+              this.spawnPoliceCruiser(p.trackIdx + 65, 3.2, false, false);
             }
           } else if (r.pos.distanceToSquared(p.pos) < 60 * 60) {
             trapMat.emissiveIntensity = 6.5;
@@ -5471,17 +5918,17 @@ export class RacingEngine {
         cop.slopePitch = cInfo.slopePitch;
         cop.bankAngle = cInfo.bankAngle;
 
-        // Any speeding racer (> 132 km/h within 56m) OR physical bump (< 3.0m) triggers pack pursuit!
+        // Easy-to-trigger pursuit: speeding (>= 95 km/h within 105m), patrol bump, or reckless driving
         for (let r = 0; r < this.racers.length; r++) {
           const rc = this.racers[r];
           if (rc.knockedOut || rc.finished) continue;
           const dSq = cop.pos.distanceToSquared(rc.pos);
-          const bumpedPatrol = dSq < 3.0 * 3.0 && rc.airHeight < 1.2;
+          const bumpedPatrol = dSq < 3.8 * 3.8 && rc.airHeight < 1.2;
           if (bumpedPatrol) {
             const dist = Math.max(0.1, Math.sqrt(dSq));
             const nx = (rc.pos.x - cop.pos.x) / dist;
             const nz = (rc.pos.z - cop.pos.z) / dist;
-            const sep = (3.0 - dist) * 0.55;
+            const sep = (3.8 - dist) * 0.55;
             rc.pos.x += nx * sep;
             rc.pos.z += nz * sep;
             cop.pos.x -= nx * sep;
@@ -5490,9 +5937,19 @@ export class RacingEngine {
             if (rc.isPlayer) soundEngine.triggerImpact(0.65);
           }
           const raceDiff = this.getRaceDifficulty();
-          const speedTriggerKmh = raceDiff === 'Easy' && this.raceParams.mode !== 'pursuit' ? 142 : 132;
-          const detectDistSq = 56 * 56;
-          if (bumpedPatrol || (Math.abs(rc.forwardSpeed) * 3.6 > speedTriggerKmh && dSq < detectDistSq)) {
+          const speedTriggerKmh =
+            raceDiff === 'Easy' && this.raceParams.mode !== 'pursuit'
+              ? POLICE_PATROL_EASY_SPEED_TRIGGER_KMH
+              : POLICE_PATROL_SPEED_TRIGGER_KMH;
+          const triggered = evaluatePatrolPursuitTrigger({
+            speedKmh: Math.abs(rc.forwardSpeed) * 3.6,
+            distSq: dSq,
+            detectRadiusM: POLICE_PATROL_DETECT_RADIUS_M,
+            speedTriggerKmh,
+            bumped: bumpedPatrol,
+            recklessTrigger: rc.isPlayer && this.recklessInfractionTimer > 0,
+          });
+          if (triggered) {
             this.pursuitState = 'pursuit';
             this.heatLevel = 1;
             this.highestHeat = Math.max(this.highestHeat, 1);
@@ -5506,7 +5963,7 @@ export class RacingEngine {
               bumpedPatrol
                 ? 'Unit 04: Suspect rammed a patrol cruiser! All units respond!'
                 : rc.isPlayer
-                  ? 'Unit 04: Street racers clocked over limit! All units intercept the pack!'
+                  ? 'Unit 04: Street racers spotted! All units intercept the pack!'
                   : `Unit 04: ${rc.name} clocked speeding! Engaging all street racers!`,
             );
             soundEngine.triggerBeep(true);
@@ -5529,19 +5986,9 @@ export class RacingEngine {
     const maxHeatCap =
       isPursuitFocused || this.raceParams.mode === 'blacklist'
         ? 5
-        : Math.max(minMissionHeat, raceDiff === 'Easy' ? 1 : raceDiff === 'Medium' ? 2 : 5);
+        : Math.max(minMissionHeat, raceDiff === 'Easy' ? 3 : raceDiff === 'Medium' ? 4 : 5);
 
-    const rawTargetHeat =
-      this.sessionBounty > 60000
-        ? 5
-        : this.sessionBounty > 34000
-          ? 4
-          : this.sessionBounty > 18000
-            ? 3
-            : this.sessionBounty > 7500
-              ? 2
-              : 1;
-    const targetHeat = Math.min(maxHeatCap, rawTargetHeat);
+    const targetHeat = computeEscalatedHeatLevel(this.sessionBounty, maxHeatCap);
     if (targetHeat > this.heatLevel) {
       this.heatLevel = targetHeat;
       this.highestHeat = Math.max(this.highestHeat, this.heatLevel);
@@ -5861,8 +6308,8 @@ export class RacingEngine {
               other.roadblockBreached = true;
             }
           }
-          this.sessionBounty += 1500;
-          this.pushCallout('ROADBLOCK BREACH! +$1,500 BOUNTY', 'amber');
+          const comboOut = this.recordStyleEvent('roadblock');
+          this.pushCallout(`ROADBLOCK BREACH! +$${comboOut.bountyAwarded.toLocaleString()} BOUNTY`, 'amber');
           soundEngine.triggerBeep(true);
         }
       }
@@ -5978,8 +6425,8 @@ export class RacingEngine {
           cop.wrecked = true;
           cop.wreckTimer = 7;
           this.copsTakedowns++;
-          const reward = cop.isRhino ? 4500 : cop.isRoadblock ? 3000 : 2500;
-          this.sessionBounty += reward;
+          const baseReward = cop.isRhino ? 4500 : cop.isRoadblock ? 3000 : 2500;
+          const comboOut = this.recordStyleEvent('takedown', baseReward);
           this.nitrous = Math.min(100, this.nitrous + 35);
           for (let d = 0; d < 3; d++) {
             _v1.set(cop.pos.x, cop.pos.y + 0.65, cop.pos.z);
@@ -5988,7 +6435,7 @@ export class RacingEngine {
           }
           this.triggerDramaticCam(cop.pos, 'takedown');
           this.pushCallout(
-            `${cop.isRhino ? 'RHINO' : 'COP'} TAKEDOWN! +$${reward.toLocaleString()} · +35% NOS`,
+            `${cop.isRhino ? 'RHINO' : 'COP'} TAKEDOWN! +$${comboOut.bountyAwarded.toLocaleString()} · +35% NOS`,
             'amber',
           );
           p.forwardSpeed *= cop.isRhino ? 0.78 : cop.isRoadblock ? 0.80 : 0.92;
@@ -6531,13 +6978,14 @@ export class RacingEngine {
       const lookHeading = orbitHeading + cornerApexShift;
       const lkFwdX = -Math.sin(lookHeading);
       const lkFwdZ = -Math.cos(lookHeading);
+      const airDistPull = Math.min(2.2, Math.max(0, p.airHeight) * 0.28);
       const dist =
-        absLook > 0.25
+        (absLook > 0.25
           ? 6.4
           : this.cameraMode === 'chase_far'
             ? 6.15 + speedRatio * 1.15
-            : 4.85 + speedRatio * 0.85;
-      const height = this.cameraMode === 'chase_far' ? 2.32 : 1.88;
+            : 4.85 + speedRatio * 0.85) + airDistPull;
+      const height = (this.cameraMode === 'chase_far' ? 2.32 : 1.88) + Math.min(0.85, Math.max(0, p.airHeight) * 0.14);
       const lookAheadDist = THREE.MathUtils.lerp(this.cameraMode === 'chase_far' ? 22 : 20, 14, Math.min(1, absLook / 1.5));
       _v1.set(
         p.pos.x - orbFwdX * dist + orbRightX * driftSwing,
@@ -6584,6 +7032,11 @@ export class RacingEngine {
     this.camPos.y = THREE.MathUtils.damp(this.camPos.y, _v1.y, posYLambda, rawDt);
     this.camPos.z = THREE.MathUtils.damp(this.camPos.z, _v1.z, posLambda, rawDt);
 
+    if (this.cameraMode !== 'hood' && this.cameraMode !== 'bumper' && this.track) {
+      const camTrackElev = this.track.getClosestTrackInfo(this.camPos.x, this.camPos.z, p.trackIdx, p.pos.y).elevationY;
+      this.camPos.y = Math.max(this.camPos.y, camTrackElev + 0.95);
+    }
+
     this.camLook.x = THREE.MathUtils.damp(this.camLook.x, _v2.x, 22, rawDt);
     this.camLook.y = THREE.MathUtils.damp(this.camLook.y, _v2.y, 22, rawDt);
     this.camLook.z = THREE.MathUtils.damp(this.camLook.z, _v2.z, 22, rawDt);
@@ -6605,7 +7058,17 @@ export class RacingEngine {
       );
     }
 
-    const targetFov = 64 + speedRatio * 15 + (nosBoost ? 11.5 : 0) + (this.isSpeedbreaker ? -3.5 : 0);
+    const airFovLift = Math.min(6.0, Math.max(0, p.airHeight) * 0.85);
+    const slingshotFov = this.slingshotState.boostTimer > 0 ? 5.5 : 0;
+    const upshiftFov = this.upshiftKickTimer > 0 ? (this.upshiftKickTimer / 0.24) * 1.8 : 0;
+    const targetFov =
+      64 +
+      speedRatio * 15 +
+      (nosBoost ? 11.5 : 0) +
+      slingshotFov +
+      upshiftFov +
+      (this.isSpeedbreaker ? -3.5 : 0) +
+      airFovLift;
     if (Math.abs(this.camera.fov - targetFov) > 0.05) {
       this.camera.fov = THREE.MathUtils.damp(this.camera.fov, targetFov, 7, rawDt);
       this.camera.updateProjectionMatrix();
@@ -7226,6 +7689,22 @@ export class RacingEngine {
       driftHoldSec: this.isDrifting ? Number(this.driftHoldSec.toFixed(1)) : 0,
       driftComboScore: this.isDrifting ? Math.round(this.driftHoldSec * 280) : 0,
       speedTrapFlash: this.speedTrapFlashTimer > 0,
+      gridRevRpm: this.countdownTimer > 0 ? this.gridRevRpm : undefined,
+      slingshotCharge: Math.round(this.slingshotState.charge * 100),
+      slingshotActive: this.slingshotState.boostTimer > 0,
+      styleComboMult: this.styleComboState.multiplier,
+      styleComboPoints: this.styleComboState.points,
+      styleComboTimerPct:
+        this.styleComboState.timerSec > 0
+          ? Math.round((this.styleComboState.timerSec / this.styleComboState.maxTimerSec) * 100)
+          : 0,
+      ...(() => {
+        const zInfo = computeRedlineShiftZone(rpm, gear);
+        return {
+          redlineShiftLedCount: zInfo.ledCount,
+          shiftNow: zInfo.shiftNow,
+        };
+      })(),
       environment: this.activeEnvironment,
       patrolsEnabled: this.patrolsEnabled,
       radioDispatch: this.radioDispatch,

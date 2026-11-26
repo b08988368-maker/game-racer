@@ -56,6 +56,16 @@ export type TrackDifficulty = 'Easy' | 'Medium' | 'Hard' | 'Expert';
 
 export type LiveryStyle = 'clean' | 'stripes' | 'most_wanted' | 'boss_carbon';
 export type RimStyle = 'chrome' | 'black' | 'gold' | 'bronze';
+export type EngineSoundProfile =
+  | 'auto'
+  | 'i4_turbo'
+  | 'v6_twin_turbo'
+  | 'v8_muscle'
+  | 'v10_screamer'
+  | 'v12_hyper'
+  | 'rotary_brap'
+  | 'flat6_gt'
+  | 'electric_whine';
 
 export type CameraMode = 'chase_far' | 'chase_close' | 'hood' | 'bumper';
 export type GarageCameraPreset = 'orbit' | 'front' | 'side' | 'rear';
@@ -147,6 +157,24 @@ export interface GarageCarConfig {
   paintHex: string;
   livery: LiveryStyle;
   rimStyle: RimStyle;
+  engineSound?: EngineSoundProfile;
+}
+
+export interface GarageDynoTelemetry {
+  active: boolean;
+  gasHeld: boolean;
+  autoPull: boolean;
+  nosActive: boolean;
+  speedKmh: number;
+  peakSpeedKmh: number;
+  topTargetKmh: number;
+  rpm: number;
+  gear: number;
+  redlineLedCount: number;
+  zeroTo100Sec: number | null;
+  zeroTo200Sec: number | null;
+  elapsedPullSec: number;
+  engineProfile: Exclude<EngineSoundProfile, 'auto'>;
 }
 
 export interface BlacklistRival {
@@ -329,6 +357,14 @@ export interface RaceTelemetry {
   driftHoldSec?: number;
   driftComboScore?: number;
   speedTrapFlash?: boolean;
+  gridRevRpm?: number; // 0..1 during countdown grid revving
+  slingshotCharge?: number; // 0..100
+  slingshotActive?: boolean;
+  styleComboMult?: number; // 1..5
+  styleComboPoints?: number;
+  styleComboTimerPct?: number; // 0..100
+  redlineShiftLedCount?: number; // 0..6
+  shiftNow?: boolean;
   environment: Exclude<EnvironmentId, 'auto'>;
   patrolsEnabled: boolean;
   radioDispatch: string | null;

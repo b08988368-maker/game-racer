@@ -498,11 +498,11 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
       : new THREE.MeshPhysicalMaterial({
           color: liveryTex ? 0xffffff : new THREE.Color(isPolice || isRhino ? '#0F172A' : paintHex),
           map: liveryTex,
-          metalness: isPolice || isRhino ? 0.24 : 0.14,
-          roughness: 0.22,
-          clearcoat: 0.94,
-          clearcoatRoughness: 0.04,
-          envMapIntensity: 0.72,
+          metalness: isPolice || isRhino ? 0.24 : 0.18,
+          roughness: 0.19,
+          clearcoat: 0.98,
+          clearcoatRoughness: 0.032,
+          envMapIntensity: 1.22,
         }),
   );
 
@@ -513,11 +513,11 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
           color: new THREE.Color(
             isPolice || isRhino ? '#0F172A' : livery === 'most_wanted' ? '#DCE2EC' : paintHex,
           ),
-          metalness: isPolice || isRhino ? 0.24 : 0.14,
-          roughness: 0.22,
-          clearcoat: 0.94,
-          clearcoatRoughness: 0.04,
-          envMapIntensity: 0.72,
+          metalness: isPolice || isRhino ? 0.24 : 0.18,
+          roughness: 0.19,
+          clearcoat: 0.98,
+          clearcoatRoughness: 0.032,
+          envMapIntensity: 1.22,
         }),
   );
 
@@ -538,11 +538,11 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
         })
       : new THREE.MeshPhysicalMaterial({
           color: '#050810',
-          metalness: 0.35,
-          roughness: 0.03,
+          metalness: 0.38,
+          roughness: 0.025,
           clearcoat: 1.0,
-          clearcoatRoughness: 0.02,
-          envMapIntensity: 1.75,
+          clearcoatRoughness: 0.015,
+          envMapIntensity: 1.88,
         }),
   );
 
@@ -550,8 +550,8 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
   const rimMat = track(
     new THREE.MeshStandardMaterial({
       color: new THREE.Color(rimColor),
-      metalness: rimStyle === 'black' ? 0.42 : 0.94,
-      roughness: rimStyle === 'black' ? 0.38 : 0.14,
+      metalness: rimStyle === 'black' ? 0.48 : 0.96,
+      roughness: rimStyle === 'black' ? 0.32 : 0.11,
     }),
   );
 
@@ -582,8 +582,8 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
           : isBossCar || upgradeStage.hasProAero
             ? '#FBBF24'
             : '#EF4444',
-      metalness: 0.65,
-      roughness: 0.22,
+      metalness: 0.72,
+      roughness: 0.18,
     }),
   );
   const titaniumMat = track(
@@ -605,7 +605,7 @@ export function buildCarMesh(opts: BuildCarOptions): CarVisualHandles {
     }),
   );
   const headlightMat = track(
-    new THREE.MeshStandardMaterial({ color: '#FEF9C3', emissive: new THREE.Color('#FFFBEB'), emissiveIntensity: 3.5 }),
+    new THREE.MeshStandardMaterial({ color: '#FEF9C3', emissive: new THREE.Color('#FFFBEB'), emissiveIntensity: 3.9 }),
   );
   const brakeLightMat = track(
     new THREE.MeshStandardMaterial({ color: '#991B1B', emissive: new THREE.Color('#EF4444'), emissiveIntensity: 1.6 }),

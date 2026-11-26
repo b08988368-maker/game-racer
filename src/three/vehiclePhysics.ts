@@ -293,7 +293,7 @@ export function stepVehiclePhysics(
   const dmgAccelScale = 1 - dmgDrag * 0.72;
   const speedNorm = Math.min(1.18, Math.max(0, inp.forwardSpeed) / inp.baseMaxMs);
   const torqueCurve = Math.max(0.56, (1.0 - 0.28 * Math.min(1, speedNorm)) * (0.65 + 0.35 * gearbox.torqueMult));
-  const boostFactor = (inp.nosActive ? 1.46 : inp.driftBoostActive ? 1.29 : 1.0) * (inp.drafting ? 1.11 : 1.0);
+  const boostFactor = (inp.nosActive ? 1.48 : inp.driftBoostActive ? 1.33 : 1.0) * (inp.drafting ? 1.18 : 1.0);
   const driveAccel = baseLaunchAccel * torqueCurve * boostFactor * shiftTorqueCut * dmgAccelScale;
 
   let nextFwd = inp.forwardSpeed;
@@ -386,7 +386,7 @@ export function stepVehiclePhysics(
   const nomWheelN = (massKg * STANDARD_GRAVITY_MPS2) * 0.25;
   const landingJounce =
     dyn.wasAirborne && !inp.airborne
-      ? THREE.MathUtils.clamp((inp.landingVelMps ?? 6.5) * 0.68, 2.5, 9.5)
+      ? THREE.MathUtils.clamp((inp.landingVelMps ?? 6.5) * 0.78, 2.8, 12.5)
       : 0;
   dyn.wasAirborne = inp.airborne;
 
@@ -653,21 +653,21 @@ export function stepVehiclePhysics(
   const leftAvgComp = (dyn.wheels[0].compression + dyn.wheels[2].compression) * 0.5;
   const rightAvgComp = (dyn.wheels[1].compression + dyn.wheels[3].compression) * 0.5;
 
-  const shiftPitchKick = dyn.shiftDipTimer > 0 ? 0.014 : 0;
-  const suspPitch = (frontAvgComp - rearAvgComp) * -0.082 + shiftPitchKick;
-  const suspRoll = (leftAvgComp - rightAvgComp) * 0.098;
-  const downforceSink = inp.airborne ? 0 : Math.min(0.044, (avgComp - 0.42) * 0.068 + (absSpeed / 90) * 0.026 * tuning.aeroDownforce);
+  const shiftPitchKick = dyn.shiftDipTimer > 0 ? 0.022 : 0;
+  const suspPitch = (frontAvgComp - rearAvgComp) * -0.115 + shiftPitchKick;
+  const suspRoll = (leftAvgComp - rightAvgComp) * 0.128;
+  const downforceSink = inp.airborne ? 0 : Math.min(0.056, (avgComp - 0.42) * 0.082 + (absSpeed / 90) * 0.032 * tuning.aeroDownforce);
   dyn.heaveOffset = THREE.MathUtils.damp(dyn.heaveOffset, downforceSink, 14, inp.rawDt);
 
   out.forwardSpeed = nextFwd;
   out.lateralSpeed = nextLat;
   out.yawRate = yawRate;
   out.heaveOffset = dyn.heaveOffset;
-  out.targetPitch = THREE.MathUtils.clamp(suspPitch, -0.065, 0.065);
+  out.targetPitch = THREE.MathUtils.clamp(suspPitch, -0.095, 0.095);
   out.targetRoll = THREE.MathUtils.clamp(
-    suspRoll - inp.rawSteerInput * Math.min(1, absSpeed / 30) * 0.024,
-    -0.085,
-    0.085,
+    suspRoll - inp.rawSteerInput * Math.min(1, absSpeed / 30) * 0.032,
+    -0.11,
+    0.11,
   );
   out.wheelspinIntensity = wheelspinIntensity;
   out.surface = centerSurface;

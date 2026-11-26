@@ -52,6 +52,7 @@ import {
   EnvironmentId,
   GarageCameraPreset,
   GarageCarConfig,
+  GarageDynoTelemetry,
   LeaderboardEntry,
   MissionDefinition,
   PhysicsTuningParams,
@@ -151,6 +152,7 @@ function GameRoot() {
   const [ghostCopied, setGhostCopied] = useState(false);
   const [outroRevealReady, setOutroRevealReady] = useState(false);
   const [garagePreset, setGaragePreset] = useState<GarageCameraPreset>('orbit');
+  const [dynoTelemetry, setDynoTelemetry] = useState<GarageDynoTelemetry | null>(null);
 
   // Refs for stable RacingEngine callbacks
   const profileRef = useRef(profile);
@@ -281,6 +283,7 @@ function GameRoot() {
       },
       onAutoPause: () => setPaused(true),
       onGamepadChange: (connected, id) => setGamepadState({ connected, id }),
+      onGarageDyno: (d) => setDynoTelemetry(d),
     });
     engine.setAeLookEnabled(aeLookEnabled);
     engine.setHandlingMode(driverSettings.handlingMode);
@@ -610,6 +613,21 @@ function GameRoot() {
     engineRef.current?.setGarageCameraPreset(preset);
   };
 
+  const handleSetGarageDynoMode = useCallback(
+    (active: boolean, opts?: { gasHeld?: boolean; autoPull?: boolean; nosHeld?: boolean }) => {
+      if (active) {
+        soundEngine.init();
+      }
+      engineRef.current?.setGarageDynoMode(active, opts);
+    },
+    [],
+  );
+
+  const handleTriggerGarageDynoAction = useCallback((action: 'reset' | 'rev') => {
+    soundEngine.init();
+    engineRef.current?.triggerGarageDynoAction(action);
+  }, []);
+
   const handleSignIn = async () => {
     setAuthBusy(true);
     try {
@@ -686,7 +704,9 @@ function GameRoot() {
     if (authUser) void saveCloudCarConfig(authUser.uid, nextCfg);
   };
 
-  const handleCustomizeCar = (patch: Partial<Pick<GarageCarConfig, 'paintHex' | 'livery' | 'rimStyle'>>) => {
+  const handleCustomizeCar = (
+    patch: Partial<Pick<GarageCarConfig, 'paintHex' | 'livery' | 'rimStyle' | 'engineSound'>>,
+  ) => {
     const carId = profile.selectedCarId;
     const curCfg = garageConfigs[carId] ?? getDefaultCarConfig(carId, profile.uid);
     const nextCfg: GarageCarConfig = { ...curCfg, ...patch };
@@ -752,9 +772,11 @@ function GameRoot() {
     setRaceResult(null);
     setOutroRevealReady(false);
     setPaused(false);
+    setDynoTelemetry(null);
     setScreen('menu');
     const spec = CARS.find((c) => c.id === profile.selectedCarId) ?? CARS[0];
     const cfg = garageConfigs[spec.id] ?? getDefaultCarConfig(spec.id, profile.uid);
+    engineRef.current?.setGarageDynoMode(false);
     engineRef.current?.showGarageCar(spec, cfg);
     soundEngine.init();
     musicEngine.startMenuMusic();
@@ -784,6 +806,9 @@ function GameRoot() {
           currentTrackLabel={currentTrackLabel}
           garagePreset={garagePreset}
           onSelectGaragePreset={handleSelectGaragePreset}
+          dynoTelemetry={dynoTelemetry}
+          onSetGarageDynoMode={handleSetGarageDynoMode}
+          onTriggerGarageDynoAction={handleTriggerGarageDynoAction}
           onOpenSettings={() => setSettingsOpen(true)}
           onSignIn={handleSignIn}
           onSignOut={handleSignOut}

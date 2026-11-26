@@ -1242,7 +1242,7 @@ export const RaceHUD: React.FC<Props> = ({
       {/* Center-Top Countdown & Callouts */}
       {telemetry.cinematicPhase !== 'intro' && telemetry.cinematicPhase !== 'outro' && (
       <>
-      <div className="fixed top-20 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none">
+      <div className="fixed top-14 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none">
         {telemetry.countdown > 0 && (
           <div
             key={`cd-${telemetry.countdown}`}
@@ -1293,7 +1293,7 @@ export const RaceHUD: React.FC<Props> = ({
         )}
       </div>
       {telemetry.countdown > 0 && (
-        <div className="fixed top-44 left-1/2 -translate-x-1/2 z-20 max-w-lg w-[92%] px-4 py-2.5 nfs-chamfer nfs-carbon-bg border border-amber-400/45 border-l-4 border-l-amber-400 shadow-2xl pointer-events-none nfs-anim-slide-up">
+        <div className="fixed top-36 left-1/2 -translate-x-1/2 z-20 max-w-lg w-[92%] px-4 py-2.5 nfs-chamfer nfs-carbon-bg border border-amber-400/45 border-l-4 border-l-amber-400 shadow-2xl pointer-events-none nfs-anim-slide-up">
           <div className="flex items-center justify-between gap-2 text-[10px] font-mono-tabular uppercase tracking-widest text-amber-400 font-bold">
             <span className="flex items-center gap-1.5">
               <Target className="w-3 h-3" />
@@ -1315,6 +1315,58 @@ export const RaceHUD: React.FC<Props> = ({
               <span>{telemetry.objectiveFailRule}</span>
             </div>
           )}
+          {(() => {
+            const launchRpmPct = Math.round(Math.max(0, Math.min(1, telemetry.gridRevRpm ?? telemetry.rpm)) * 100);
+            const inSweetSpot = launchRpmPct >= 68 && launchRpmPct <= 88;
+            const overRev = launchRpmPct > 88;
+            return (
+              <div className="mt-2 pt-2 border-t border-white/10">
+                <div className="flex items-center justify-between text-[10px] font-mono-tabular mb-1">
+                  <span className="text-slate-300 uppercase tracking-wider">Launch RPM Target</span>
+                  <span
+                    className={
+                      inSweetSpot
+                        ? 'text-emerald-400 font-bold'
+                        : overRev
+                          ? 'text-red-400 font-bold'
+                          : 'text-amber-300 font-bold'
+                    }
+                  >
+                    {inSweetSpot
+                      ? 'GREEN ZONE · PERFECT LAUNCH'
+                      : overRev
+                        ? 'OVER-REV · WHEELSPIN'
+                        : 'HOLD GAS INTO GREEN (68-88%)'}{' '}
+                    · {launchRpmPct}%
+                  </span>
+                </div>
+                <div className="relative h-2.5 bg-slate-900/90 border border-white/15 overflow-hidden">
+                  {/* 68% - 88% sweet-spot green window */}
+                  <div
+                    className="absolute top-0 bottom-0 bg-emerald-500/35 border-x border-emerald-400"
+                    style={{ left: '68%', width: '20%' }}
+                  />
+                  {/* Redline wheelspin zone > 88% */}
+                  <div
+                    className="absolute top-0 bottom-0 bg-red-500/25"
+                    style={{ left: '88%', width: '12%' }}
+                  />
+                  {/* Live RPM fill */}
+                  <div
+                    className={`h-full transition-[width] duration-75 ${
+                      inSweetSpot ? 'bg-emerald-400' : overRev ? 'bg-red-500' : 'bg-amber-400'
+                    }`}
+                    style={{ width: `${launchRpmPct}%` }}
+                  />
+                  {/* Crisp needle marker */}
+                  <div
+                    className="absolute top-0 bottom-0 w-0.5 bg-white shadow-[0_0_6px_#ffffff]"
+                    style={{ left: `calc(${Math.min(99, launchRpmPct)}% - 1px)` }}
+                  />
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
       </>
@@ -1324,8 +1376,45 @@ export const RaceHUD: React.FC<Props> = ({
       {telemetry.cinematicPhase !== 'intro' && telemetry.cinematicPhase !== 'outro' && (
       <div className="fixed bottom-4 left-4 right-4 flex items-end justify-between gap-4">
         <div className="space-y-2">
-          {(telemetry.isDrifting || telemetry.isSlipstreaming || telemetry.nearMissCombo > 1) && (
+          {(telemetry.isDrifting ||
+            telemetry.isSlipstreaming ||
+            telemetry.nearMissCombo > 1 ||
+            telemetry.slingshotActive ||
+            (telemetry.slingshotCharge ?? 0) > 5 ||
+            (telemetry.styleComboMult ?? 1) > 1 ||
+            (telemetry.styleComboPoints ?? 0) > 0) && (
             <div className="flex flex-wrap items-center gap-2">
+              {((telemetry.styleComboMult ?? 1) > 1 || (telemetry.styleComboPoints ?? 0) > 0) && (
+                <div className="inline-flex flex-col gap-1 px-3 py-1 nfs-chamfer-sm nfs-carbon-bg border border-amber-400/50 border-l-4 border-l-amber-400 font-display uppercase tracking-wider text-xs font-bold text-white tabular-nums">
+                  <div className="flex items-center gap-2">
+                    <span className="text-amber-400">STYLE x{telemetry.styleComboMult ?? 1}</span>
+                    <span className="text-slate-200 font-mono-tabular text-[11px]">
+                      {(telemetry.styleComboPoints ?? 0).toLocaleString()} PTS
+                    </span>
+                  </div>
+                  <div className="h-1 w-full bg-white/15 overflow-hidden">
+                    <div
+                      className="h-full bg-amber-400 transition-[width] duration-75"
+                      style={{ width: `${Math.max(0, Math.min(100, telemetry.styleComboTimerPct ?? 0))}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              {telemetry.slingshotActive ? (
+                <div className="inline-block px-3 py-1 nfs-chamfer-sm nfs-carbon-bg border border-cyan-400 border-l-4 border-l-cyan-300 font-display uppercase tracking-wider text-xs font-bold text-cyan-300">
+                  SLIPSTREAM SLINGSHOT!
+                </div>
+              ) : (telemetry.slingshotCharge ?? 0) > 5 ? (
+                <div className="inline-flex flex-col gap-1 px-3 py-1 nfs-chamfer-sm nfs-carbon-bg border border-cyan-400/45 border-l-4 border-l-cyan-400 font-display uppercase tracking-wider text-xs font-bold text-cyan-300 tabular-nums">
+                  <span>SLINGSHOT {Math.round(telemetry.slingshotCharge ?? 0)}%</span>
+                  <div className="h-1 w-full bg-white/15 overflow-hidden">
+                    <div
+                      className="h-full bg-cyan-400 transition-[width] duration-75"
+                      style={{ width: `${Math.max(0, Math.min(100, telemetry.slingshotCharge ?? 0))}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null}
               {telemetry.isDrifting && (
                 <div className="inline-block px-3 py-1 nfs-chamfer-sm nfs-carbon-bg border border-white/15 border-l-4 border-l-amber-400 font-display uppercase tracking-wider text-xs font-bold text-amber-400 font-mono-tabular">
                   POWER SLIDE
@@ -1335,13 +1424,13 @@ export const RaceHUD: React.FC<Props> = ({
                     : ' · +NOS'}
                 </div>
               )}
-              {telemetry.isSlipstreaming && (
+              {telemetry.isSlipstreaming && !telemetry.slingshotActive && (
                 <div className="inline-block px-3 py-1 nfs-chamfer-sm nfs-carbon-bg border border-white/15 border-l-4 border-l-cyan-400 font-display uppercase tracking-wider text-xs font-bold text-cyan-300">
-                  SLIPSTREAM · +NOS
+                  DRAFTING · +NOS
                 </div>
               )}
               {telemetry.nearMissCombo > 1 && (
-                <div className="inline-block px-3 py-1 nfs-chamfer-sm nfs-carbon-bg border border-white/15 border-l-4 border-l-emerald-400 font-display uppercase tracking-wider text-xs font-bold text-emerald-300">
+                <div className="inline-block px-3 py-1 nfs-chamfer-sm nfs-carbon-bg border border-white/15 border-l-4 border-l-emerald-400 font-display uppercase tracking-wider text-xs font-bold text-emerald-300 tabular-nums">
                   TRAFFIC CHAIN x{telemetry.nearMissCombo}
                 </div>
               )}
@@ -1419,8 +1508,9 @@ export const RaceHUD: React.FC<Props> = ({
               </span>
               <span className="text-[10px] font-mono-tabular text-slate-400 ml-1">KM/H</span>
             </div>
-            <span className="text-xs font-mono-tabular text-amber-400 font-bold">
+            <span className={`text-xs font-mono-tabular font-bold ${telemetry.shiftNow ? 'text-red-400' : 'text-amber-400'}`}>
               G{telemetry.gear === -1 ? 'R' : telemetry.gear === 0 ? 'N' : telemetry.gear}
+              {telemetry.shiftNow ? ' SHIFT' : ''}
             </span>
             <span className="text-[11px] font-mono-tabular text-cyan-300 font-bold">
               NOS {Math.round(telemetry.nitrous)}%
@@ -1434,6 +1524,29 @@ export const RaceHUD: React.FC<Props> = ({
               : 'border-white/15 border-t-2 border-t-amber-400/80'
           }`}
         >
+          {/* 6-LED Sequential Shift Light Strip */}
+          <div className="flex items-center justify-between gap-1 mb-1">
+            <div className="grid grid-cols-6 gap-1 flex-1">
+              {[1, 2, 3, 4, 5, 6].map((ledIdx) => {
+                const lit = (telemetry.redlineShiftLedCount ?? 0) >= ledIdx;
+                const toneClass = !lit
+                  ? 'bg-slate-800/90'
+                  : ledIdx <= 2
+                    ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.7)]'
+                    : ledIdx <= 4
+                      ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.75)]'
+                      : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.9)]';
+                return <div key={ledIdx} className={`h-1.5 transition-colors ${toneClass}`} />;
+              })}
+            </div>
+            <span
+              className={`text-[9px] font-mono-tabular font-bold uppercase tracking-wider ml-1.5 ${
+                telemetry.shiftNow ? 'text-red-400' : 'text-slate-500'
+              }`}
+            >
+              {telemetry.shiftNow ? 'SHIFT!' : 'RPM'}
+            </span>
+          </div>
           <div className="relative w-full aspect-[1.15/1]">
             <svg viewBox="0 0 200 175" className="w-full h-full">
               <path

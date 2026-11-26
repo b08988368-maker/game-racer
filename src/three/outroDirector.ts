@@ -44,54 +44,54 @@ export function computeOutroDirective(outcome: OutroOutcome, elapsedSec: number)
 
   if (outcome === 'win') {
     if (t < 1.05) {
-      // Beat 1: Low-angle front-quarter finish-line NOS hammer blast sweeping across headlights
+      // Beat 1: Low-angle front-quarter finish-line NOS hero blast
       const e = smoothstep(t / 1.05);
       return {
         beat: 1,
-        slowScale: lerp(0.60, 0.38, e),
-        orbitAngleOffset: lerp(2.42, 3.05, e),
+        slowScale: lerp(0.62, 0.42, e),
+        orbitAngleOffset: lerp(2.45, 3.05, e),
         camDist: lerp(4.85, 5.55, e),
-        camHeight: lerp(0.92, 1.22, e),
-        camFov: lerp(72, 58, e),
-        camRoll: lerp(-0.048, 0.015, e),
-        lookAheadBias: lerp(0.95, 0.30, e),
+        camHeight: lerp(0.95, 1.25, e),
+        camFov: lerp(70, 56, e),
+        camRoll: lerp(-0.025, 0, e),
+        lookAheadBias: lerp(0.85, 0.25, e),
         lookYOffset: 0.72,
         nosBurst: true,
         backfirePulse: false,
-        fireworkIntensity: e > 0.55 ? 0.55 : 0.20,
-        smokeIntensity: 0.45,
-        driftYawOffset: lerp(0.06, 0.24, e),
-        counterSteerAngle: lerp(-0.1, -0.34, e),
-        spinRate: lerp(0.85, 2.25, e),
-        targetSpeedFactor: 0.88,
-        rotorGlow: 0.2,
+        fireworkIntensity: e > 0.55 ? 0.55 : 0.2,
+        smokeIntensity: 0.15,
+        driftYawOffset: 0,
+        counterSteerAngle: 0,
+        spinRate: 0,
+        targetSpeedFactor: 0.78,
+        rotorGlow: 0.15,
         cameraCutSnap: t < 0.06,
       };
     }
 
     if (t < 2.85) {
-      // Beat 2: Sweeping crane arc around victory power-slide donut + firework burst
+      // Beat 2: Sweeping crane arc around clean hero highway rollout + firework burst
       const e = smoothstep((t - 1.05) / 1.8);
       const cranePeak = Math.sin(e * Math.PI);
       return {
         beat: 2,
-        slowScale: 0.42,
-        orbitAngleOffset: lerp(3.05, 5.45, e),
-        camDist: lerp(5.55, 6.25, cranePeak),
-        camHeight: lerp(1.22, 1.48, e) + cranePeak * 0.90,
-        camFov: lerp(58, 48, e),
-        camRoll: Math.sin(e * Math.PI) * 0.036,
-        lookAheadBias: lerp(0.30, 0, e),
+        slowScale: 0.44,
+        orbitAngleOffset: lerp(3.05, 5.25, e),
+        camDist: lerp(5.55, 6.2, cranePeak),
+        camHeight: lerp(1.25, 1.52, e) + cranePeak * 0.8,
+        camFov: lerp(56, 48, e),
+        camRoll: Math.sin(e * Math.PI) * 0.018,
+        lookAheadBias: lerp(0.25, 0, e),
         lookYOffset: 0.78,
         nosBurst: true,
-        backfirePulse: Math.sin(t * 18) > 0.65,
+        backfirePulse: Math.sin(t * 18) > 0.7,
         fireworkIntensity: 1.0,
-        smokeIntensity: 1.0,
-        driftYawOffset: lerp(0.24, 0.44, Math.min(1, e * 1.4)),
-        counterSteerAngle: -0.46,
-        spinRate: 2.45,
-        targetSpeedFactor: 0.72,
-        rotorGlow: 0.75,
+        smokeIntensity: 0.12,
+        driftYawOffset: 0,
+        counterSteerAngle: 0,
+        spinRate: 0,
+        targetSpeedFactor: 0.55,
+        rotorGlow: 0.45,
         cameraCutSnap: false,
       };
     }
@@ -100,23 +100,23 @@ export function computeOutroDirective(outcome: OutroOutcome, elapsedSec: number)
     const tail = t - 2.85;
     return {
       beat: 3,
-      slowScale: 0.28,
-      orbitAngleOffset: 5.45 + tail * 0.56,
-      camDist: 5.6,
-      camHeight: 1.42 + Math.sin(tail * 0.9) * 0.14,
+      slowScale: 0.32,
+      orbitAngleOffset: 5.25 + tail * 0.52,
+      camDist: 5.65,
+      camHeight: 1.44 + Math.sin(tail * 0.9) * 0.12,
       camFov: 47,
-      camRoll: Math.sin(tail * 0.7) * 0.012,
+      camRoll: 0,
       lookAheadBias: 0,
       lookYOffset: 0.76,
-      nosBurst: tail < 1.2 || Math.sin(tail * 2.8) > 0.25,
-      backfirePulse: Math.sin(tail * 11) > 0.82,
+      nosBurst: tail < 1.0 || Math.sin(tail * 2.8) > 0.35,
+      backfirePulse: Math.sin(tail * 11) > 0.85,
       fireworkIntensity: tail < 2.2 ? 0.55 : 0.28,
-      smokeIntensity: 0.68,
-      driftYawOffset: 0.34,
-      counterSteerAngle: -0.38,
-      spinRate: 2.05,
-      targetSpeedFactor: 0.64,
-      rotorGlow: 0.55,
+      smokeIntensity: 0.08,
+      driftYawOffset: 0,
+      counterSteerAngle: 0,
+      spinRate: 0,
+      targetSpeedFactor: 0.4,
+      rotorGlow: 0.35,
       cameraCutSnap: false,
     };
   }

@@ -12,6 +12,9 @@ export const SFX_COOLDOWN_MS = {
   radioSquelch: 180,
   upgradeClunk: 70,
   uiClick: 35,
+  perfectLaunch: 300,
+  comboMilestone: 180,
+  gearShift: 120,
 } as const;
 
 export function clampAudioValue(

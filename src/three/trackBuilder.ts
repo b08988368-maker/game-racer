@@ -25,6 +25,7 @@ import {
   createTunnelPortalTexture,
   createWetAsphaltRoughnessTexture,
 } from './textures';
+import { computeRampDeckHeight } from './gameplayUpgrades';
 
 export interface TrackSample {
   point: THREE.Vector3;
@@ -240,8 +241,8 @@ function computeShortcutCorridor(
   const endIdx = Math.floor(SAMPLE_COUNT * def.endProg) % SAMPLE_COUNT;
 
   const entryCutStartIdx = (startIdx - 4 + SAMPLE_COUNT) % SAMPLE_COUNT;
-  const entryCutEndIdx = (startIdx + 5 + SAMPLE_COUNT) % SAMPLE_COUNT;
-  const exitCutStartIdx = (endIdx - 5 + SAMPLE_COUNT) % SAMPLE_COUNT;
+  let entryCutEndIdx = (startIdx + 5 + SAMPLE_COUNT) % SAMPLE_COUNT;
+  let exitCutStartIdx = (endIdx - 5 + SAMPLE_COUNT) % SAMPLE_COUNT;
   const exitCutEndIdx = (endIdx + 4 + SAMPLE_COUNT) % SAMPLE_COUNT;
 
   const scHalfW = 6.2;
@@ -463,6 +464,16 @@ function computeShortcutCorridor(
       break;
     }
   }
+
+  // Synchronize main-track barrier cutout bounds with innerStartJ / innerEndJ so the main barrier
+  // remains completely open across the entire merge wedge and never slices across the gore throat.
+  const targetEntrySpan = Math.max(9, Math.ceil((innerStartJ / scSegs) * fullSpan) + 1);
+  const targetExitSpan = Math.max(9, Math.ceil(((scSegs - innerEndJ) / scSegs) * fullSpan) + 1);
+  const maxEachSpan = Math.max(9, Math.floor((fullSpan - 4) * 0.5));
+  const entryCutSpan = Math.min(targetEntrySpan, maxEachSpan);
+  const exitCutSpan = Math.min(targetExitSpan, maxEachSpan);
+  entryCutEndIdx = (entryCutStartIdx + entryCutSpan) % SAMPLE_COUNT;
+  exitCutStartIdx = (exitCutEndIdx - exitCutSpan + SAMPLE_COUNT) % SAMPLE_COUNT;
 
   return {
     def,
@@ -803,8 +814,8 @@ export function buildGarageShowroom(maxAnisotropy: number): {
   const floorMat = track(
     new THREE.MeshStandardMaterial({
       map: floorTex,
-      roughness: 0.22,
-      metalness: 0.38,
+      roughness: 0.18,
+      metalness: 0.44,
     }),
   );
   const floor = new THREE.Mesh(floorGeo, floorMat);
@@ -812,7 +823,7 @@ export function buildGarageShowroom(maxAnisotropy: number): {
   group.add(floor);
 
   const padGeo = track(new THREE.CylinderGeometry(4.45, 4.6, 0.03, 48));
-  const padMat = track(new THREE.MeshStandardMaterial({ color: '#1B202B', roughness: 0.34, metalness: 0.72 }));
+  const padMat = track(new THREE.MeshStandardMaterial({ color: '#181E29', roughness: 0.26, metalness: 0.78 }));
   const pad = new THREE.Mesh(padGeo, padMat);
   pad.position.y = 0.015;
   pad.receiveShadow = true;
@@ -824,12 +835,25 @@ export function buildGarageShowroom(maxAnisotropy: number): {
     new THREE.MeshBasicMaterial({
       color: '#F59E0B',
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.92,
     }),
   );
   const ring = new THREE.Mesh(ringGeo, ringMat);
   ring.position.y = 0.032;
   group.add(ring);
+
+  const cyanRingGeo = track(new THREE.RingGeometry(4.96, 5.04, 64));
+  cyanRingGeo.rotateX(-Math.PI / 2);
+  const cyanRingMat = track(
+    new THREE.MeshBasicMaterial({
+      color: '#38BDF8',
+      transparent: true,
+      opacity: 0.65,
+    }),
+  );
+  const cyanRing = new THREE.Mesh(cyanRingGeo, cyanRingMat);
+  cyanRing.position.y = 0.032;
+  group.add(cyanRing);
 
   const innerRingGeo = track(new THREE.RingGeometry(3.25, 3.34, 64));
   innerRingGeo.rotateX(-Math.PI / 2);
@@ -1226,13 +1250,15 @@ export function buildTrack(
       innerEndFrac,
     } = corridor;
 
-    for (let k = -4; k <= 5; k++) {
-      const idxA = (startIdx + k + SAMPLE_COUNT) % SAMPLE_COUNT;
+    const entrySpan = (entryCutEndIdx - entryCutStartIdx + SAMPLE_COUNT) % SAMPLE_COUNT;
+    for (let k = 0; k <= entrySpan; k++) {
+      const idxA = (entryCutStartIdx + k) % SAMPLE_COUNT;
       if (def.side < 0) leftBarrierCutout[idxA] = 1;
       else rightBarrierCutout[idxA] = 1;
     }
-    for (let k = -5; k <= 4; k++) {
-      const idxB = (endIdx + k + SAMPLE_COUNT) % SAMPLE_COUNT;
+    const exitSpan = (exitCutEndIdx - exitCutStartIdx + SAMPLE_COUNT) % SAMPLE_COUNT;
+    for (let k = 0; k <= exitSpan; k++) {
+      const idxB = (exitCutStartIdx + k) % SAMPLE_COUNT;
       if (def.side < 0) leftBarrierCutout[idxB] = 1;
       else rightBarrierCutout[idxB] = 1;
     }
@@ -1368,6 +1394,31 @@ export function buildTrack(
     const scReflectorPts: { x: number; y: number; z: number; yaw: number }[] = [];
     const scPierPts: { x: number; y: number; z: number; yaw: number; colH: number }[] = [];
 
+    // Seamless gore merge apron + retaining side-skirt sealing triangular wedges at shortcut entry & exit
+    const fullSpan = (exitCutEndIdx - entryCutStartIdx + SAMPLE_COUNT) % SAMPLE_COUNT;
+    const sampleMainGoreEdge = (fIdx: number) => {
+      const wrapped = ((fIdx % SAMPLE_COUNT) + SAMPLE_COUNT) % SAMPLE_COUNT;
+      const i0 = Math.floor(wrapped) % SAMPLE_COUNT;
+      const i1 = (i0 + 1) % SAMPLE_COUNT;
+      const frac = wrapped - Math.floor(wrapped);
+      const a = samples[i0];
+      const b = samples[i1];
+      const pt = new THREE.Vector3().lerpVectors(a.point, b.point, frac);
+      const rgt = new THREE.Vector3().lerpVectors(a.right, b.right, frac).normalize();
+      const bank = THREE.MathUtils.lerp(a.bankAngle, b.bankAngle, frac);
+      const lat = def.side * (roadHalfWidth - 0.12);
+      return {
+        x: pt.x + rgt.x * lat,
+        y: pt.y + 0.036 + lat * Math.sin(bank),
+        z: pt.z + rgt.z * lat,
+      };
+    };
+    const goreApronVerts: number[] = [];
+    const goreApronUvs: number[] = [];
+    const goreApronIndices: number[] = [];
+    const goreSkirtVerts: number[] = [];
+    const goreSkirtIndices: number[] = [];
+
     const entryBank = samples[entryCutStartIdx].bankAngle;
     const exitBank = samples[exitCutEndIdx].bankAngle;
     for (let j = 0; j <= scSegs; j++) {
@@ -1383,18 +1434,21 @@ export function buildTrack(
             : 0;
       const scBankSlope = Math.sin(bankFade);
 
-      const lx = pt.x - rgt.x * scHalfW;
-      const lz = pt.z - rgt.z * scHalfW;
-      const rx = pt.x + rgt.x * scHalfW;
-      const rz = pt.z + rgt.z * scHalfW;
-      const deckBlend = j <= 4 || j >= scSegs - 4 ? 0.036 : 0.042;
+      const mouthApron = j <= 5 || j >= scSegs - 5 ? 0.55 : 0;
+      const effHalfWL = scHalfW + (def.side > 0 ? mouthApron : 0);
+      const effHalfWR = scHalfW + (def.side < 0 ? mouthApron : 0);
+      const lx = pt.x - rgt.x * effHalfWL;
+      const lz = pt.z - rgt.z * effHalfWL;
+      const rx = pt.x + rgt.x * effHalfWR;
+      const rz = pt.z + rgt.z * effHalfWR;
+      const deckBlend = j <= 4 || j >= scSegs - 4 ? 0.022 : 0.042;
       const y = pt.y + deckBlend;
-      const yL = y - scHalfW * scBankSlope;
-      const yR = y + scHalfW * scBankSlope;
+      const yL = y - effHalfWL * scBankSlope;
+      const yR = y + effHalfWR * scBankSlope;
       const wallTopL = yL + 1.35;
       const wallTopR = yR + 1.35;
-      const wallBotL = yL - 1.5;
-      const wallBotR = yR - 1.5;
+      const wallBotL = yL - 1.85;
+      const wallBotR = yR - 1.85;
 
       scVerts.push(lx, yL, lz, rx, yR, rz);
       scUvs.push(0, j * 0.45, 1, j * 0.45);
@@ -1499,33 +1553,112 @@ export function buildTrack(
     scGeo.setAttribute('uv', new THREE.Float32BufferAttribute(scUvs, 2));
     scGeo.setIndex(scIndices);
     scGeo.computeVertexNormals();
+    scGeo.computeBoundingSphere();
     const scMesh = new THREE.Mesh(scGeo, shortcutRoadMat);
     scMesh.receiveShadow = true;
     group.add(scMesh);
+
+    const buildGoreWedge = (jStart: number, jEnd: number) => {
+      const baseV = goreApronVerts.length / 3;
+      const baseSkirtV = goreSkirtVerts.length / 3;
+      const count = jEnd - jStart;
+      for (let j = jStart; j <= jEnd; j++) {
+        const pt = scPts[j];
+        const rgt = scRights[j];
+        const bankFade =
+          j < 6
+            ? entryBank * (1 - j / 6)
+            : j > scSegs - 6
+              ? exitBank * ((j - (scSegs - 6)) / 6)
+              : 0;
+        const scBankSlope = Math.sin(bankFade);
+        const mouthApron = j <= 5 || j >= scSegs - 5 ? 0.55 : 0;
+        const innerOff = -def.side * (scHalfW + mouthApron);
+        const sx = pt.x + rgt.x * innerOff;
+        const sz = pt.z + rgt.z * innerOff;
+        const deckBlend = j <= 4 || j >= scSegs - 4 ? 0.02 : 0.04;
+        const sy = pt.y + deckBlend + innerOff * scBankSlope - 0.004;
+        const mainEdge = sampleMainGoreEdge(entryCutStartIdx + (j / scSegs) * fullSpan);
+        goreApronVerts.push(mainEdge.x, mainEdge.y, mainEdge.z, sx, sy, sz);
+        goreApronUvs.push(0, j * 0.45, 1, j * 0.45);
+        goreSkirtVerts.push(
+          mainEdge.x,
+          mainEdge.y,
+          mainEdge.z,
+          mainEdge.x,
+          mainEdge.y - 2.6,
+          mainEdge.z,
+          sx,
+          sy,
+          sz,
+          sx,
+          sy - 2.6,
+          sz,
+        );
+      }
+      for (let k = 0; k < count; k++) {
+        const b = baseV + k * 2;
+        goreApronIndices.push(b, b + 1, b + 2, b + 1, b + 3, b + 2);
+        const sb = baseSkirtV + k * 4;
+        goreSkirtIndices.push(sb, sb + 1, sb + 4, sb + 1, sb + 5, sb + 4);
+        goreSkirtIndices.push(sb + 2, sb + 6, sb + 3, sb + 3, sb + 6, sb + 7);
+      }
+      // Seal exposed cross-section nose at innerStartJ / innerEndJ
+      const endSkirt = baseSkirtV + count * 4;
+      goreSkirtIndices.push(endSkirt, endSkirt + 2, endSkirt + 1, endSkirt + 1, endSkirt + 2, endSkirt + 3);
+    };
+    buildGoreWedge(0, innerStartJ);
+    buildGoreWedge(innerEndJ, scSegs);
+    if (goreApronIndices.length > 0) {
+      const goreApronGeo = track(new THREE.BufferGeometry());
+      goreApronGeo.setAttribute('position', new THREE.Float32BufferAttribute(goreApronVerts, 3));
+      goreApronGeo.setAttribute('uv', new THREE.Float32BufferAttribute(goreApronUvs, 2));
+      goreApronGeo.setIndex(goreApronIndices);
+      goreApronGeo.computeVertexNormals();
+      goreApronGeo.computeBoundingSphere();
+      const goreApronMat = track(shortcutRoadMat.clone());
+      goreApronMat.side = THREE.DoubleSide;
+      const goreApronMesh = new THREE.Mesh(goreApronGeo, goreApronMat);
+      goreApronMesh.receiveShadow = true;
+      group.add(goreApronMesh);
+
+      const goreSkirtGeo = track(new THREE.BufferGeometry());
+      goreSkirtGeo.setAttribute('position', new THREE.Float32BufferAttribute(goreSkirtVerts, 3));
+      goreSkirtGeo.setIndex(goreSkirtIndices);
+      goreSkirtGeo.computeVertexNormals();
+      goreSkirtGeo.computeBoundingSphere();
+      const goreSkirtMat = track(concreteStructMat.clone());
+      goreSkirtMat.side = THREE.DoubleSide;
+      group.add(new THREE.Mesh(goreSkirtGeo, goreSkirtMat));
+    }
 
     const scWallGeo = track(new THREE.BufferGeometry());
     scWallGeo.setAttribute('position', new THREE.Float32BufferAttribute(scWallVerts, 3));
     scWallGeo.setAttribute('uv', new THREE.Float32BufferAttribute(scWallUvs, 2));
     scWallGeo.setIndex(scWallIndices);
     scWallGeo.computeVertexNormals();
+    scWallGeo.computeBoundingSphere();
     group.add(new THREE.Mesh(scWallGeo, shortcutCurbMat));
 
     const scCapGeo = track(new THREE.BufferGeometry());
     scCapGeo.setAttribute('position', new THREE.Float32BufferAttribute(scCapVerts, 3));
     scCapGeo.setIndex(scCapIndices);
     scCapGeo.computeVertexNormals();
+    scCapGeo.computeBoundingSphere();
     group.add(new THREE.Mesh(scCapGeo, concreteStructMat));
 
     const scDeckGeo = track(new THREE.BufferGeometry());
     scDeckGeo.setAttribute('position', new THREE.Float32BufferAttribute(scDeckVerts, 3));
     scDeckGeo.setIndex(scDeckIndices);
     scDeckGeo.computeVertexNormals();
+    scDeckGeo.computeBoundingSphere();
     group.add(new THREE.Mesh(scDeckGeo, concreteStructMat));
 
     const scRailGeo = track(new THREE.BufferGeometry());
     scRailGeo.setAttribute('position', new THREE.Float32BufferAttribute(scRailVerts, 3));
     scRailGeo.setIndex(scRailIndices);
     scRailGeo.computeVertexNormals();
+    scRailGeo.computeBoundingSphere();
     group.add(new THREE.Mesh(scRailGeo, steelMat));
 
     if (scReflectorPts.length > 0) {
@@ -2257,8 +2390,8 @@ export function buildTrack(
       }
     }
 
-    const deckBotL = wallBotL - 0.8;
-    const deckBotR = wallBotR - 0.8;
+    const deckBotL = wallBotL - 2.15;
+    const deckBotR = wallBotR - 2.15;
     const deckOuter = barrierHalfWidth + 2.4;
     const dLX = s.point.x - s.right.x * deckOuter;
     const dLZ = s.point.z - s.right.z * deckOuter;
@@ -2311,14 +2444,15 @@ export function buildTrack(
   roadGeo.setAttribute('uv', new THREE.Float32BufferAttribute(roadUvs, 2));
   roadGeo.setIndex(roadIndices);
   roadGeo.computeVertexNormals();
+  roadGeo.computeBoundingSphere();
   const roadMat = track(
     new THREE.MeshStandardMaterial({
       map: roadTex,
       normalMap: roadNormalTex,
-      normalScale: new THREE.Vector2(isWet ? 0.18 : 0.28, isWet ? 0.18 : 0.28),
+      normalScale: new THREE.Vector2(isWet ? 0.22 : 0.30, isWet ? 0.22 : 0.30),
       roughnessMap: roadRoughTex,
-      roughness: environment === 'overcast_rain' ? 0.46 : environment === 'midnight_neon' ? 0.54 : 0.78,
-      metalness: environment === 'overcast_rain' ? 0.20 : environment === 'midnight_neon' ? 0.16 : 0.12,
+      roughness: environment === 'overcast_rain' ? 0.38 : environment === 'midnight_neon' ? 0.44 : 0.72,
+      metalness: environment === 'overcast_rain' ? 0.26 : environment === 'midnight_neon' ? 0.22 : 0.14,
     }),
   );
   const roadMesh = new THREE.Mesh(roadGeo, roadMat);
@@ -2331,7 +2465,8 @@ export function buildTrack(
   curbGeo.setAttribute('uv', new THREE.Float32BufferAttribute(curbUvs, 2));
   curbGeo.setIndex(curbIndices);
   curbGeo.computeVertexNormals();
-  const curbMat = track(new THREE.MeshStandardMaterial({ map: curbTex, roughness: 0.78, metalness: 0.1 }));
+  curbGeo.computeBoundingSphere();
+  const curbMat = track(new THREE.MeshStandardMaterial({ map: curbTex, roughness: 0.74, metalness: 0.12 }));
   const curbMesh = new THREE.Mesh(curbGeo, curbMat);
   curbMesh.receiveShadow = true;
   group.add(curbMesh);
@@ -2341,11 +2476,12 @@ export function buildTrack(
   barrierGeo.setAttribute('normal', new THREE.Float32BufferAttribute(barrierNormals, 3));
   barrierGeo.setAttribute('uv', new THREE.Float32BufferAttribute(barrierUvs, 2));
   barrierGeo.setIndex(barrierIndices);
+  barrierGeo.computeBoundingSphere();
   const barrierMat = track(
     new THREE.MeshStandardMaterial({
       map: barrierTex,
-      roughness: 0.72,
-      metalness: 0.2,
+      roughness: 0.68,
+      metalness: 0.22,
       side: THREE.DoubleSide,
     }),
   );
@@ -2357,27 +2493,32 @@ export function buildTrack(
   capGeo.setAttribute('position', new THREE.Float32BufferAttribute(capVerts, 3));
   capGeo.setIndex(capIndices);
   capGeo.computeVertexNormals();
+  capGeo.computeBoundingSphere();
   group.add(new THREE.Mesh(capGeo, concreteStructMat));
 
   const deckGeo = track(new THREE.BufferGeometry());
   deckGeo.setAttribute('position', new THREE.Float32BufferAttribute(deckVerts, 3));
   deckGeo.setIndex(deckIndices);
   deckGeo.computeVertexNormals();
+  deckGeo.computeBoundingSphere();
   group.add(new THREE.Mesh(deckGeo, concreteStructMat));
 
   const railGeo = track(new THREE.BufferGeometry());
   railGeo.setAttribute('position', new THREE.Float32BufferAttribute(railVerts, 3));
   railGeo.setIndex(railIndices);
   railGeo.computeVertexNormals();
+  railGeo.computeBoundingSphere();
   const railMat = track(
     new THREE.MeshStandardMaterial({ color: '#94A3B8', metalness: 0.85, roughness: 0.25, side: THREE.DoubleSide }),
   );
   group.add(new THREE.Mesh(railGeo, railMat));
 
-  // Textured Outer Shoulder / Verge Embankment blending barriers smoothly into ground
+  // Textured Outer Shoulder / Verge Embankment + Concrete Retaining Skirts sealing ground transitions
   const vergeVerts: number[] = [];
   const vergeUvs: number[] = [];
   const vergeIndices: number[] = [];
+  const skirtVerts: number[] = [];
+  const skirtIndices: number[] = [];
   for (let i = 0; i <= SAMPLE_COUNT; i++) {
     const sIdx = i % SAMPLE_COUNT;
     const s = samples[sIdx];
@@ -2391,17 +2532,25 @@ export function buildTrack(
     const outLX = s.point.x - s.right.x * outerEdge;
     const outLZ = s.point.z - s.right.z * outerEdge;
     const inLY = s.point.y - 0.16 - barrierHalfWidth * bankSlope;
-    const outLY = Math.min(inLY - 0.55, sampleTerrainInfo(outLX, outLZ).height - 0.35);
+    const groundLY = sampleTerrainInfo(inLX, inLZ).height - 2.2;
+    const outLY = Math.min(inLY - 0.55, sampleTerrainInfo(outLX, outLZ).height - 0.45);
 
     const inRX = s.point.x + s.right.x * innerEdge;
     const inRZ = s.point.z + s.right.z * innerEdge;
     const outRX = s.point.x + s.right.x * outerEdge;
     const outRZ = s.point.z + s.right.z * outerEdge;
     const inRY = s.point.y - 0.16 + barrierHalfWidth * bankSlope;
-    const outRY = Math.min(inRY - 0.55, sampleTerrainInfo(outRX, outRZ).height - 0.35);
+    const groundRY = sampleTerrainInfo(inRX, inRZ).height - 2.2;
+    const outRY = Math.min(inRY - 0.55, sampleTerrainInfo(outRX, outRZ).height - 0.45);
 
     vergeVerts.push(inLX, inLY, inLZ, outLX, outLY, outLZ, inRX, inRY, inRZ, outRX, outRY, outRZ);
     vergeUvs.push(0, vCoord, 1, vCoord, 0, vCoord, 1, vCoord);
+    skirtVerts.push(
+      inLX, inLY, inLZ,
+      inLX, Math.min(inLY - 1.2, groundLY), inLZ,
+      inRX, inRY, inRZ,
+      inRX, Math.min(inRY - 1.2, groundRY), inRZ,
+    );
 
     if (i < SAMPLE_COUNT) {
       const nextIdx = (i + 1) % SAMPLE_COUNT;
@@ -2421,11 +2570,11 @@ export function buildTrack(
       const outRZn = sNext.point.z + sNext.right.z * outerEdge;
       const outLYn = Math.min(
         sNext.point.y - 0.16 - barrierHalfWidth * bankNext - 0.55,
-        sampleTerrainInfo(outLXn, outLZn).height - 0.35,
+        sampleTerrainInfo(outLXn, outLZn).height - 0.45,
       );
       const outRYn = Math.min(
         sNext.point.y - 0.16 + barrierHalfWidth * bankNext - 0.55,
-        sampleTerrainInfo(outRXn, outRZn).height - 0.35,
+        sampleTerrainInfo(outRXn, outRZn).height - 0.45,
       );
 
       // Guard against inner-bend foldback where outer edge reverses behind previous ring
@@ -2486,9 +2635,13 @@ export function buildTrack(
       const vb = i * 4;
       if (vergeClearL && !inWaterL) {
         vergeIndices.push(vb, vb + 4, vb + 1, vb + 1, vb + 4, vb + 5);
+      } else if (!skipL && !isElevatedSpan && !inWaterL) {
+        skirtIndices.push(vb, vb + 4, vb + 1, vb + 1, vb + 4, vb + 5);
       }
       if (vergeClearR && !inWaterR) {
         vergeIndices.push(vb + 2, vb + 3, vb + 6, vb + 3, vb + 7, vb + 6);
+      } else if (!skipR && !isElevatedSpan && !inWaterR) {
+        skirtIndices.push(vb + 2, vb + 3, vb + 6, vb + 3, vb + 7, vb + 6);
       }
     }
   }
@@ -2498,6 +2651,7 @@ export function buildTrack(
     vergeGeo.setAttribute('uv', new THREE.Float32BufferAttribute(vergeUvs, 2));
     vergeGeo.setIndex(vergeIndices);
     vergeGeo.computeVertexNormals();
+    vergeGeo.computeBoundingSphere();
     const vergeMat = track(
       new THREE.MeshStandardMaterial({
         map: groundTex,
@@ -2510,6 +2664,14 @@ export function buildTrack(
     const vergeMesh = new THREE.Mesh(vergeGeo, vergeMat);
     vergeMesh.receiveShadow = true;
     group.add(vergeMesh);
+  }
+  if (skirtIndices.length > 0) {
+    const skirtGeo = track(new THREE.BufferGeometry());
+    skirtGeo.setAttribute('position', new THREE.Float32BufferAttribute(skirtVerts, 3));
+    skirtGeo.setIndex(skirtIndices);
+    skirtGeo.computeVertexNormals();
+    skirtGeo.computeBoundingSphere();
+    group.add(new THREE.Mesh(skirtGeo, concreteStructMat));
   }
 
   // Reflective Highway Cat-Eye Studs (Amber Centerline + Crisp White/Cyan Lane-Edge Studs)
@@ -2645,7 +2807,7 @@ export function buildTrack(
     );
     if (i < SAMPLE_COUNT) {
       const nextIdx = (i + 1) % SAMPLE_COUNT;
-      if (s.point.y > 4.2 || samples[nextIdx].point.y > 4.2) {
+      if (s.point.y > 0.9 || samples[nextIdx].point.y > 0.9) {
         const sb = i * 4;
         soffitIndices.push(
           sb, sb + 1, sb + 4, sb + 1, sb + 5, sb + 4,
@@ -2660,6 +2822,7 @@ export function buildTrack(
     soffitGeo.setAttribute('position', new THREE.Float32BufferAttribute(soffitVerts, 3));
     soffitGeo.setIndex(soffitIndices);
     soffitGeo.computeVertexNormals();
+    soffitGeo.computeBoundingSphere();
     group.add(new THREE.Mesh(soffitGeo, concreteStructMat));
   }
 
@@ -2674,7 +2837,8 @@ export function buildTrack(
   for (let idx = 0; idx < SAMPLE_COUNT; idx++) {
     if (idx % 14 !== 0) continue;
     const s = samples[idx];
-    if (s.point.y <= 3.6) continue;
+    const inBayPierSpan = hasHarborBay && s.point.z < minZ + 380 && s.point.x > minX - 100 && s.point.x < maxX + 180;
+    if (s.point.y <= (inBayPierSpan ? 0.6 : 2.8)) continue;
     if (!isClearOfShortcuts(s.point.x, s.point.z, roadHalfWidth + 6.5)) continue;
 
     let hasLowerUnderneath = false;
@@ -2749,7 +2913,7 @@ export function buildTrack(
         const colZ = s.point.z + s.right.z * lat;
         const groundY = sampleTerrainInfo(colX, colZ).height;
         const colTop = s.point.y - 1.4;
-        const colBot = Math.min(groundY - 2.2, -3.5);
+        const colBot = Math.min(groundY - 2.4, hasHarborBay ? -7.2 : -3.5);
         const colH = Math.max(4, colTop - colBot);
         dummy.position.set(colX, colBot + colH * 0.5, colZ);
         dummy.rotation.set(0, yaw, 0);
@@ -2969,13 +3133,46 @@ export function buildTrack(
     tunGeo.setAttribute('position', new THREE.Float32BufferAttribute(tVerts, 3));
     tunGeo.setIndex(tIndices);
     tunGeo.computeVertexNormals();
+    tunGeo.computeBoundingSphere();
     group.add(new THREE.Mesh(tunGeo, tunnelWallMat));
 
     const hoodGeo = track(new THREE.BufferGeometry());
     hoodGeo.setAttribute('position', new THREE.Float32BufferAttribute(hoodVerts, 3));
     hoodGeo.setIndex(tIndices);
     hoodGeo.computeVertexNormals();
+    hoodGeo.computeBoundingSphere();
     group.add(new THREE.Mesh(hoodGeo, tunnelCeilingMat));
+
+    // Close front & rear portal arch ring gaps between inner vault (tVerts) and outer concrete hood (hoodVerts)
+    const portalCapVerts: number[] = [];
+    const portalCapIndices: number[] = [];
+    [0, tc.len].forEach((ringK, endOrd) => {
+      const rOff = ringK * 18;
+      const baseV = endOrd * 12;
+      for (let p = 0; p < 6; p++) {
+        portalCapVerts.push(tVerts[rOff + p * 3], tVerts[rOff + p * 3 + 1], tVerts[rOff + p * 3 + 2]);
+      }
+      for (let p = 0; p < 6; p++) {
+        portalCapVerts.push(hoodVerts[rOff + p * 3], hoodVerts[rOff + p * 3 + 1], hoodVerts[rOff + p * 3 + 2]);
+      }
+      for (let seg = 0; seg < 5; seg++) {
+        const i0 = baseV + seg;
+        const i1 = baseV + seg + 1;
+        const o0 = baseV + 6 + seg;
+        const o1 = baseV + 6 + seg + 1;
+        if (endOrd === 0) {
+          portalCapIndices.push(i0, o0, i1, i1, o0, o1);
+        } else {
+          portalCapIndices.push(i0, i1, o0, i1, o1, o0);
+        }
+      }
+    });
+    const portalCapGeo = track(new THREE.BufferGeometry());
+    portalCapGeo.setAttribute('position', new THREE.Float32BufferAttribute(portalCapVerts, 3));
+    portalCapGeo.setIndex(portalCapIndices);
+    portalCapGeo.computeVertexNormals();
+    portalCapGeo.computeBoundingSphere();
+    group.add(new THREE.Mesh(portalCapGeo, tunnelPortalMat));
 
     if (bulbMats.length > 0) {
       const bulbsInst = new THREE.InstancedMesh(stripBulbGeo, sodiumLightMat, bulbMats.length);
@@ -4279,65 +4476,151 @@ export function buildTrack(
     });
   });
 
-  // --- 9. Sloped Stunt Jump Ramps (Conflict-Checked) ---
+  // --- 9. Big-Air Concave Mega-Ramps with Neon Pylons & Landing Target Pads ---
   const ramps: TrackRamp[] = [];
   const rampTex = track(createRampChevronTexture(maxAnisotropy));
   const rampMat = track(
     new THREE.MeshStandardMaterial({
       map: rampTex,
-      roughness: 0.48,
+      roughness: 0.42,
       metalness: 0.35,
       emissive: new THREE.Color('#F59E0B'),
-      emissiveIntensity: 0.16,
+      emissiveIntensity: 0.32,
+    }),
+  );
+  const rampNeonMat = track(
+    new THREE.MeshStandardMaterial({
+      color: '#38BDF8',
+      emissive: new THREE.Color('#0EA5E9'),
+      emissiveIntensity: 3.4,
+      roughness: 0.2,
+    }),
+  );
+  const rampAmberGlowMat = track(
+    new THREE.MeshStandardMaterial({
+      color: '#FDE047',
+      emissive: new THREE.Color('#F59E0B'),
+      emissiveIntensity: 3.2,
+      roughness: 0.2,
     }),
   );
 
+  const rampLatOffset = Math.min(4.4, Math.max(2.6, roadHalfWidth * 0.36));
   const rampSpecs = isCanyonOrSummit
     ? [
-        { prog: 0.33, lat: -4.4 },
-        { prog: 0.64, lat: 4.5 },
-        { prog: 0.90, lat: -4.2 },
+        { prog: 0.14, lat: rampLatOffset },
+        { prog: 0.33, lat: -rampLatOffset },
+        { prog: 0.54, lat: rampLatOffset },
+        { prog: 0.74, lat: -rampLatOffset },
+        { prog: 0.90, lat: rampLatOffset * 0.88 },
       ]
     : [
-        { prog: 0.34, lat: -4.5 },
-        { prog: 0.72, lat: 4.5 },
+        { prog: 0.14, lat: rampLatOffset },
+        { prog: 0.34, lat: -rampLatOffset },
+        { prog: 0.58, lat: rampLatOffset },
+        { prog: 0.80, lat: -rampLatOffset },
       ];
 
-  const rampHalfW = 2.6;
-  const rampLen = 13.5;
-  const rampHeight = 1.05;
+  const rampHalfW = Math.min(3.4, Math.max(2.6, roadHalfWidth * 0.28));
+  const rampLen = 14.5;
+  const rampHeight = 1.85;
   const rampShape = new THREE.Shape();
   rampShape.moveTo(0, 0);
   rampShape.lineTo(rampLen, 0);
   rampShape.lineTo(rampLen, rampHeight);
+  for (let seg = 7; seg >= 0; seg--) {
+    const along = (seg / 8) * rampLen;
+    rampShape.lineTo(along, computeRampDeckHeight(along, rampLen, rampHeight));
+  }
   rampShape.closePath();
 
   const rampBaseGeo = track(
     new THREE.ExtrudeGeometry(rampShape, {
       depth: rampHalfW * 2,
       bevelEnabled: true,
-      bevelSize: 0.04,
-      bevelThickness: 0.04,
+      bevelSize: 0.05,
+      bevelThickness: 0.05,
       bevelSegments: 2,
     }),
   );
   rampBaseGeo.translate(0, 0, -rampHalfW);
   rampBaseGeo.rotateY(Math.PI / 2);
 
+  const rampRailStripGeo = track(new THREE.BoxGeometry(0.2, 0.2, rampLen * 0.96));
+  const rampPylonGeo = track(new THREE.BoxGeometry(0.38, 4.8, 0.38));
+  const rampArchBarGeo = track(new THREE.BoxGeometry(rampHalfW * 2 + 0.9, 0.4, 0.44));
+  const landingPadGeo = track(new THREE.PlaneGeometry(rampHalfW * 2.0, 7.5));
+  landingPadGeo.rotateX(-Math.PI / 2);
+  const landingPadMat = track(
+    new THREE.MeshBasicMaterial({
+      map: rampTex,
+      transparent: true,
+      opacity: 0.68,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    }),
+  );
+
   rampSpecs.forEach((spec, idx) => {
-    const sIdx = resolveClearIdx(spec.prog, 10);
+    let sIdx = resolveClearIdx(spec.prog, 14, true);
+    // Nudge ramp placement onto a straighter road span so jumps always land cleanly down the lane
+    for (let step = 0; step <= 18; step++) {
+      const sign = step % 2 === 0 ? 1 : -1;
+      const cand = (sIdx + Math.ceil(step / 2) * sign + SAMPLE_COUNT) % SAMPLE_COUNT;
+      if (isInsideAnyTunnel(cand, 4) || isNearShortcutPortal(cand, 10)) continue;
+      const tanA = samples[cand].tangent;
+      const tanB = samples[(cand + 5) % SAMPLE_COUNT].tangent;
+      if (tanA.x * tanB.x + tanA.z * tanB.z >= 0.94) {
+        sIdx = cand;
+        break;
+      }
+    }
     reserveIdx(sIdx);
     const s = samples[sIdx];
     const bankSlope = Math.sin(s.bankAngle);
     const pos = s.point.clone().addScaledVector(s.right, spec.lat);
     pos.y += 0.05 + spec.lat * bankSlope;
 
+    const yaw = Math.atan2(-s.tangent.x, -s.tangent.z);
+    const rampGroup = new THREE.Group();
+    rampGroup.position.copy(pos);
+    rampGroup.rotation.set(s.slopePitch, yaw, -s.bankAngle, 'YXZ');
+
     const rampMesh = new THREE.Mesh(rampBaseGeo, rampMat);
-    rampMesh.position.copy(pos);
-    rampMesh.rotation.set(s.slopePitch, Math.atan2(-s.tangent.x, -s.tangent.z), -s.bankAngle, 'YXZ');
     rampMesh.castShadow = true;
     rampMesh.receiveShadow = true;
-    group.add(rampMesh);
+    rampGroup.add(rampMesh);
+
+    // Side glowing LED guide rails along the concave kicker slope
+    [-rampHalfW + 0.12, rampHalfW - 0.12].forEach((rx) => {
+      const strip = new THREE.Mesh(rampRailStripGeo, idx % 2 === 0 ? rampNeonMat : rampAmberGlowMat);
+      strip.position.set(rx, rampHeight * 0.46 + 0.14, -rampLen * 0.5);
+      strip.rotation.x = Math.atan2(rampHeight, rampLen);
+      rampGroup.add(strip);
+    });
+
+    // Twin illuminated jump gate pylons & overhead crossbar at the launch lip
+    const pL = new THREE.Mesh(rampPylonGeo, steelMat);
+    pL.position.set(-rampHalfW - 0.22, 2.4, -rampLen + 0.35);
+    const pR = new THREE.Mesh(rampPylonGeo, steelMat);
+    pR.position.set(rampHalfW + 0.22, 2.4, -rampLen + 0.35);
+    const archBar = new THREE.Mesh(rampArchBarGeo, idx % 2 === 0 ? rampNeonMat : rampAmberGlowMat);
+    archBar.position.set(0, 4.7, -rampLen + 0.35);
+    rampGroup.add(pL, pR, archBar);
+
+    group.add(rampGroup);
+
+    // Glowing Landing Zone Pad ~28-36m past launch lip
+    const landIdx = (sIdx + 4) % SAMPLE_COUNT;
+    const ls = samples[landIdx];
+    const landPos = ls.point.clone().addScaledVector(ls.right, spec.lat);
+    landPos.y += 0.07 + spec.lat * Math.sin(ls.bankAngle);
+    const landPad = new THREE.Mesh(landingPadGeo, landingPadMat);
+    landPad.position.copy(landPos);
+    landPad.rotation.set(ls.slopePitch, Math.atan2(-ls.tangent.x, -ls.tangent.z), -ls.bankAngle, 'YXZ');
+    group.add(landPad);
 
     ramps.push({
       id: idx,
@@ -4476,13 +4759,13 @@ export function buildTrack(
     cooldownZones.push({ id: i, position: pos, radius: 10.5 });
   });
 
-  // --- 13. Cobra-Head Highway Streetlights & Corner Chevron Signs ---
-  const lightPoleCount = 96;
+  // --- 13. Cobra-Head Highway Streetlights, Neon Gantry Arches, Delineators & Corner Chevron Signs ---
+  const lightPoleCount = 128;
   const poleGeo = track(new THREE.CylinderGeometry(0.12, 0.2, 8.4, 8));
   poleGeo.translate(0, 4.2, 0);
   const poleMat = track(new THREE.MeshStandardMaterial({ color: '#334155', metalness: 0.78, roughness: 0.3 }));
   const lampGeo = track(new THREE.BoxGeometry(2.3, 0.24, 0.62));
-  const lampGlowScale = environment === 'noon_clear' ? 0.8 : environment === 'midnight_neon' ? 3.8 : 2.8;
+  const lampGlowScale = environment === 'noon_clear' ? 0.9 : environment === 'midnight_neon' ? 4.4 : 3.2;
   const lampMat = track(
     new THREE.MeshStandardMaterial({
       color: '#FEF3C7',
@@ -4491,17 +4774,86 @@ export function buildTrack(
     }),
   );
 
+  // Additional Illuminated Neon Highway Light Arches along sweeping sectors
+  const archSpanW = barrierHalfWidth * 2 + 1.2;
+  const archLegGeo = track(new THREE.BoxGeometry(0.42, 7.6, 0.42));
+  const archTopGeo = track(new THREE.BoxGeometry(archSpanW, 0.56, 0.56));
+  const archNeonGeo = track(new THREE.BoxGeometry(archSpanW * 0.92, 0.22, 0.62));
+  const archNeonMat = track(
+    new THREE.MeshStandardMaterial({
+      color: '#BAE6FD',
+      emissive: new THREE.Color(environment === 'crimson_foundry' ? '#FB7185' : environment === 'canyon_sun' ? '#F59E0B' : '#38BDF8'),
+      emissiveIntensity: environment === 'noon_clear' ? 1.4 : 3.6,
+    }),
+  );
+  [0.08, 0.26, 0.41, 0.62, 0.85, 0.95].forEach((prog) => {
+    const aIdx = resolveClearIdx(prog, 10, true);
+    if (occupiedFeatureIndices.some((oi) => idxDist(aIdx, oi) < 6)) return;
+    const as = samples[aIdx];
+    const ag = new THREE.Group();
+    ag.position.copy(as.point);
+    ag.rotation.y = Math.atan2(-as.tangent.x, -as.tangent.z);
+    const lLeg = new THREE.Mesh(archLegGeo, steelMat);
+    lLeg.position.set(-barrierHalfWidth - 0.35, 3.8, 0);
+    const rLeg = new THREE.Mesh(archLegGeo, steelMat);
+    rLeg.position.set(barrierHalfWidth + 0.35, 3.8, 0);
+    const topBar = new THREE.Mesh(archTopGeo, steelMat);
+    topBar.position.set(0, 7.6, 0);
+    const glowBar = new THREE.Mesh(archNeonGeo, archNeonMat);
+    glowBar.position.set(0, 7.22, 0);
+    ag.add(lLeg, rLeg, topBar, glowBar);
+    group.add(ag);
+  });
+
+  // Reflective Roadside Safety Cones / Delineator Bollards along shoulders
+  const coneGeo = track(new THREE.ConeGeometry(0.24, 0.78, 8));
+  coneGeo.translate(0, 0.39, 0);
+  const coneMat = track(
+    new THREE.MeshStandardMaterial({
+      color: '#F97316',
+      emissive: new THREE.Color('#EA580C'),
+      emissiveIntensity: environment === 'midnight_neon' ? 1.1 : 0.45,
+      roughness: 0.45,
+    }),
+  );
+  const coneSpots: { x: number; y: number; z: number }[] = [];
+  for (let i = 10; i < SAMPLE_COUNT; i += 10) {
+    if (isInsideAnyTunnel(i, 2) || isNearShortcutPortal(i, 6)) continue;
+    const s = samples[i];
+    const side = i % 20 === 0 ? 1 : -1;
+    if ((side < 0 && leftBarrierCutout[i] === 1) || (side > 0 && rightBarrierCutout[i] === 1)) continue;
+    const lat = side * (roadHalfWidth + 0.25);
+    coneSpots.push({
+      x: s.point.x + s.right.x * lat,
+      y: s.point.y + 0.05 + lat * Math.sin(s.bankAngle),
+      z: s.point.z + s.right.z * lat,
+    });
+  }
+  if (coneSpots.length > 0) {
+    const coneInst = new THREE.InstancedMesh(coneGeo, coneMat, coneSpots.length);
+    coneSpots.forEach((cp, ci) => {
+      dummy.position.set(cp.x, cp.y, cp.z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      coneInst.setMatrixAt(ci, dummy.matrix);
+    });
+    coneInst.instanceMatrix.needsUpdate = true;
+    coneInst.computeBoundingSphere();
+    group.add(coneInst);
+  }
+
   const glowTex = track(
     createLightGlowTexture(
-      environment === 'midnight_neon' ? 'rgba(56, 189, 248, 0.72)' : 'rgba(245, 158, 11, 0.65)',
+      environment === 'midnight_neon' ? 'rgba(56, 189, 248, 0.78)' : 'rgba(245, 158, 11, 0.72)',
     ),
   );
-  const haloGeo = track(new THREE.PlaneGeometry(5.5, 5.5));
+  const haloGeo = track(new THREE.PlaneGeometry(5.8, 5.8));
   const haloMat = track(
     new THREE.MeshBasicMaterial({
       map: glowTex,
       transparent: true,
-      opacity: environment === 'noon_clear' ? 0.14 : 0.45,
+      opacity: environment === 'noon_clear' ? 0.16 : 0.54,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -4509,13 +4861,13 @@ export function buildTrack(
   );
 
   const poolTex = track(createRoadLightPoolTexture());
-  const poolGeo = track(new THREE.PlaneGeometry(14.5, 14.5));
+  const poolGeo = track(new THREE.PlaneGeometry(15.5, 15.5));
   poolGeo.rotateX(-Math.PI / 2);
   const poolMat = track(
     new THREE.MeshBasicMaterial({
       map: poolTex,
       transparent: true,
-      opacity: environment === 'noon_clear' ? 0.1 : environment === 'midnight_neon' ? 0.75 : 0.56,
+      opacity: environment === 'noon_clear' ? 0.12 : environment === 'midnight_neon' ? 0.85 : 0.64,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       polygonOffset: true,
@@ -5230,10 +5582,9 @@ export function buildTrack(
   // Urban / Industrial Close-Track Architectural Storefronts & Awning Canopies (Zero clipping margin)
   if (!isCanyonOrSummit && !isForestTrack) {
     const shopSpots: { x: number; y: number; z: number; yaw: number; sx: number; sy: number; sz: number }[] = [];
-    for (let i = 4; i < SAMPLE_COUNT; i += 9) {
+    for (let i = 4; i < SAMPLE_COUNT; i += 8) {
       if (isInsideAnyTunnel(i, 2) || isNearShortcutPortal(i, 5)) continue;
       const s = samples[i];
-      if (s.progress >= 0.24 && s.progress <= 0.72 && trackId !== 'downtown_labyrinth') continue;
       const side = i % 2 === 0 ? 1 : -1;
       const sxOut = barrierHalfWidth + 24.0 + ((i * 5) % 9);
       const px = s.point.x + s.right.x * side * sxOut;
@@ -5344,9 +5695,6 @@ export function buildTrack(
         trackId === 'downtown_labyrinth' ||
         (trackId === 'silverton_pass' && (s.progress < 0.14 || s.progress > 0.86)) ||
         (s.progress < 0.08 || s.progress > 0.93);
-      if (!isDowntown && (trackId === 'hwy99_speedway' || trackId === 'camden_coast' || trackId === 'rockport_loop' || trackId === 'gray_point_bay')) {
-        continue;
-      }
       [-1, 1].forEach((side, sIdx) => {
         const distOut = barrierHalfWidth + 48 + ((i + sIdx * 11) % 30);
         const bx = s.point.x + s.right.x * side * distOut;
@@ -5397,6 +5745,34 @@ export function buildTrack(
       }
     }
   }
+
+  // Shortcut-corridor adjacent structures/rocks so shortcuts feel rich and grounded across all 10 tracks
+  shortcuts.forEach((sc, scOrd) => {
+    for (let j = Math.max(6, Math.floor(sc.points.length * 0.16)); j <= sc.points.length - 7; j += 7) {
+      const sp = sc.points[j];
+      const st = sc.tangents[j];
+      const sRight = new THREE.Vector3().crossVectors(st, up).normalize();
+      const distOut = sc.halfWidth + 24 + ((j * 7 + scOrd * 5) % 14);
+      const bx = sp.x + sRight.x * sc.side * distOut;
+      const bz = sp.z + sRight.z * sc.side * distOut;
+      if (hasHarborBay && bz < minZ + 360 && bx > minX - 80 && bx < maxX + 120) continue;
+      const bSx = isCanyonOrSummit || isForestTrack ? 18 + (j % 3) * 5 : 14 + (j % 3) * 4;
+      const bSz = isCanyonOrSummit || isForestTrack ? 18 + (j % 4) * 5 : 14 + (j % 4) * 4;
+      const bRad = isCanyonOrSummit || isForestTrack ? Math.max(bSx, bSz) * 1.24 : Math.hypot(bSx, bSz) * 0.6;
+      if (tryPlaceStructure(bx, bz, bRad, barrierHalfWidth + bRad + 7.5, 4.5)) {
+        bldgItems.push({
+          x: bx,
+          y: sampleTerrainInfo(bx, bz).height - (isCanyonOrSummit || isForestTrack ? 2.0 : 1.5),
+          z: bz,
+          sx: bSx,
+          sy: isCanyonOrSummit || isForestTrack ? 22 + (j % 5) * 7 : 20 + ((j + scOrd) % 4) * 8,
+          sz: bSz,
+          rot: Math.atan2(-st.x, -st.z),
+          variant: (j + scOrd) % 3,
+        });
+      }
+    }
+  });
 
   if (bldgItems.length > 0) {
     if (isCanyonOrSummit || isForestTrack) {

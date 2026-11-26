@@ -850,7 +850,9 @@ export function stepAiRacerPhysics(
   const nosActive = brain.nosBurstTimer > 0 && brain.nitrous > 2;
   if (nosActive) {
     brain.nitrous = Math.max(0, brain.nitrous - rawFixedDt * 17);
-    brain.actionTag = 'NOS';
+    if (brain.actionTag !== 'PASS' && brain.actionTag !== 'DRAFT') {
+      brain.actionTag = 'NOS';
+    }
   } else {
     brain.nitrous = Math.min(100, brain.nitrous + rawFixedDt * (5.0 + (drafting ? 8.5 : 0)));
   }

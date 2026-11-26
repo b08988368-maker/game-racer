@@ -61,6 +61,29 @@ import {
   VehicleStepInput,
   VehicleStepOutput,
 } from './vehiclePhysics';
+import {
+  computeAirGravityScale,
+  computeEscalatedHeatLevel,
+  computeLandingJounceVel,
+  computeRampDeckHeight,
+  computeRampLaunchVerticalVel,
+  computeRedlineShiftZone,
+  createMenuDynoState,
+  createSlipstreamSlingshotState,
+  createStyleComboState,
+  ENGINE_SOUND_PROFILES,
+  evaluateCountdownLaunch,
+  evaluatePatrolPursuitTrigger,
+  generateTrafficSpawnSlots,
+  isNightdriveOrHypePhonkTrack,
+  isSampleInsideBarrierCutout,
+  POLICE_PATROL_DETECT_RADIUS_M,
+  POLICE_PATROL_SPEED_TRIGGER_KMH,
+  resolveCarEngineProfile,
+  stepMenuDynoRun,
+  stepSlipstreamSlingshot,
+  stepStyleComboState,
+} from './gameplayUpgrades';
 
 function makeBaseStepInput(overrides: Partial<VehicleStepInput> = {}): VehicleStepInput {
   const preset = HANDLING_PRESETS.balanced;
@@ -1290,5 +1313,266 @@ test('Audio safety clamps non-finite values, throttles substep SFX bursts, and c
   assert.ok(GRAPHICS_QUALITY_PRESETS.medium.pixelRatioCap <= 1.25);
 });
 
+test('Soundtrack and track music labels strictly match Nightdrive & Hype Phonk energy', () => {
+  assert.ok(EA_TRAX_PLAYLIST.length >= 10, 'Expected full Phonk/Nightdrive soundtrack');
+  for (const song of EA_TRAX_PLAYLIST) {
+    assert.ok(
+      isNightdriveOrHypePhonkTrack(song),
+      `Track "${song.title}" (${song.genre}, ${song.bpm} BPM) does not match Nightdrive / Hype Phonk profile`,
+    );
+  }
+  const titles = new Set(EA_TRAX_PLAYLIST.map((s) => s.title));
+  for (const trk of TRACKS) {
+    assert.ok(
+      titles.has(trk.musicTrackName),
+      `Track ${trk.id} musicTrackName "${trk.musicTrackName}" must exist in Nightdrive/Phonk EA_TRAX_PLAYLIST`,
+    );
+  }
+});
 
+test('Big-air ramp profile, vertical launch impulse, aero lift, and landing jounce keep jump height bounded inside track', () => {
+  const h0 = computeRampDeckHeight(0, 14.5, 1.85);
+  const hMid = computeRampDeckHeight(7.25, 14.5, 1.85);
+  const hLip = computeRampDeckHeight(14.5, 14.5, 1.85);
+  assert.equal(h0, 0);
+  assert.ok(hMid > 0 && hMid < 0.925, `Concave ramp midpoint (${hMid.toFixed(2)}m) should sit below linear 0.925m slope`);
+  assert.ok(Math.abs(hLip - 1.85) < 0.001, 'Ramp lip must reach full 1.85m height');
 
+  const slowLaunch = computeRampLaunchVerticalVel({ forwardSpeedMs: 25, launchAngleRad: 0.127, nosActive: false });
+  const fastNosLaunch = computeRampLaunchVerticalVel({ forwardSpeedMs: 85, launchAngleRad: 0.127, nosActive: true });
+  assert.ok(slowLaunch >= 5.4 && slowLaunch <= 7.0, `Expected controlled low-speed launch impulse, got ${slowLaunch}`);
+  assert.ok(fastNosLaunch > slowLaunch && fastNosLaunch <= 11.6, `Top-speed launch must stay capped <= 11.6 m/s (got ${fastNosLaunch})`);
+
+  const scaleLow = computeAirGravityScale(20, false);
+  const scaleHighNos = computeAirGravityScale(85, true);
+  assert.ok(scaleHighNos < scaleLow && scaleHighNos >= 0.82 && scaleLow <= 0.96);
+
+  // Verify peak height above 1.85m ramp lip never exceeds ~3.5m total height (stays cleanly inside map!)
+  const effG = AIR_GRAVITY_MPS2 * scaleHighNos;
+  const maxPeakHeight = 1.85 + (fastNosLaunch * fastNosLaunch) / (2 * effG);
+  assert.ok(maxPeakHeight <= 4.0, `Expected controlled peak jump height <= 4.0m, got ${maxPeakHeight.toFixed(2)}m`);
+
+  const jounce = computeLandingJounceVel(-10);
+  assert.ok(jounce > 6 && jounce <= 9.5);
+});
+
+test('Easy police patrol triggers and accelerated Heat 1-5 escalation work accurately', () => {
+  assert.equal(
+    evaluatePatrolPursuitTrigger({
+      speedKmh: 98,
+      distSq: 80 * 80,
+      detectRadiusM: POLICE_PATROL_DETECT_RADIUS_M,
+      speedTriggerKmh: POLICE_PATROL_SPEED_TRIGGER_KMH,
+      bumped: false,
+    }),
+    true,
+    '98 km/h within 80m must trigger patrol pursuit immediately',
+  );
+  assert.equal(
+    evaluatePatrolPursuitTrigger({
+      speedKmh: 60,
+      distSq: 150 * 150,
+      detectRadiusM: POLICE_PATROL_DETECT_RADIUS_M,
+      speedTriggerKmh: POLICE_PATROL_SPEED_TRIGGER_KMH,
+      bumped: false,
+      recklessTrigger: true,
+    }),
+    true,
+    'Reckless infraction within extended patrol awareness radius must trigger pursuit',
+  );
+  assert.equal(
+    evaluatePatrolPursuitTrigger({
+      speedKmh: 65,
+      distSq: 50 * 50,
+      detectRadiusM: POLICE_PATROL_DETECT_RADIUS_M,
+      speedTriggerKmh: POLICE_PATROL_SPEED_TRIGGER_KMH,
+      bumped: false,
+    }),
+    false,
+  );
+
+  assert.equal(computeEscalatedHeatLevel(1200, 5), 1);
+  assert.equal(computeEscalatedHeatLevel(3000, 5), 2);
+  assert.equal(computeEscalatedHeatLevel(8000, 5), 3);
+  assert.equal(computeEscalatedHeatLevel(17000, 5), 4);
+  assert.equal(computeEscalatedHeatLevel(32000, 5), 5);
+  assert.equal(computeEscalatedHeatLevel(32000, 3), 3);
+});
+
+test('Dense civilian traffic generator populates multi-lane fleet while keeping starting grid clear', () => {
+  const slots = generateTrafficSpawnSlots(46, 720, 11.5);
+  assert.equal(slots.length, 46);
+  const distinctLanes = new Set(slots.map((s) => s.laneOffset));
+  const distinctPaints = new Set(slots.map((s) => s.paintHex));
+  assert.ok(distinctLanes.size >= 4, `Expected >= 4 lanes populated, got ${distinctLanes.size}`);
+  assert.ok(distinctPaints.size >= 6, `Expected >= 6 distinct civilian colors, got ${distinctPaints.size}`);
+  for (const slot of slots) {
+    assert.ok(slot.trackIdx >= 12 && slot.trackIdx < 704, `Traffic slot ${slot.trackIdx} encroached on starting grid`);
+    assert.ok(slot.cruiseSpeedMs >= 14 && slot.cruiseSpeedMs <= 27);
+  }
+});
+
+test('Countdown launch grading distinguishes perfect sweet spot, wheelspin over-rev, and idle start', () => {
+  const perfect = evaluateCountdownLaunch(0.78, true, 3);
+  assert.equal(perfect.grade, 'perfect');
+  assert.equal(perfect.nosBonus, 15);
+  assert.equal(perfect.bountyBonus, 450);
+  assert.equal(perfect.wheelspinParticles, false);
+  assert.ok(perfect.speedBoostMs > 20);
+
+  const wheelspin = evaluateCountdownLaunch(0.95, true, 3);
+  assert.equal(wheelspin.grade, 'wheelspin');
+  assert.equal(wheelspin.wheelspinParticles, true);
+  assert.ok(wheelspin.speedBoostMs < perfect.speedBoostMs);
+
+  const standard = evaluateCountdownLaunch(0.52, true, 3);
+  assert.equal(standard.grade, 'standard');
+  assert.equal(standard.nosBonus, 0);
+
+  const noGas = evaluateCountdownLaunch(0.78, false, 3);
+  assert.equal(noGas.speedBoostMs, 0);
+});
+
+test('Slipstream slingshot charges while drafting at speed and triggers overtake surge at 100%', () => {
+  const state = createSlipstreamSlingshotState();
+  let triggeredCount = 0;
+  let lastTriggerNos = 0;
+
+  // Should not charge when too slow
+  const slowStep = stepSlipstreamSlingshot(state, true, 18, 0.5);
+  assert.equal(slowStep.triggered, false);
+  assert.equal(state.charge, 0);
+
+  // Charge while drafting at 38 m/s across 1.2s (> 1/0.88s)
+  for (let i = 0; i < 24; i++) {
+    const res = stepSlipstreamSlingshot(state, true, 38, 0.05);
+    if (res.triggered) {
+      triggeredCount += 1;
+      lastTriggerNos = res.nosBonus;
+    }
+  }
+  assert.equal(triggeredCount, 1);
+  assert.equal(lastTriggerNos, 12);
+  assert.ok(state.boostTimer > 0 && state.cooldownTimer > 0);
+});
+
+test('Style combo chains multipliers up to x5 and expires after timer decay', () => {
+  const combo = createStyleComboState();
+  const s1 = stepStyleComboState(combo, 'near_miss', 0);
+  assert.equal(combo.multiplier, 1);
+  assert.equal(s1.bountyAwarded, 350);
+
+  const s2 = stepStyleComboState(combo, 'drift_exit', 0);
+  assert.equal(combo.multiplier, 2);
+  assert.equal(s2.milestoneMult, 2);
+  assert.equal(s2.bountyAwarded, 600);
+
+  stepStyleComboState(combo, 'mega_air', 0);
+  assert.equal(combo.multiplier, 3);
+
+  stepStyleComboState(combo, 'takedown', 0);
+  stepStyleComboState(combo, 'shortcut', 0);
+  stepStyleComboState(combo, 'roadblock', 0);
+  assert.equal(combo.multiplier, 5);
+
+  const midTick = stepStyleComboState(combo, null, 2.0);
+  assert.equal(midTick.expired, false);
+  assert.equal(combo.multiplier, 5);
+
+  const expireTick = stepStyleComboState(combo, null, 4.0);
+  assert.equal(expireTick.expired, true);
+  assert.equal(combo.multiplier, 1);
+  assert.equal(combo.points, 0);
+});
+
+test('Redline shift strip lights sequentially and cues SHIFT! at high RPM below 6th gear', () => {
+  const low = computeRedlineShiftZone(0.5, 2);
+  assert.equal(low.ledCount, 0);
+  assert.equal(low.shiftNow, false);
+
+  const peak3 = computeRedlineShiftZone(0.92, 3);
+  assert.equal(peak3.ledCount, 6);
+  assert.equal(peak3.inRedline, true);
+  assert.equal(peak3.shiftNow, true);
+
+  const topGear = computeRedlineShiftZone(0.94, 6);
+  assert.equal(topGear.ledCount, 6);
+  assert.equal(topGear.shiftNow, false, 'Top 6th gear should not ask player to shift higher');
+});
+
+test('All 28 cars resolve to 8 distinct engine sound profiles and obey explicit user sound swaps', () => {
+  assert.equal(ENGINE_SOUND_PROFILES.length, 8);
+  const validIds = new Set(ENGINE_SOUND_PROFILES.map((p) => p.id));
+
+  for (const car of CARS) {
+    const resolved = resolveCarEngineProfile(car.id, car.bodyStyle, 'auto');
+    assert.ok(validIds.has(resolved), `Invalid auto profile for car ${car.id}: ${resolved}`);
+  }
+
+  assert.equal(resolveCarEngineProfile('rx7_fd3s', 'coupe', 'auto'), 'rotary_brap');
+  assert.equal(resolveCarEngineProfile('m3_gtr', 'gtr', 'auto'), 'v8_muscle');
+  assert.equal(resolveCarEngineProfile('carrera_gtx', 'exotic', 'auto'), 'v12_hyper');
+  assert.equal(resolveCarEngineProfile('cobalt_gt', 'coupe', 'electric_whine'), 'electric_whine');
+  assert.equal(resolveCarEngineProfile('cobalt_gt', 'coupe', 'v10_screamer'), 'v10_screamer');
+});
+
+test('Safe House menu dyno bench climbs gears 1-6, records 0-100/0-200 sprints, hits NOS +12% peak, and coasts down', () => {
+  const dyno = createMenuDynoState(260, 82, 75);
+  assert.equal(dyno.speedKmh, 0);
+  assert.equal(dyno.gear, 1);
+
+  let upshifts = 0;
+  for (let i = 0; i < 360; i++) {
+    const res = stepMenuDynoRun(dyno, 1 / 60, false, true, false);
+    if (res.upshifted) upshifts += 1;
+  }
+
+  assert.ok(upshifts >= 4, `Expected at least 4 gear upshifts, got ${upshifts}`);
+  assert.equal(dyno.gear, 6);
+  assert.ok(dyno.speedKmh >= 245, `Expected near top target speed, got ${dyno.speedKmh}`);
+  assert.ok(dyno.zeroTo100Sec !== null && dyno.zeroTo100Sec > 0 && dyno.zeroTo100Sec < 5);
+  assert.ok(dyno.zeroTo200Sec !== null && dyno.zeroTo200Sec > dyno.zeroTo100Sec!);
+
+  // Engaging NOS pushes past NA top target up toward +12% (~291 km/h)
+  for (let i = 0; i < 180; i++) {
+    stepMenuDynoRun(dyno, 1 / 60, false, true, true);
+  }
+  assert.ok(dyno.peakSpeedKmh > 275, `Expected NOS peak > 275 km/h, got ${dyno.peakSpeedKmh}`);
+
+  // Releasing throttle should smoothly coast down
+  const beforeCoast = dyno.speedKmh;
+  for (let i = 0; i < 60; i++) {
+    stepMenuDynoRun(dyno, 1 / 60, false, false, false);
+  }
+  assert.ok(dyno.speedKmh < beforeCoast);
+});
+
+test('Barrier cutout containment handles circular wraparound and all 10 tracks keep shortcut mouths open', () => {
+  assert.equal(isSampleInsideBarrierCutout(5, 715, 8, 720), true);
+  assert.equal(isSampleInsideBarrierCutout(717, 715, 8, 720), true);
+  assert.equal(isSampleInsideBarrierCutout(15, 715, 8, 720), false);
+  assert.equal(isSampleInsideBarrierCutout(42, 35, 50, 720), true);
+  assert.equal(isSampleInsideBarrierCutout(51, 35, 50, 720), false);
+
+  for (const track of TRACKS) {
+    const corridor = computeTrackSampledCorridors(track.id);
+    const total = corridor.samples.length;
+    if (track.id === 'hwy99_speedway') {
+      assert.equal(corridor.shortcuts.length, 0);
+      continue;
+    }
+    assert.ok(corridor.shortcuts.length >= 1, `Track ${track.id} missing shortcuts`);
+    for (const sc of corridor.shortcuts) {
+      const entrySpan = (sc.entryCutEndIdx - sc.entryCutStartIdx + total) % total;
+      const exitSpan = (sc.exitCutEndIdx - sc.exitCutStartIdx + total) % total;
+      assert.ok(entrySpan >= 9, `Track ${track.id} shortcut ${sc.def.label} entry cutout too narrow: ${entrySpan}`);
+      assert.ok(exitSpan >= 9, `Track ${track.id} shortcut ${sc.def.label} exit cutout too narrow: ${exitSpan}`);
+      assert.ok(
+        isSampleInsideBarrierCutout(sc.entryCutStartIdx, sc.entryCutStartIdx, sc.entryCutEndIdx, total),
+      );
+      assert.ok(
+        isSampleInsideBarrierCutout(sc.exitCutEndIdx, sc.exitCutStartIdx, sc.exitCutEndIdx, total),
+      );
+    }
+  }
+});

@@ -11,7 +11,6 @@ import {
   collection,
   doc,
   getDoc,
-  getDocFromServer,
   getDocs,
   getFirestore,
   limit,
@@ -27,7 +26,7 @@ import {
   MAX_UPGRADE_LEVEL,
   TOTAL_BLACKLIST_RANKS,
 } from '../data/gameData';
-import { CareerProfile, GarageCarConfig, LeaderboardEntry } from '../types/game';
+import { CareerProfile, EngineSoundProfile, GarageCarConfig, LeaderboardEntry } from '../types/game';
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
@@ -86,17 +85,6 @@ export function handleFirestoreError(
   throw new Error(JSON.stringify(errInfo));
 }
 
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
-    }
-  }
-}
-void testConnection();
-
 export function subscribeAuth(cb: (user: User | null) => void) {
   return onAuthStateChanged(auth, cb);
 }
@@ -130,6 +118,24 @@ function sanitizeMissionIds(raw: unknown): string[] {
     }
   }
   return out;
+}
+
+const VALID_ENGINE_SOUNDS: EngineSoundProfile[] = [
+  'auto',
+  'i4_turbo',
+  'v6_twin_turbo',
+  'v8_muscle',
+  'v10_screamer',
+  'v12_hyper',
+  'rotary_brap',
+  'flat6_gt',
+  'electric_whine',
+];
+
+function sanitizeEngineSound(raw: unknown): EngineSoundProfile {
+  return VALID_ENGINE_SOUNDS.includes(String(raw) as EngineSoundProfile)
+    ? (String(raw) as EngineSoundProfile)
+    : 'auto';
 }
 
 export async function loadCloudCareer(
@@ -191,6 +197,7 @@ export async function loadCloudCareer(
         rimStyle: ['chrome', 'black', 'gold', 'bronze'].includes(String(g.rimStyle))
           ? (String(g.rimStyle) as GarageCarConfig['rimStyle'])
           : 'chrome',
+        engineSound: sanitizeEngineSound(g.engineSound),
       };
     });
   } catch (error) {
@@ -256,6 +263,7 @@ export async function saveCloudCarConfig(uid: string, config: GarageCarConfig): 
     paintHex: /^#[0-9a-fA-F]{6}$/.test(config.paintHex) ? config.paintHex : '#E11D48',
     livery: config.livery,
     rimStyle: config.rimStyle,
+    engineSound: sanitizeEngineSound(config.engineSound),
     updatedAt: serverTimestamp(),
   };
   try {

@@ -14,6 +14,7 @@ import {
   Lock,
   Music,
   Play,
+  RotateCcw,
   Settings,
   Share2,
   Shield,
@@ -24,6 +25,7 @@ import {
   Volume2,
   VolumeX,
   Wrench,
+  X,
   Zap,
 } from 'lucide-react';
 import { EA_TRAX_PLAYLIST } from '../audio/musicEngine';
@@ -47,13 +49,16 @@ import {
   TRACKS,
   UPGRADE_COST,
 } from '../data/gameData';
+import { ENGINE_SOUND_PROFILES, resolveCarEngineProfile } from '../three/gameplayUpgrades';
 import { getTrackMinimapPoints } from '../three/trackBuilder';
 import {
   BlacklistRival,
   CareerProfile,
+  EngineSoundProfile,
   EnvironmentId,
   GarageCameraPreset,
   GarageCarConfig,
+  GarageDynoTelemetry,
   LeaderboardEntry,
   LiveryStyle,
   MissionDefinition,
@@ -84,13 +89,21 @@ interface Props {
   currentTrackLabel?: string;
   garagePreset?: GarageCameraPreset;
   onSelectGaragePreset?: (preset: GarageCameraPreset) => void;
+  dynoTelemetry?: GarageDynoTelemetry | null;
+  onSetGarageDynoMode?: (
+    active: boolean,
+    opts?: { gasHeld?: boolean; autoPull?: boolean; nosHeld?: boolean },
+  ) => void;
+  onTriggerGarageDynoAction?: (action: 'reset' | 'rev') => void;
   onOpenSettings?: () => void;
   onSignIn: () => void;
   onSignOut: () => void;
   onSelectCar: (carId: string) => void;
   onBuyCar: (carId: string) => void;
   onUpgradePart: (part: 'engineLevel' | 'turboLevel' | 'nitrousLevel' | 'tiresLevel') => void;
-  onCustomizeCar: (patch: Partial<Pick<GarageCarConfig, 'paintHex' | 'livery' | 'rimStyle'>>) => void;
+  onCustomizeCar: (
+    patch: Partial<Pick<GarageCarConfig, 'paintHex' | 'livery' | 'rimStyle' | 'engineSound'>>,
+  ) => void;
   onStartRace: (
     mode: RaceMode,
     trackId: TrackId,
@@ -120,6 +133,9 @@ export const MainMenuGarage: React.FC<Props> = ({
   currentTrackLabel,
   garagePreset = 'orbit',
   onSelectGaragePreset,
+  dynoTelemetry = null,
+  onSetGarageDynoMode,
+  onTriggerGarageDynoAction,
   onOpenSettings,
   onSignIn,
   onSignOut,
@@ -131,6 +147,7 @@ export const MainMenuGarage: React.FC<Props> = ({
   onRefreshLeaderboard,
 }) => {
   const [dockExpanded, setDockExpanded] = useState(false);
+  const [dynoOpen, setDynoOpen] = useState(false);
   const [selectedMode, setSelectedMode] = useState<RaceMode>('circuit');
   const [selectedTrack, setSelectedTrack] = useState<TrackId>('rockport_loop');
   const [selectedEnv, setSelectedEnv] = useState<EnvironmentId>('auto');
@@ -228,6 +245,10 @@ export const MainMenuGarage: React.FC<Props> = ({
                 } else {
                   setActiveTab(item.id);
                   setDockExpanded(true);
+                  if (dynoOpen) {
+                    setDynoOpen(false);
+                    onSetGarageDynoMode?.(false);
+                  }
                   if (item.id === 'missions' && nextRival) {
                     setSelectedTier((prev) => (prev < nextRival.rank ? nextRival.rank : prev));
                   }
@@ -419,7 +440,7 @@ export const MainMenuGarage: React.FC<Props> = ({
                   >
                     <span className="truncate">{trackFullLabel}</span>
                     <span className={`text-[9px] font-mono-tabular uppercase shrink-0 ${isSelected ? 'text-black/75' : 'text-slate-400'}`}>
-                      {trk.kind === 'stream' ? 'METAL' : 'SYNTH'}
+                      {trk.kind === 'stream' ? 'PHONK' : 'WAVE'}
                     </span>
                   </button>
                 );
@@ -428,6 +449,268 @@ export const MainMenuGarage: React.FC<Props> = ({
           )}
         </div>
       </div>
+
+      {/* Floating Left Safe House Max Speed / Dyno Bench (Keeps 3D Showcase Car Clear) */}
+      {dynoOpen && !dockExpanded && (() => {
+        const resolvedSoundId = resolveCarEngineProfile(
+          activeSpec.id,
+          activeSpec.bodyStyle,
+          activeConfig?.engineSound,
+        );
+        const resolvedMeta =
+          ENGINE_SOUND_PROFILES.find((p) => p.id === resolvedSoundId) ?? ENGINE_SOUND_PROFILES[0];
+        const liveSpeed = Math.round(dynoTelemetry?.speedKmh ?? 0);
+        const peakSpeed = Math.round(dynoTelemetry?.peakSpeedKmh ?? 0);
+        const targetSpeed = dynoTelemetry?.topTargetKmh ?? stats?.topSpeedKmh ?? activeSpec.baseTopSpeedKmh;
+        const rpmValue = Math.round(900 + (dynoTelemetry?.rpm ?? 0.12) * 7600);
+        const ledCount = dynoTelemetry?.redlineLedCount ?? 0;
+        const gear = dynoTelemetry?.gear ?? 1;
+        const shiftNow = Boolean(dynoTelemetry && dynoTelemetry.redlineLedCount >= 5 && dynoTelemetry.gear < 6);
+        const autoPull = Boolean(dynoTelemetry?.autoPull);
+        const nosHeld = Boolean(dynoTelemetry?.nosActive);
+        const gasHeld = Boolean(dynoTelemetry?.gasHeld);
+        const selectedSoundKey: EngineSoundProfile = activeConfig?.engineSound ?? 'auto';
+
+        return (
+          <div className="flex-1 flex items-center justify-start px-5 py-2 pointer-events-none">
+            <aside
+              aria-label="Safe House Dyno Bench"
+              className="pointer-events-auto w-[340px] sm:w-[360px] nfs-chamfer nfs-carbon-bg border border-white/15 border-l-4 border-l-cyan-400 p-3 shadow-2xl space-y-2.5 nfs-anim-slide-up"
+            >
+              <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-2">
+                <div className="min-w-0">
+                  <div className="text-[10px] font-mono-tabular uppercase tracking-widest text-cyan-300 font-bold">
+                    Safe House Dyno Bench
+                  </div>
+                  <div className="font-display italic uppercase text-sm font-bold text-white truncate">
+                    Max Speed · {activeSpec.name}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Close Dyno Bench"
+                  onClick={() => {
+                    soundEngine.triggerUiClick();
+                    setDynoOpen(false);
+                    onSetGarageDynoMode?.(false);
+                  }}
+                  className="p-1.5 nfs-chamfer-sm bg-[#161B26] hover:bg-white/15 border border-white/15 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Speed, Gear, Peak & 0-100 / 0-200 Readout */}
+              <div className="bg-[#0B0E14] border border-white/12 nfs-chamfer-sm p-2.5 space-y-2">
+                <div className="flex items-end justify-between gap-2">
+                  <div>
+                    <div className="flex items-baseline gap-1.5">
+                      <span
+                        data-testid="dyno-speed-value"
+                        className="text-3xl font-mono-tabular font-black text-white leading-none"
+                      >
+                        {liveSpeed}
+                      </span>
+                      <span className="text-[11px] font-mono-tabular uppercase text-slate-400 font-bold">
+                        km/h
+                      </span>
+                      {nosHeld && (
+                        <span className="px-1.5 py-0.5 bg-cyan-400 text-black text-[9px] font-mono-tabular font-black uppercase">
+                          NOS +12%
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] font-mono-tabular text-slate-400 mt-1">
+                      Peak <strong className="text-amber-300">{peakSpeed} km/h</strong> · Target{' '}
+                      <strong className="text-slate-200">{targetSpeed}</strong>
+                    </div>
+                  </div>
+
+                  <div className="text-right font-mono-tabular">
+                    <div className="text-[10px] uppercase text-slate-400">Gear</div>
+                    <div className="text-xl font-black text-cyan-300 leading-none">
+                      G{gear}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 6-LED RPM Shift Bar */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[10px] font-mono-tabular text-slate-400">
+                    <span>{rpmValue} RPM</span>
+                    <span className={shiftNow ? 'text-red-400 font-bold' : 'text-slate-400'}>
+                      {shiftNow ? 'SHIFT ZONE' : resolvedMeta.shortLabel}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-6 gap-1">
+                    {[0, 1, 2, 3, 4, 5].map((idx) => {
+                      const lit = idx < ledCount;
+                      const color =
+                        idx < 2 ? 'bg-emerald-400' : idx < 4 ? 'bg-amber-400' : 'bg-red-500';
+                      return (
+                        <div
+                          key={idx}
+                          className={`h-1.5 transition-colors ${lit ? color : 'bg-white/12'}`}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-white/10 text-[11px] font-mono-tabular">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">0–100 km/h</span>
+                    <strong className="text-emerald-300">
+                      {dynoTelemetry?.zeroTo100Sec != null
+                        ? `${dynoTelemetry.zeroTo100Sec.toFixed(2)}s`
+                        : '--.--s'}
+                    </strong>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">0–200 km/h</span>
+                    <strong className="text-amber-300">
+                      {dynoTelemetry?.zeroTo200Sec != null
+                        ? `${dynoTelemetry.zeroTo200Sec.toFixed(2)}s`
+                        : '--.--s'}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Throttle / NOS / Rev / Reset Controls */}
+              <div className="grid grid-cols-5 gap-1.5 text-[10px] font-display uppercase tracking-wider font-bold">
+                <button
+                  type="button"
+                  aria-pressed={autoPull}
+                  onClick={() => {
+                    soundEngine.init();
+                    onSetGarageDynoMode?.(true, { autoPull: !autoPull });
+                  }}
+                  className={`col-span-2 py-2 px-2 nfs-chamfer-sm border transition-colors cursor-pointer flex items-center justify-center gap-1 ${
+                    autoPull
+                      ? 'bg-amber-400 text-black border-amber-300'
+                      : 'bg-[#161B26] text-slate-200 border-white/15 hover:border-amber-400/60'
+                  }`}
+                >
+                  <Play className="w-3 h-3 fill-current" />
+                  <span>{autoPull ? 'Pulling' : 'Auto Pull'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onPointerDown={() => {
+                    soundEngine.init();
+                    onSetGarageDynoMode?.(true, { gasHeld: true });
+                  }}
+                  onPointerUp={() => onSetGarageDynoMode?.(true, { gasHeld: false })}
+                  onPointerLeave={() => onSetGarageDynoMode?.(true, { gasHeld: false })}
+                  onPointerCancel={() => onSetGarageDynoMode?.(true, { gasHeld: false })}
+                  className={`py-2 px-1.5 nfs-chamfer-sm border transition-colors cursor-pointer ${
+                    gasHeld
+                      ? 'bg-emerald-400 text-black border-emerald-300'
+                      : 'bg-[#161B26] text-slate-200 border-white/15 hover:border-emerald-400/60'
+                  }`}
+                >
+                  Gas
+                </button>
+
+                <button
+                  type="button"
+                  aria-pressed={nosHeld}
+                  onClick={() => {
+                    soundEngine.init();
+                    onSetGarageDynoMode?.(true, { nosHeld: !nosHeld });
+                  }}
+                  className={`py-2 px-1.5 nfs-chamfer-sm border transition-colors cursor-pointer flex items-center justify-center gap-0.5 ${
+                    nosHeld
+                      ? 'bg-cyan-400 text-black border-cyan-300'
+                      : 'bg-[#161B26] text-cyan-300 border-white/15 hover:border-cyan-400/60'
+                  }`}
+                >
+                  <Zap className="w-3 h-3" />
+                  <span>NOS</span>
+                </button>
+
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    title="Rev Engine Burst"
+                    aria-label="Rev Engine Burst"
+                    onClick={() => {
+                      soundEngine.init();
+                      onTriggerGarageDynoAction?.('rev');
+                    }}
+                    className="flex-1 py-2 px-1 nfs-chamfer-sm bg-[#161B26] hover:bg-amber-400 hover:text-black text-amber-300 border border-white/15 transition-colors cursor-pointer flex items-center justify-center"
+                  >
+                    <Flame className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Reset Dyno Run"
+                    aria-label="Reset Dyno Run"
+                    onClick={() => onTriggerGarageDynoAction?.('reset')}
+                    className="flex-1 py-2 px-1 nfs-chamfer-sm bg-[#161B26] hover:bg-white/20 text-slate-300 hover:text-white border border-white/15 transition-colors cursor-pointer flex items-center justify-center"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Engine Sound Switcher inside Dyno */}
+              <div className="space-y-1.5 pt-1 border-t border-white/10">
+                <div className="flex items-center justify-between text-[10px] font-mono-tabular">
+                  <span className="uppercase text-slate-400 font-bold">Engine Sound</span>
+                  <span className="text-amber-300 font-bold truncate max-w-[190px]">
+                    {selectedSoundKey === 'auto' ? `Stock (${resolvedMeta.shortLabel})` : resolvedMeta.label}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      soundEngine.init();
+                      onCustomizeCar({ engineSound: 'auto' });
+                      soundEngine.triggerGarageRev(
+                        resolveCarEngineProfile(activeSpec.id, activeSpec.bodyStyle, 'auto'),
+                      );
+                    }}
+                    className={`px-1.5 py-1 text-[10px] font-display uppercase font-bold nfs-chamfer-sm border truncate transition-colors cursor-pointer ${
+                      selectedSoundKey === 'auto'
+                        ? 'bg-amber-400 text-black border-amber-300'
+                        : 'bg-[#141822] text-slate-300 border-white/12 hover:border-white/30'
+                    }`}
+                  >
+                    Stock
+                  </button>
+                  {ENGINE_SOUND_PROFILES.map((prof) => {
+                    const active = selectedSoundKey === prof.id;
+                    return (
+                      <button
+                        key={prof.id}
+                        type="button"
+                        onClick={() => {
+                          soundEngine.init();
+                          onCustomizeCar({ engineSound: prof.id });
+                          soundEngine.triggerGarageRev(
+                            resolveCarEngineProfile(activeSpec.id, activeSpec.bodyStyle, prof.id),
+                          );
+                        }}
+                        className={`px-1.5 py-1 text-[10px] font-display uppercase font-bold nfs-chamfer-sm border truncate transition-colors cursor-pointer ${
+                          active
+                            ? 'bg-amber-400 text-black border-amber-300'
+                            : 'bg-[#141822] text-slate-300 border-white/12 hover:border-white/30'
+                        }`}
+                      >
+                        {prof.shortLabel}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </aside>
+          </div>
+        );
+      })()}
 
       {/* Bottom Showcase Launch Bar & Expandable Command Drawer */}
       <div className="flex flex-col items-center pb-3 px-4 gap-2">
@@ -920,7 +1203,13 @@ export const MainMenuGarage: React.FC<Props> = ({
                           type="button"
                           onClick={() => {
                             soundEngine.init();
-                            soundEngine.triggerGarageRev(activeSpec.bodyStyle);
+                            soundEngine.triggerGarageRev(
+                              resolveCarEngineProfile(
+                                activeSpec.id,
+                                activeSpec.bodyStyle,
+                                activeConfig?.engineSound,
+                              ),
+                            );
                           }}
                           className="px-2 py-1 text-[10px] font-display uppercase tracking-wider font-bold bg-white/8 hover:bg-amber-400 hover:text-black text-amber-300 border border-white/15 nfs-chamfer-sm flex items-center gap-1 transition-colors cursor-pointer"
                         >
@@ -1234,103 +1523,189 @@ export const MainMenuGarage: React.FC<Props> = ({
                     </div>
                   )}
 
-                  {garageSection === 'performance' && (
-                    <div className="space-y-2.5">
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono-tabular">
-                        <span className="text-slate-300">
-                          Stage 4+ &amp; Stage 5 upgrades install <strong className="text-amber-300">visible 3D aero, titanium exhausts, twin NOS bottles &amp; underglow</strong>.
-                        </span>
-                        {activeConfig.engineLevel >= MAX_UPGRADE_LEVEL &&
-                          activeConfig.turboLevel >= MAX_UPGRADE_LEVEL &&
-                          activeConfig.nitrousLevel >= MAX_UPGRADE_LEVEL &&
-                          activeConfig.tiresLevel >= MAX_UPGRADE_LEVEL && (
-                            <span className="px-2 py-0.5 nfs-chamfer-sm bg-amber-400 text-black font-bold uppercase tracking-wider">
-                              STAGE 5 APEX · MAX VISUAL KIT ACTIVE
-                            </span>
-                          )}
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        {(
-                          [
-                            {
-                              key: 'engineLevel',
-                              label: 'Engine Block',
-                              sub: 'Top Speed +14 km/h',
-                              visualPerk: 'S4+: Quad Titanium Exhausts',
-                            },
-                            {
-                              key: 'turboLevel',
-                              label: 'Twin Turbo',
-                              sub: 'Acceleration +6',
-                              visualPerk: 'S4+: Exposed Velocity Stacks',
-                            },
-                            {
-                              key: 'nitrousLevel',
-                              label: 'Nitrous Oxide',
-                              sub: 'Capacity & Recharge',
-                              visualPerk: 'S4+: Twin Cyan NOS & Purge',
-                            },
-                            {
-                              key: 'tiresLevel',
-                              label: 'Sport Tires',
-                              sub: 'Corner Grip +6',
-                              visualPerk: 'S4+: GT Wing, Canards & Stance',
-                            },
-                          ] as const
-                        ).map((part) => {
-                          const lvl = activeConfig[part.key];
-                          const maxed = lvl >= MAX_UPGRADE_LEVEL;
-                          const cost = maxed ? 0 : UPGRADE_COST[lvl];
-                          const canAfford = profile.cash >= cost;
+                  {garageSection === 'performance' && (() => {
+                    const selectedSoundKey: EngineSoundProfile = activeConfig.engineSound ?? 'auto';
+                    const resolvedSoundId = resolveCarEngineProfile(
+                      activeSpec.id,
+                      activeSpec.bodyStyle,
+                      selectedSoundKey,
+                    );
+                    const resolvedMeta =
+                      ENGINE_SOUND_PROFILES.find((p) => p.id === resolvedSoundId) ?? ENGINE_SOUND_PROFILES[0];
 
-                          return (
-                            <div
-                              key={part.key}
-                              className="bg-[#11151E] border border-white/12 border-l-4 border-l-amber-400 nfs-chamfer-sm p-3 flex flex-col justify-between"
+                    return (
+                      <div className="max-h-[305px] overflow-y-auto pr-1 space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono-tabular">
+                          <span className="text-slate-300">
+                            Stage 4+ &amp; Stage 5 upgrades install <strong className="text-amber-300">visible 3D aero, titanium exhausts, twin NOS bottles &amp; underglow</strong>.
+                          </span>
+                          {activeConfig.engineLevel >= MAX_UPGRADE_LEVEL &&
+                            activeConfig.turboLevel >= MAX_UPGRADE_LEVEL &&
+                            activeConfig.nitrousLevel >= MAX_UPGRADE_LEVEL &&
+                            activeConfig.tiresLevel >= MAX_UPGRADE_LEVEL && (
+                              <span className="px-2 py-0.5 nfs-chamfer-sm bg-amber-400 text-black font-bold uppercase tracking-wider">
+                                STAGE 5 APEX · MAX VISUAL KIT ACTIVE
+                              </span>
+                            )}
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          {(
+                            [
+                              {
+                                key: 'engineLevel',
+                                label: 'Engine Block',
+                                sub: 'Top Speed +14 km/h',
+                                visualPerk: 'S4+: Quad Titanium Exhausts',
+                              },
+                              {
+                                key: 'turboLevel',
+                                label: 'Twin Turbo',
+                                sub: 'Acceleration +6',
+                                visualPerk: 'S4+: Exposed Velocity Stacks',
+                              },
+                              {
+                                key: 'nitrousLevel',
+                                label: 'Nitrous Oxide',
+                                sub: 'Capacity & Recharge',
+                                visualPerk: 'S4+: Twin Cyan NOS & Purge',
+                              },
+                              {
+                                key: 'tiresLevel',
+                                label: 'Sport Tires',
+                                sub: 'Corner Grip +6',
+                                visualPerk: 'S4+: GT Wing, Canards & Stance',
+                              },
+                            ] as const
+                          ).map((part) => {
+                            const lvl = activeConfig[part.key];
+                            const maxed = lvl >= MAX_UPGRADE_LEVEL;
+                            const cost = maxed ? 0 : UPGRADE_COST[lvl];
+                            const canAfford = profile.cash >= cost;
+
+                            return (
+                              <div
+                                key={part.key}
+                                className="bg-[#11151E] border border-white/12 border-l-4 border-l-amber-400 nfs-chamfer-sm p-2.5 flex flex-col justify-between"
+                              >
+                                <div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-display uppercase tracking-wide text-sm font-bold text-white">
+                                      {part.label}
+                                    </span>
+                                    <Wrench className="w-3.5 h-3.5 text-amber-400" />
+                                  </div>
+                                  <div className="flex items-center justify-between text-xs mt-0.5">
+                                    <span className="text-slate-400">{part.sub}</span>
+                                    <span className="font-mono-tabular text-amber-400 font-bold">
+                                      {maxed ? `${MAX_UPGRADE_LEVEL}/${MAX_UPGRADE_LEVEL}` : `S${lvl}→S${lvl + 1}`}
+                                    </span>
+                                  </div>
+                                  <div
+                                    className={`text-[10px] font-mono-tabular mt-1 ${
+                                      lvl >= 4 ? 'text-cyan-300 font-semibold' : 'text-slate-500'
+                                    }`}
+                                  >
+                                    {lvl >= 4 ? `ACTIVE: ${part.visualPerk}` : part.visualPerk}
+                                  </div>
+                                  <div className="flex gap-1 mt-2">
+                                    {[1, 2, 3, 4, 5].map((pip) => (
+                                      <div
+                                        key={pip}
+                                        className={`h-1.5 flex-1 ${pip <= lvl ? 'bg-amber-400' : 'bg-white/15'}`}
+                                      />
+                                    ))}
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={maxed || !canAfford}
+                                  onClick={() => onUpgradePart(part.key)}
+                                  className="mt-2 w-full py-1.5 px-2.5 text-xs font-display uppercase tracking-wider font-bold nfs-chamfer-sm bg-amber-400 hover:bg-amber-300 disabled:bg-white/10 disabled:text-slate-500 text-black transition-colors cursor-pointer"
+                                >
+                                  {maxed ? 'Max Stage' : `Install · ${formatCurrency(cost)}`}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Engine Sound Swap Grid */}
+                        <div className="bg-[#11151E] border border-white/12 border-l-4 border-l-cyan-400 nfs-chamfer-sm p-2 space-y-1.5">
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                            <div className="flex items-center gap-1.5 font-display uppercase tracking-wider font-bold text-white">
+                              <Volume2 className="w-3.5 h-3.5 text-cyan-300" />
+                              <span>Engine Sound Swap</span>
+                            </div>
+                            <span className="text-[11px] font-mono-tabular text-cyan-300">
+                              Active: <strong className="text-amber-300">{resolvedMeta.label}</strong> · {resolvedMeta.tagline}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                soundEngine.init();
+                                onCustomizeCar({ engineSound: 'auto' });
+                                soundEngine.triggerGarageRev(
+                                  resolveCarEngineProfile(activeSpec.id, activeSpec.bodyStyle, 'auto'),
+                                );
+                              }}
+                              className={`text-left px-2.5 py-1.5 nfs-chamfer-sm border transition-colors cursor-pointer ${
+                                selectedSoundKey === 'auto'
+                                  ? 'bg-amber-400 text-black border-amber-300'
+                                  : 'bg-[#161B26] text-slate-200 border-white/12 hover:border-white/30'
+                              }`}
                             >
-                              <div>
-                                <div className="flex items-center justify-between">
-                                  <span className="font-display uppercase tracking-wide text-sm font-bold text-white">
-                                    {part.label}
-                                  </span>
-                                  <Wrench className="w-3.5 h-3.5 text-amber-400" />
-                                </div>
-                                <div className="flex items-center justify-between text-xs mt-0.5">
-                                  <span className="text-slate-400">{part.sub}</span>
-                                  <span className="font-mono-tabular text-amber-400 font-bold">
-                                    {maxed ? `${MAX_UPGRADE_LEVEL}/${MAX_UPGRADE_LEVEL}` : `S${lvl}→S${lvl + 1}`}
-                                  </span>
-                                </div>
-                                <div
-                                  className={`text-[10px] font-mono-tabular mt-1 ${
-                                    lvl >= 4 ? 'text-cyan-300 font-semibold' : 'text-slate-500'
+                              <div className="text-[11px] font-display uppercase font-bold truncate">
+                                Stock (Match Car)
+                              </div>
+                              <div
+                                className={`text-[9px] font-mono-tabular truncate ${
+                                  selectedSoundKey === 'auto' ? 'text-black/75' : 'text-slate-400'
+                                }`}
+                              >
+                                Matches {activeSpec.name}
+                              </div>
+                            </button>
+
+                            {ENGINE_SOUND_PROFILES.map((prof) => {
+                              const active = selectedSoundKey === prof.id;
+                              return (
+                                <button
+                                  key={prof.id}
+                                  type="button"
+                                  onClick={() => {
+                                    soundEngine.init();
+                                    onCustomizeCar({ engineSound: prof.id });
+                                    soundEngine.triggerGarageRev(
+                                      resolveCarEngineProfile(activeSpec.id, activeSpec.bodyStyle, prof.id),
+                                    );
+                                  }}
+                                  className={`text-left px-2.5 py-1.5 nfs-chamfer-sm border transition-colors cursor-pointer ${
+                                    active
+                                      ? 'bg-amber-400 text-black border-amber-300'
+                                      : 'bg-[#161B26] text-slate-200 border-white/12 hover:border-white/30'
                                   }`}
                                 >
-                                  {lvl >= 4 ? `ACTIVE: ${part.visualPerk}` : part.visualPerk}
-                                </div>
-                                <div className="flex gap-1 mt-2">
-                                  {[1, 2, 3, 4, 5].map((pip) => (
-                                    <div
-                                      key={pip}
-                                      className={`h-1.5 flex-1 ${pip <= lvl ? 'bg-amber-400' : 'bg-white/15'}`}
-                                    />
-                                  ))}
-                                </div>
-                              </div>
-                              <button
-                                type="button"
-                                disabled={maxed || !canAfford}
-                                onClick={() => onUpgradePart(part.key)}
-                                className="mt-3 w-full py-1.5 px-2.5 text-xs font-display uppercase tracking-wider font-bold nfs-chamfer-sm bg-amber-400 hover:bg-amber-300 disabled:bg-white/10 disabled:text-slate-500 text-black transition-colors cursor-pointer"
-                              >
-                                {maxed ? 'Max Stage' : `Install · ${formatCurrency(cost)}`}
-                              </button>
-                            </div>
-                          );
-                        })}
+                                  <div className="text-[11px] font-display uppercase font-bold truncate">
+                                    {prof.shortLabel}
+                                  </div>
+                                  <div
+                                    className={`text-[9px] font-mono-tabular truncate ${
+                                      active ? 'text-black/75' : 'text-slate-400'
+                                    }`}
+                                  >
+                                    {prof.tagline}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {garageSection === 'visuals' && (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1543,7 +1918,37 @@ export const MainMenuGarage: React.FC<Props> = ({
                   type="button"
                   onClick={() => {
                     soundEngine.triggerUiClick();
-                    setDockExpanded((v) => !v);
+                    const next = !dynoOpen;
+                    setDynoOpen(next);
+                    if (next) {
+                      setDockExpanded(false);
+                      soundEngine.init();
+                      onSetGarageDynoMode?.(true, { gasHeld: false, autoPull: false, nosHeld: false });
+                    } else {
+                      onSetGarageDynoMode?.(false);
+                    }
+                  }}
+                  aria-expanded={dynoOpen}
+                  className={`px-3 py-1.5 nfs-chamfer-sm border text-[11px] font-display uppercase tracking-wider font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    dynoOpen && !dockExpanded
+                      ? 'bg-cyan-400 text-black border-cyan-300'
+                      : 'bg-[#161B26] hover:bg-[#1E2535] border-white/18 text-cyan-300 hover:text-cyan-200'
+                  }`}
+                >
+                  <Gauge className="w-3.5 h-3.5" />
+                  <span>Max Speed</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.triggerUiClick();
+                    const next = !dockExpanded;
+                    setDockExpanded(next);
+                    if (next && dynoOpen) {
+                      setDynoOpen(false);
+                      onSetGarageDynoMode?.(false);
+                    }
                   }}
                   aria-expanded={dockExpanded}
                   className="px-3 py-1.5 nfs-chamfer-sm bg-[#161B26] hover:bg-[#1E2535] border border-white/18 text-[11px] font-display uppercase tracking-wider font-bold text-slate-200 hover:text-amber-300 flex items-center gap-1.5 transition-colors cursor-pointer"

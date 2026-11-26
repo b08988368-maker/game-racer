@@ -72,64 +72,64 @@ export const EA_TRAX_PLAYLIST: EaTraxEntry[] = [
     leadPattern: [72, 75, 72, 79, 72, 75, 77, 75, 72, 82, 79, 75, 77, 75, 72, 70],
   },
   {
-    id: 'sy_harbor_pulse',
-    title: 'Harbor Run Overdrive',
-    artist: 'Rockport Underground',
-    genre: 'Dark Electro Breakbeat',
+    id: 'sy_nightdrive_drift',
+    title: 'Midnight Rain Nightdrive',
+    artist: 'Nightdrive Division',
+    genre: 'Atmospheric Wave Phonk',
     kind: 'synth',
     bpm: 144,
-    bassPattern: [38, 38, 0, 45, 38, 0, 41, 43, 38, 38, 0, 50, 45, 43, 41, 0],
-    leadPattern: [62, 0, 65, 69, 74, 0, 72, 69, 62, 0, 77, 74, 72, 69, 67, 65],
+    bassPattern: [38, 38, 0, 50, 38, 0, 41, 43, 38, 38, 0, 50, 45, 43, 41, 36],
+    leadPattern: [74, 0, 77, 74, 81, 0, 79, 77, 74, 0, 84, 81, 79, 77, 74, 72],
   },
   {
-    id: 'sy_apex_voltage',
-    title: 'Apex Voltage (Highway 99)',
-    artist: 'Turbo Pulse',
-    genre: 'Industrial Synthwave',
+    id: 'sy_highway_cowbell',
+    title: 'Highway 99 Cowbell Hype',
+    artist: 'CXNTURY Shift',
+    genre: 'Hype Drift Phonk',
     kind: 'synth',
     bpm: 152,
     bassPattern: [36, 36, 48, 36, 39, 39, 51, 39, 41, 41, 53, 41, 43, 43, 46, 43],
-    leadPattern: [72, 0, 75, 72, 79, 0, 75, 79, 84, 0, 82, 79, 77, 75, 74, 72],
+    leadPattern: [72, 75, 72, 79, 75, 79, 82, 79, 72, 75, 84, 82, 79, 77, 75, 72],
   },
   {
     id: 'sy_canyon_fury',
-    title: 'Canyon Switchback Rush',
-    artist: 'Redline Division',
+    title: 'Canyon Redline Drift Phonk',
+    artist: 'Redline Phonk',
     genre: 'Aggressive Bass Phonk',
     kind: 'synth',
-    bpm: 149,
+    bpm: 150,
     bassPattern: [35, 0, 35, 47, 35, 38, 40, 42, 35, 0, 35, 47, 45, 42, 40, 38],
-    leadPattern: [71, 74, 78, 0, 83, 81, 78, 74, 71, 74, 86, 83, 81, 78, 76, 74],
+    leadPattern: [71, 74, 78, 71, 83, 81, 78, 74, 71, 74, 86, 83, 81, 78, 76, 74],
   },
   {
-    id: 'sy_mist_runner',
-    title: 'Dawn Fog Runner',
-    artist: 'Ghostline Audio',
-    genre: 'Liquid Drum & Bass',
+    id: 'sy_fog_wave_phonk',
+    title: 'Ghostline Wave Phonk',
+    artist: 'Ghostline Phonk',
+    genre: 'Nightdrive Wave Phonk',
     kind: 'synth',
-    bpm: 162,
-    bassPattern: [36, 0, 0, 43, 0, 39, 0, 41, 36, 0, 0, 48, 0, 46, 43, 41],
-    leadPattern: [72, 0, 75, 0, 79, 75, 72, 0, 84, 0, 82, 79, 75, 77, 75, 72],
+    bpm: 146,
+    bassPattern: [36, 0, 48, 36, 39, 0, 51, 39, 43, 0, 55, 43, 41, 39, 36, 34],
+    leadPattern: [72, 0, 75, 79, 84, 0, 82, 79, 75, 0, 84, 82, 79, 77, 75, 72],
   },
   {
     id: 'sy_summit_devil',
-    title: "Devil's Spine Pursuit",
-    artist: 'Apex Syndicate',
-    genre: 'Hard Trap Electro',
+    title: "Devil's Spine Hype Phonk",
+    artist: 'Apex Phonk Syndicate',
+    genre: 'Hard Cowbell Phonk',
     kind: 'synth',
     bpm: 156,
     bassPattern: [33, 33, 45, 33, 36, 36, 48, 36, 38, 38, 50, 38, 40, 43, 45, 40],
-    leadPattern: [69, 0, 72, 76, 81, 0, 79, 76, 69, 0, 84, 81, 79, 76, 74, 72],
+    leadPattern: [69, 72, 69, 76, 81, 0, 79, 76, 69, 72, 84, 81, 79, 76, 74, 72],
   },
 ];
 
 const TRACK_TO_INDEX: Record<TrackId, number> = {
   rockport_loop: 0,       // Nightdrive Phonk Mix
-  rosewood_park: 5,       // Harbor Run Overdrive
-  hwy99_speedway: 6,      // Apex Voltage
+  rosewood_park: 5,       // Midnight Rain Nightdrive
+  hwy99_speedway: 6,      // Highway 99 Cowbell Hype
   camden_coast: 0,        // Nightdrive Phonk Mix
-  rosewood_canyon: 7,     // Canyon Switchback Rush
-  heritage_forest: 8,     // Dawn Fog Runner
+  rosewood_canyon: 7,     // Canyon Redline Drift Phonk
+  heritage_forest: 8,     // Ghostline Wave Phonk
   gray_point_bay: 4,      // Midnight Cowbell Overdrive
   silverton_pass: 2,      // Waveloom Drift II
   downtown_labyrinth: 1,  // Waveloom Drift I
@@ -522,14 +522,14 @@ class MusicEngine {
 
     const isMenuGroove = this.mode === 'menu';
     const entry = EA_TRAX_PLAYLIST[this.currentIdx] ?? EA_TRAX_PLAYLIST[0];
-    const bpm = isMenuGroove ? 112 : entry.bpm + (this.pursuitActive ? this.heatLevel * 2 : 0);
+    const bpm = isMenuGroove ? Math.max(134, entry.bpm - 10) : entry.bpm + (this.pursuitActive ? this.heatLevel * 2.5 : 0);
     const stepDur = 60 / bpm / 4;
     const { startTime, maxSteps } = stepMusicLookaheadWindow(this.synthNextTime, ctx.currentTime, stepDur, 3);
     this.synthNextTime = startTime;
 
     const noiseBuf = this.ensureNoiseBuffer(ctx);
     const bassSeq = entry.bassPattern ?? [36, 0, 36, 39, 36, 0, 41, 43, 36, 0, 36, 46, 43, 41, 39, 0];
-    const leadSeq = entry.leadPattern ?? [60, 0, 63, 0, 67, 0, 65, 63, 60, 0, 70, 0, 67, 63, 65, 0];
+    const leadSeq = entry.leadPattern ?? [72, 0, 75, 72, 79, 0, 77, 75, 72, 0, 82, 79, 77, 75, 72, 70];
 
     let stepsScheduled = 0;
     while (this.synthNextTime < ctx.currentTime + 0.14 && stepsScheduled < maxSteps) {
@@ -538,81 +538,81 @@ class MusicEngine {
       const bar = Math.floor(this.synthStep / 16) % 4;
       const t = this.synthNextTime;
 
-      // 1. Punchy 808 Sub Kick
-      const kickHit = s === 0 || s === 3 || s === 6 || s === 10 || (this.pursuitActive && s === 14);
+      // 1. Punchy Saturated 808 Sub Kick (Phonk bounce pattern)
+      const kickHit = s === 0 || s === 3 || s === 6 || s === 10 || s === 13 || (this.pursuitActive && s === 15);
       if (kickHit) {
         const osc = ctx.createOscillator();
         const g = ctx.createGain();
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(144, t);
-        osc.frequency.exponentialRampToValueAtTime(44, t + 0.095);
-        g.gain.setValueAtTime(isMenuGroove ? 0.26 : 0.34, t);
-        g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+        osc.frequency.setValueAtTime(152, t);
+        osc.frequency.exponentialRampToValueAtTime(40, t + 0.11);
+        g.gain.setValueAtTime(isMenuGroove ? 0.28 : 0.38, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.21);
         osc.connect(g);
         g.connect(bus);
         osc.start(t);
-        osc.stop(t + 0.19);
-        this.cleanupSynthNodes(osc, [osc, g], 260);
+        osc.stop(t + 0.22);
+        this.cleanupSynthNodes(osc, [osc, g], 280);
       }
 
-      // 2. Crisp Snare
-      const snareHit = s === 4 || s === 12 || (!isMenuGroove && bar === 3 && s === 15);
+      // 2. Hard Memphis Snare + Clap Snap
+      const snareHit = s === 4 || s === 12 || (!isMenuGroove && bar === 3 && (s === 14 || s === 15));
       if (snareHit) {
-        const ghost = s === 15 ? 0.52 : 1.0;
+        const ghost = s >= 14 ? 0.56 : 1.0;
         const src = ctx.createBufferSource();
         src.buffer = noiseBuf;
         const bp = ctx.createBiquadFilter();
         bp.type = 'bandpass';
-        bp.frequency.value = 1950;
-        bp.Q.value = 0.75;
+        bp.frequency.value = 2150;
+        bp.Q.value = 0.85;
         const ng = ctx.createGain();
-        ng.gain.setValueAtTime((isMenuGroove ? 0.13 : 0.22) * ghost, t);
-        ng.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+        ng.gain.setValueAtTime((isMenuGroove ? 0.14 : 0.25) * ghost, t);
+        ng.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
         src.connect(bp);
         bp.connect(ng);
         ng.connect(bus);
         src.start(t);
-        src.stop(t + 0.14);
+        src.stop(t + 0.15);
         this.cleanupSynthNodes(src, [src, bp, ng], 220);
 
         const body = ctx.createOscillator();
         body.type = 'triangle';
-        body.frequency.setValueAtTime(220, t);
-        body.frequency.exponentialRampToValueAtTime(118, t + 0.065);
+        body.frequency.setValueAtTime(235, t);
+        body.frequency.exponentialRampToValueAtTime(112, t + 0.07);
         const bg = ctx.createGain();
-        bg.gain.setValueAtTime(0.14 * ghost, t);
-        bg.gain.exponentialRampToValueAtTime(0.001, t + 0.085);
+        bg.gain.setValueAtTime(0.16 * ghost, t);
+        bg.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
         body.connect(bg);
         bg.connect(bus);
         body.start(t);
-        body.stop(t + 0.09);
-        this.cleanupSynthNodes(body, [body, bg], 180);
+        body.stop(t + 0.095);
+        this.cleanupSynthNodes(body, [body, bg], 190);
       }
 
-      // 3. Driving Hi-Hats
-      const isRoll = !isMenuGroove && bar === 3 && (s === 13 || s === 14);
+      // 3. Driving Trap Hi-Hats & Triplet Rolls
+      const isRoll = bar === 3 && (s === 11 || s === 13 || s === 14);
       const hatRepeats = isRoll ? 2 : 1;
       for (let r = 0; r < hatRepeats; r++) {
         const ht = t + r * (stepDur * 0.5);
         const openHat = s === 2 || s === 10;
-        const accent = s % 4 === 2 ? 1.0 : 0.55;
+        const accent = s % 2 === 0 ? 1.0 : 0.62;
         const src = ctx.createBufferSource();
         src.buffer = noiseBuf;
         const hp = ctx.createBiquadFilter();
         hp.type = 'highpass';
-        hp.frequency.value = 6400;
+        hp.frequency.value = 6800;
         const hg = ctx.createGain();
-        hg.gain.setValueAtTime((isMenuGroove ? 0.028 : 0.05) * accent, ht);
-        hg.gain.exponentialRampToValueAtTime(0.001, ht + (openHat ? 0.08 : 0.032));
+        hg.gain.setValueAtTime((isMenuGroove ? 0.034 : 0.058) * accent, ht);
+        hg.gain.exponentialRampToValueAtTime(0.001, ht + (openHat ? 0.085 : 0.032));
         src.connect(hp);
         hp.connect(hg);
         hg.connect(bus);
         src.start(ht);
-        src.stop(ht + 0.09);
-        this.cleanupSynthNodes(src, [src, hp, hg], 180);
+        src.stop(ht + 0.095);
+        this.cleanupSynthNodes(src, [src, hp, hg], 190);
       }
 
-      // 4. Overdriven Distorted Bass + Sub Anchor
+      // 4. Nightdrive Reese + Saturated 808 Bass Glide
       const baseRoot = bassSeq[s];
       if (baseRoot > 0) {
         const transpose = bar === 3 && s >= 8 ? 3 : bar === 2 && s >= 12 ? -2 : 0;
@@ -623,57 +623,61 @@ class MusicEngine {
         const g = ctx.createGain();
         osc.type = 'sawtooth';
         sub.type = 'sine';
-        osc.frequency.setValueAtTime(freq, t);
+        osc.frequency.setValueAtTime(freq * 0.996, t);
+        osc.frequency.linearRampToValueAtTime(freq, t + 0.03);
         sub.frequency.setValueAtTime(freq * 0.5, t);
         lp.type = 'lowpass';
-        const cutoff = isMenuGroove ? 640 : this.pursuitActive ? 1100 + this.heatLevel * 120 : 920;
-        lp.frequency.setValueAtTime(cutoff * 1.5, t);
-        lp.frequency.exponentialRampToValueAtTime(cutoff * 0.45, t + stepDur * 1.3);
-        lp.Q.value = 2.0;
+        const cutoff = isMenuGroove ? 760 : this.pursuitActive ? 1280 + this.heatLevel * 130 : 1040;
+        lp.frequency.setValueAtTime(cutoff * 1.55, t);
+        lp.frequency.exponentialRampToValueAtTime(cutoff * 0.42, t + stepDur * 1.45);
+        lp.Q.value = 2.4;
         g.gain.setValueAtTime(0.002, t);
-        g.gain.linearRampToValueAtTime(isMenuGroove ? 0.12 : 0.19, t + 0.008);
-        g.gain.exponentialRampToValueAtTime(0.001, t + stepDur * 1.4);
+        g.gain.linearRampToValueAtTime(isMenuGroove ? 0.15 : 0.22, t + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.001, t + stepDur * 1.5);
         osc.connect(lp);
         lp.connect(g);
         g.connect(drive);
         sub.connect(g);
         osc.start(t);
         sub.start(t);
-        osc.stop(t + stepDur * 1.48);
-        sub.stop(t + stepDur * 1.48);
-        this.cleanupSynthNodes(osc, [osc, sub, lp, g], Math.ceil(stepDur * 1500) + 120);
+        osc.stop(t + stepDur * 1.55);
+        sub.stop(t + stepDur * 1.55);
+        this.cleanupSynthNodes(osc, [osc, sub, lp, g], Math.ceil(stepDur * 1550) + 120);
       }
 
-      // 5. Saturated Phonk Cowbell / Power-Chord Lead
+      // 5. Authentic Metallic TR-808 Drift Phonk Cowbell Lead (1:1.483 inharmonic square pair)
       const leadMidi = leadSeq[s];
-      if (leadMidi > 0 && (!isMenuGroove || bar % 2 === 1)) {
+      if (leadMidi > 0 && (!isMenuGroove || s % 2 === 0)) {
         const transpose = bar === 3 && s >= 8 ? 3 : 0;
         const f1 = 440 * Math.pow(2, (leadMidi + transpose - 69) / 12);
-        const f2 = f1 * 1.498;
+        const f2 = f1 * 1.483;
         const o1 = ctx.createOscillator();
         const o2 = ctx.createOscillator();
         const bp = ctx.createBiquadFilter();
         const lg = ctx.createGain();
-        o1.type = 'sawtooth';
+        o1.type = 'square';
         o2.type = 'square';
         o1.frequency.setValueAtTime(f1, t);
         o2.frequency.setValueAtTime(f2, t);
         bp.type = 'bandpass';
-        bp.frequency.setValueAtTime(isMenuGroove ? 1050 : 1650 + (this.pursuitActive ? this.heatLevel * 160 : 0), t);
-        bp.Q.value = 1.3;
-        const amp = isMenuGroove ? 0.045 : this.pursuitActive ? 0.085 : 0.07;
+        bp.frequency.setValueAtTime(
+          isMenuGroove ? 1320 : 1850 + (this.pursuitActive ? this.heatLevel * 180 : 0),
+          t,
+        );
+        bp.Q.value = 2.1;
+        const amp = isMenuGroove ? 0.055 : this.pursuitActive ? 0.098 : 0.084;
         lg.gain.setValueAtTime(0.001, t);
-        lg.gain.linearRampToValueAtTime(amp, t + 0.008);
-        lg.gain.exponentialRampToValueAtTime(0.001, t + stepDur * 1.65);
+        lg.gain.linearRampToValueAtTime(amp, t + 0.005);
+        lg.gain.exponentialRampToValueAtTime(0.001, t + stepDur * 1.35);
         o1.connect(bp);
         o2.connect(bp);
         bp.connect(lg);
         lg.connect(drive);
         o1.start(t);
         o2.start(t);
-        o1.stop(t + stepDur * 1.75);
-        o2.stop(t + stepDur * 1.75);
-        this.cleanupSynthNodes(o1, [o1, o2, bp, lg], Math.ceil(stepDur * 1750) + 120);
+        o1.stop(t + stepDur * 1.45);
+        o2.stop(t + stepDur * 1.45);
+        this.cleanupSynthNodes(o1, [o1, o2, bp, lg], Math.ceil(stepDur * 1450) + 120);
       }
 
       this.synthNextTime += stepDur;

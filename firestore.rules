@@ -110,7 +110,7 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'ownerId', 'carId', 'engineLevel', 'turboLevel',
           'nitrousLevel', 'tiresLevel', 'paintHex', 'livery',
-          'rimStyle', 'updatedAt'
+          'rimStyle', 'engineSound', 'updatedAt'
         ])
         && data.ownerId is string
         && data.ownerId == request.auth.uid
@@ -136,6 +136,14 @@ service cloud.firestore {
         && data.livery in ['clean', 'stripes', 'most_wanted', 'boss_carbon']
         && data.rimStyle is string
         && data.rimStyle in ['chrome', 'black', 'gold', 'bronze']
+        && (!('engineSound' in data) || (
+          data.engineSound is string
+          && data.engineSound in [
+            'auto', 'i4_turbo', 'v6_twin_turbo', 'v8_muscle',
+            'v10_screamer', 'v12_hyper', 'rotary_brap', 'flat6_gt',
+            'electric_whine'
+          ]
+        ))
         && data.updatedAt == request.time;
     }
 
@@ -212,7 +220,7 @@ service cloud.firestore {
           && incoming().carId == existing().carId
           && incoming().diff(existing()).affectedKeys().hasOnly([
             'engineLevel', 'turboLevel', 'nitrousLevel', 'tiresLevel',
-            'paintHex', 'livery', 'rimStyle', 'updatedAt'
+            'paintHex', 'livery', 'rimStyle', 'engineSound', 'updatedAt'
           ]);
         allow delete: if false;
       }
